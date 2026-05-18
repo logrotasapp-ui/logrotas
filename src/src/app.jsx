@@ -1,1 +1,1 @@
-export { default } from '../logrotas-v145.jsx'
+export { default } from '../../logrotas-v145.jsx'
