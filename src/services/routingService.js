@@ -1,5 +1,4 @@
 import { API_KEYS, API_ENDPOINTS, ORS_HEADERS, GEMINI_HEADERS } from "./apiConfig.js";
-import { runOcrOnImage } from "./ocrService.js";
 import { fileToImageBlob } from "./fileToImage.js";
 import {
   parseRomaneioTextToDestinations,
@@ -13,16 +12,6 @@ export {
   cleanAddressLine,
   normalizeAddressesForRouting,
 } from "./romaneioRouting.js";
-
-export {
-  cancelOcr,
-  disposeOcrWorker,
-  warmupOcrWorker,
-  isOcrWorkerReady,
-  restartOcrWorker,
-} from "./ocrService.js";
-
-export { ensureTesseractAssets } from "./tesseractBootstrap.js";
 
 /** Valor estimado por eixo por praça de pedágio (R$). */
 export const TOLL_PER_AXLE = 3.2;
@@ -256,47 +245,59 @@ async function fetchMapboxOptimization(coordsList) {
   return fetchJson(url);
 }
 
-// ── Romaneio: OCR (cliente) + Gemini (fallback) ───────────────────────────────
+// ── Romaneio: Gemini Vision (Gemini 1.5 Flash) ─────────────────────────────────
 
-/**
- * OCR no dispositivo (Tesseract) + parser de endereços.
- * @param {Blob|File} fileOrBlob
- * @param {{ onProgress?: (pct: number, status: string) => void, signal?: { aborted?: boolean } }} [options]
- */
-export async function extractRomaneioAddressesFromImageOCR(fileOrBlob, options = {}) {
-  const ocr = await runOcrOnImage(fileOrBlob, options);
-  if (!ocr.ok) {
-    return { ok: false, error: ocr.error, addresses: [], method: "ocr" };
+function geminiErrorMessage(res) {
+  const apiMsg =
+    res?.data?.error?.message ||
+    res?.data?.[0]?.error?.message ||
+    res?.data?.promptFeedback?.blockReason;
+  if (apiMsg) return String(apiMsg);
+  if (res?.status === 401 || res?.status === 403) {
+    return "Chave Gemini inválida. Verifique VITE_GEMINI_KEY no arquivo .env.";
   }
-
-  const addresses = parseRomaneioTextToDestinations(ocr.text);
-  if (addresses.length === 0) {
-    return {
-      ok: false,
-      error:
-        "Texto lido, mas nenhum endereço identificado. Enquadre o romaneio ou tente com mais luz.",
-      addresses: [],
-      method: "ocr",
-      rawTextPreview: ocr.text.slice(0, 400),
-    };
+  if (res?.status === 429) {
+    return "Limite da API Gemini atingido. Aguarde um momento e tente de novo.";
   }
-
-  return { ok: true, addresses, paradas: buildParadasFromAddresses(addresses), method: "ocr" };
+  if (res?.status) return `Erro na leitura do romaneio (código ${res.status}).`;
+  return "Erro ao processar a imagem. Verifique sua conexão e tente novamente.";
 }
 
-async function extractRomaneioAddressesFromImageGemini(file) {
+/**
+ * Envia imagem do romaneio ao Gemini 1.5 Flash e extrai endereços.
+ * @param {Blob|File} file
+ * @param {{ onProgress?: (pct: number, status: string) => void, signal?: { aborted?: boolean } }} [options]
+ */
+export async function extractRomaneioAddressesFromImageGemini(file, options = {}) {
+  const { onProgress, signal } = options;
+  const report = (pct, status) => {
+    if (!signal?.aborted) onProgress?.(pct, status);
+  };
+
   if (!API_KEYS.gemini) {
     return {
       ok: false,
-      error: "Serviço de IA indisponível (chave não configurada).",
+      error:
+        "Leitura automática indisponível. Configure VITE_GEMINI_KEY no arquivo .env.",
       addresses: [],
       method: "gemini",
     };
   }
 
+  if (signal?.aborted) {
+    return { ok: false, error: "Leitura cancelada.", addresses: [], method: "gemini" };
+  }
+
   try {
+    report(20, "Preparando imagem…");
     const imgBase64 = await readFileAsBase64(file);
     const mimeType = file.type || "image/jpeg";
+
+    if (signal?.aborted) {
+      return { ok: false, error: "Leitura cancelada.", addresses: [], method: "gemini" };
+    }
+
+    report(40, "Enviando para leitura inteligente…");
     const url = `${API_ENDPOINTS.geminiGenerate}?key=${API_KEYS.gemini}`;
 
     const res = await fetchJson(url, {
@@ -314,37 +315,59 @@ async function extractRomaneioAddressesFromImageGemini(file) {
       }),
     });
 
+    if (signal?.aborted) {
+      return { ok: false, error: "Leitura cancelada.", addresses: [], method: "gemini" };
+    }
+
     if (res.networkError) {
       return {
         ok: false,
-        error: "Erro ao processar a imagem. Verifique sua conexão e tente novamente.",
+        error: "Sem conexão. Verifique a internet e tente novamente.",
         addresses: [],
         method: "gemini",
       };
     }
 
+    if (!res.ok) {
+      return {
+        ok: false,
+        error: geminiErrorMessage(res),
+        addresses: [],
+        method: "gemini",
+      };
+    }
+
+    report(75, "Interpretando endereços…");
     const texto = res.data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
     const addresses = parseRomaneioTextToDestinations(texto);
 
     if (addresses.length === 0) {
       return {
         ok: false,
-        error: "Nenhum endereço encontrado. Tente uma foto mais nítida.",
+        error:
+          "Nenhum endereço encontrado na foto. Tente mais luz, enquadre o romaneio ou use o input manual.",
         addresses: [],
         method: "gemini",
+        rawTextPreview: texto.slice(0, 400),
       };
     }
 
+    report(100, "Concluído");
     return {
       ok: true,
       addresses,
       paradas: buildParadasFromAddresses(addresses),
       method: "gemini",
     };
-  } catch {
+  } catch (err) {
+    if (signal?.aborted) {
+      return { ok: false, error: "Leitura cancelada.", addresses: [], method: "gemini" };
+    }
     return {
       ok: false,
-      error: "Erro ao processar a imagem. Verifique sua conexão e tente novamente.",
+      error:
+        err?.message ||
+        "Erro ao processar a imagem. Verifique sua conexão e tente novamente.",
       addresses: [],
       method: "gemini",
     };
@@ -352,9 +375,9 @@ async function extractRomaneioAddressesFromImageGemini(file) {
 }
 
 /**
- * Extrai endereços: OCR local primeiro; Gemini só se OCR falhar e houver chave.
+ * Converte foto/PDF em imagem e extrai endereços via Gemini 1.5 Flash.
  * @param {Blob|File} file
- * @param {{ onProgress?: (pct: number, status: string) => void, signal?: { aborted?: boolean }, preferGemini?: boolean }} [options]
+ * @param {{ onProgress?: (pct: number, status: string) => void, signal?: { aborted?: boolean } }} [options]
  */
 async function resolveRomaneioImageFile(file) {
   try {
@@ -371,9 +394,17 @@ async function resolveRomaneioImageFile(file) {
 }
 
 export async function extractRomaneioAddressesFromImage(file, options = {}) {
+  const { onProgress, signal } = options;
+
   if (!file) {
     return { ok: false, error: "Nenhum arquivo selecionado.", addresses: [] };
   }
+
+  if (signal?.aborted) {
+    return { ok: false, error: "Leitura cancelada.", addresses: [] };
+  }
+
+  onProgress?.(8, "Preparando arquivo…");
 
   let imageFile;
   try {
@@ -382,36 +413,10 @@ export async function extractRomaneioAddressesFromImage(file, options = {}) {
     return { ok: false, error: err.message, addresses: [] };
   }
 
-  if (options.preferGemini && API_KEYS.gemini) {
-    const geminiFirst = await extractRomaneioAddressesFromImageGemini(imageFile);
-    if (geminiFirst.ok) return geminiFirst;
-    const ocrFallback = await extractRomaneioAddressesFromImageOCR(
-      imageFile,
-      options
-    );
-    return ocrFallback;
-  }
-
-  const ocrResult = await extractRomaneioAddressesFromImageOCR(imageFile, options);
-  if (ocrResult.ok) return ocrResult;
-
-  if (API_KEYS.gemini) {
-    const geminiResult = await extractRomaneioAddressesFromImageGemini(imageFile);
-    if (geminiResult.ok) {
-      return {
-        ...geminiResult,
-        fallbackFrom: "ocr",
-        ocrError: ocrResult.error,
-      };
-    }
-    return {
-      ok: false,
-      error: geminiResult.error || ocrResult.error,
-      addresses: [],
-    };
-  }
-
-  return ocrResult;
+  return extractRomaneioAddressesFromImageGemini(imageFile, {
+    onProgress,
+    signal,
+  });
 }
 
 /**

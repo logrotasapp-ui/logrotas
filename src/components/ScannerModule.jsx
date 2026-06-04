@@ -1,80 +1,9 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import {
-  extractRomaneioAddressesFromImage,
-  cancelOcr,
-  isOcrWorkerReady,
-  warmupOcrWorker,
-  restartOcrWorker,
-} from "../services/routingService.js";
+import { extractRomaneioAddressesFromImage } from "../services/routingService.js";
 
-/** Tempo máximo total do fluxo scanner → OCR → endereços */
-const SCAN_PROCESS_TIMEOUT_MS = 180000;
-/** Sem mudança de % na UI (ex.: travado em 35% no recognize) */
-const UI_PROGRESS_STALL_MS = 50000;
-/** Fase de reconhecimento Tesseract — tolerância um pouco maior antes de falhar */
-const UI_RECOGNIZE_STALL_MS = 70000;
-const RECOGNIZE_PHASE_PCT = 33;
-const SCAN_FALLBACK_ERROR =
+const SCAN_TIMEOUT_MS = 120000;
+const SCAN_ERROR =
   "Erro de processamento: tente uma foto com mais iluminação ou use o input manual.";
-const STALL_ERROR =
-  "A leitura parou de avançar. Aguarde o leitor ficar pronto e tente outra foto com mais luz, ou use o input manual.";
-
-/**
- * Envolve a extração com timeout total e detecção de progresso parado.
- * @param {() => Promise<unknown>} run
- * @param {(pct: number, status: string) => void} onProgress
- * @param {{ signal: { aborted: boolean }, onAbort: () => void }} ctx
- */
-function runWithProcessingGuards(run, onProgress, ctx) {
-  let lastPct = -1;
-  let lastChangeAt = Date.now();
-  let stallTimer = null;
-  /** @type {(reason?: Error) => void} */
-  let stallReject = () => {};
-
-  const clearStall = () => {
-    if (stallTimer) {
-      clearTimeout(stallTimer);
-      stallTimer = null;
-    }
-  };
-
-  const scheduleStallCheck = (pct) => {
-    clearStall();
-    const limit =
-      pct >= RECOGNIZE_PHASE_PCT ? UI_RECOGNIZE_STALL_MS : UI_PROGRESS_STALL_MS;
-    stallTimer = setTimeout(() => {
-      ctx.onAbort();
-      stallReject(new Error(STALL_ERROR));
-    }, limit);
-  };
-
-  const monitoredProgress = (pct, status) => {
-    const now = Date.now();
-    if (pct !== lastPct || now - lastChangeAt > 8000) {
-      lastPct = pct;
-      lastChangeAt = now;
-      scheduleStallCheck(pct);
-    }
-    onProgress(pct, status);
-  };
-
-  const stallPromise = new Promise((_, reject) => {
-    stallReject = reject;
-  });
-
-  scheduleStallCheck(0);
-
-  const totalTimeout = new Promise((_, reject) => {
-    setTimeout(() => reject(new Error(SCAN_FALLBACK_ERROR)), SCAN_PROCESS_TIMEOUT_MS);
-  });
-
-  return Promise.race([
-    run(monitoredProgress).finally(clearStall),
-    stallPromise.finally(clearStall),
-    totalTimeout,
-  ]);
-}
 
 const C = {
   border: "#E2E8F0",
@@ -93,7 +22,7 @@ const btnBase = {
 };
 
 /**
- * Scanner de romaneio para o motorista: câmera OU arquivos (foto/PDF).
+ * Scanner de romaneio: câmera ou arquivo → Gemini 1.5 Flash (nuvem).
  */
 export default function ScannerModule({
   disabled = false,
@@ -108,8 +37,6 @@ export default function ScannerModule({
   const [progress, setProgress] = useState(0);
   const [statusText, setStatusText] = useState("");
   const [cameraError, setCameraError] = useState("");
-  const [ocrReady, setOcrReady] = useState(isOcrWorkerReady);
-  const [ocrLoading, setOcrLoading] = useState(!isOcrWorkerReady());
 
   const videoRef = useRef(null);
   const streamRef = useRef(null);
@@ -143,7 +70,6 @@ export default function ScannerModule({
 
   const handleFullCancel = useCallback(() => {
     abortRef.current.aborted = true;
-    cancelOcr();
     setBusy(false);
     setProgress(0);
     setStatusText("");
@@ -152,25 +78,8 @@ export default function ScannerModule({
   }, [resetToMenu, setBusy, onCancel]);
 
   useEffect(() => {
-    let cancelled = false;
-    setOcrLoading(true);
-    warmupOcrWorker().then((r) => {
-      if (cancelled) return;
-      setOcrReady(r.ok);
-      if (!r.ok) {
-        setCameraError(
-          r.error ||
-            "Leitor automático indisponível. Use o campo manual para adicionar endereços."
-        );
-      }
-      setOcrLoading(false);
-    });
-    const id = setInterval(() => setOcrReady(isOcrWorkerReady()), 1000);
     return () => {
-      cancelled = true;
-      clearInterval(id);
       abortRef.current.aborted = true;
-      cancelOcr();
       stopCamera();
     };
   }, [stopCamera]);
@@ -179,55 +88,30 @@ export default function ScannerModule({
     async (blob) => {
       if (disabled || processing) return;
 
-      setOcrLoading(true);
-      const warm = await warmupOcrWorker();
-      setOcrLoading(false);
-      if (!warm.ok) {
-        onError?.(warm.error || SCAN_FALLBACK_ERROR);
-        return;
-      }
-      if (!isOcrWorkerReady()) {
-        onError?.(
-          "Leitor OCR ainda não está pronto. Aguarde alguns segundos e tente de novo."
-        );
-        return;
-      }
-
       abortRef.current.aborted = false;
       const signal = abortRef.current;
       setBusy(true);
       setProgress(0);
-      setStatusText("Preparando leitura…");
+      setStatusText("Enviando para leitura…");
       setCameraError("");
 
       let out;
       try {
-        out = await runWithProcessingGuards(
-          (onProgress) =>
-            extractRomaneioAddressesFromImage(blob, {
-              signal,
-              onProgress,
-            }),
-          (pct, status) => {
-            setProgress(pct);
-            setStatusText(status);
-          },
-          {
+        out = await Promise.race([
+          extractRomaneioAddressesFromImage(blob, {
             signal,
-            onAbort: () => {
-              abortRef.current.aborted = true;
-              cancelOcr();
+            onProgress: (pct, status) => {
+              setProgress(pct);
+              setStatusText(status);
             },
-          }
-        );
+          }),
+          new Promise((_, reject) => {
+            setTimeout(() => reject(new Error(SCAN_ERROR)), SCAN_TIMEOUT_MS);
+          }),
+        ]);
       } catch (err) {
         abortRef.current.aborted = true;
-        cancelOcr();
-        const msg = err?.message || SCAN_FALLBACK_ERROR;
-        if (msg.includes("parou de avançar") || msg === STALL_ERROR) {
-          await restartOcrWorker();
-        }
-        onError?.(msg);
+        onError?.(err?.message || SCAN_ERROR);
         resetToMenu();
         return;
       } finally {
@@ -242,7 +126,7 @@ export default function ScannerModule({
       }
 
       if (!out.ok) {
-        onError?.(out.error || SCAN_FALLBACK_ERROR);
+        onError?.(out.error || SCAN_ERROR);
         resetToMenu();
         return;
       }
@@ -259,7 +143,6 @@ export default function ScannerModule({
       resetToMenu();
       onSuccess?.(slice, {
         method: out.method,
-        fallbackFrom: out.fallbackFrom,
         totalFound: out.addresses.length,
       });
     },
@@ -268,7 +151,6 @@ export default function ScannerModule({
 
   const handleCancelProcessing = () => {
     abortRef.current.aborted = true;
-    cancelOcr();
     setBusy(false);
     setProgress(0);
     setStatusText("");
@@ -364,7 +246,6 @@ export default function ScannerModule({
         marginBottom: 12,
       }}
     >
-      {/* Sem capture: no mobile abre galeria/arquivos, não a câmera */}
       <input
         ref={fileInputRef}
         type="file"
@@ -378,7 +259,7 @@ export default function ScannerModule({
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             <button
               type="button"
-              disabled={disabled || ocrLoading}
+              disabled={disabled}
               onClick={startCamera}
               style={{
                 ...btnBase,
@@ -404,7 +285,7 @@ export default function ScannerModule({
 
             <button
               type="button"
-              disabled={disabled || ocrLoading}
+              disabled={disabled}
               onClick={openFilePicker}
               style={{
                 ...btnBase,
@@ -435,17 +316,8 @@ export default function ScannerModule({
               textAlign: "center",
             }}
           >
-            Fotos JPG/PNG ou PDF (1ª página). Boa luz ajuda na leitura.
-            {ocrLoading && (
-              <span style={{ display: "block", marginTop: 4, color: "#B45309" }}>
-                Preparando leitor (primeira vez pode levar alguns segundos)…
-              </span>
-            )}
-            {!ocrLoading && ocrReady && (
-              <span style={{ display: "block", marginTop: 4, color: "#166534" }}>
-                Leitor pronto.
-              </span>
-            )}
+            Fotos JPG/PNG ou PDF (1ª página). Requer internet — leitura via{" "}
+            <b>Gemini 1.5 Flash</b>.
           </p>
 
           <button
@@ -593,7 +465,7 @@ export default function ScannerModule({
               lineHeight: 1.35,
             }}
           >
-            Problemas? Use o campo de endereço manual abaixo.
+            Analisando na nuvem (Gemini). Problemas? Use o campo manual abaixo.
           </p>
         </div>
       )}
