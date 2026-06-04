@@ -14,7 +14,14 @@ export {
   normalizeAddressesForRouting,
 } from "./romaneioRouting.js";
 
-export { cancelOcr, disposeOcrWorker } from "./ocrService.js";
+export {
+  cancelOcr,
+  disposeOcrWorker,
+  warmupOcrWorker,
+  isOcrWorkerReady,
+} from "./ocrService.js";
+
+export { ensureTesseractAssets } from "./tesseractBootstrap.js";
 
 /** Valor estimado por eixo por praça de pedágio (R$). */
 export const TOLL_PER_AXLE = 3.2;

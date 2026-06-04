@@ -2,8 +2,13 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import {
   extractRomaneioAddressesFromImage,
   cancelOcr,
-  disposeOcrWorker,
+  isOcrWorkerReady,
+  warmupOcrWorker,
 } from "../services/routingService.js";
+
+const SCAN_PROCESS_TIMEOUT_MS = 90000;
+const SCAN_FALLBACK_ERROR =
+  "Erro de processamento: tente uma foto com mais iluminação ou use o input manual.";
 
 const C = {
   border: "#E2E8F0",
@@ -37,6 +42,8 @@ export default function ScannerModule({
   const [progress, setProgress] = useState(0);
   const [statusText, setStatusText] = useState("");
   const [cameraError, setCameraError] = useState("");
+  const [ocrReady, setOcrReady] = useState(isOcrWorkerReady);
+  const [ocrLoading, setOcrLoading] = useState(!isOcrWorkerReady());
 
   const videoRef = useRef(null);
   const streamRef = useRef(null);
@@ -79,17 +86,42 @@ export default function ScannerModule({
   }, [resetToMenu, setBusy, onCancel]);
 
   useEffect(() => {
+    let cancelled = false;
+    setOcrLoading(true);
+    warmupOcrWorker().then((r) => {
+      if (cancelled) return;
+      setOcrReady(r.ok);
+      if (!r.ok) {
+        setCameraError(
+          r.error ||
+            "Leitor automático indisponível. Use o campo manual para adicionar endereços."
+        );
+      }
+      setOcrLoading(false);
+    });
+    const id = setInterval(() => setOcrReady(isOcrWorkerReady()), 1000);
     return () => {
+      cancelled = true;
+      clearInterval(id);
       abortRef.current.aborted = true;
       cancelOcr();
       stopCamera();
-      disposeOcrWorker();
     };
   }, [stopCamera]);
 
   const processImageBlob = useCallback(
     async (blob) => {
       if (disabled || processing) return;
+
+      if (!isOcrWorkerReady()) {
+        setOcrLoading(true);
+        const warm = await warmupOcrWorker();
+        setOcrLoading(false);
+        if (!warm.ok) {
+          onError?.(warm.error || SCAN_FALLBACK_ERROR);
+          return;
+        }
+      }
 
       abortRef.current.aborted = false;
       const signal = abortRef.current;
@@ -98,17 +130,34 @@ export default function ScannerModule({
       setStatusText("Preparando leitura…");
       setCameraError("");
 
-      const out = await extractRomaneioAddressesFromImage(blob, {
-        signal,
-        onProgress: (pct, status) => {
-          setProgress(pct);
-          setStatusText(status);
-        },
-      });
-
-      setBusy(false);
-      setProgress(0);
-      setStatusText("");
+      let out;
+      try {
+        out = await Promise.race([
+          extractRomaneioAddressesFromImage(blob, {
+            signal,
+            onProgress: (pct, status) => {
+              setProgress(pct);
+              setStatusText(status);
+            },
+          }),
+          new Promise((_, reject) => {
+            setTimeout(
+              () => reject(new Error(SCAN_FALLBACK_ERROR)),
+              SCAN_PROCESS_TIMEOUT_MS
+            );
+          }),
+        ]);
+      } catch (err) {
+        abortRef.current.aborted = true;
+        cancelOcr();
+        onError?.(err?.message || SCAN_FALLBACK_ERROR);
+        resetToMenu();
+        return;
+      } finally {
+        setBusy(false);
+        setProgress(0);
+        setStatusText("");
+      }
 
       if (signal.aborted) {
         resetToMenu();
@@ -116,7 +165,7 @@ export default function ScannerModule({
       }
 
       if (!out.ok) {
-        onError?.(out.error);
+        onError?.(out.error || SCAN_FALLBACK_ERROR);
         resetToMenu();
         return;
       }
@@ -252,7 +301,7 @@ export default function ScannerModule({
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             <button
               type="button"
-              disabled={disabled}
+              disabled={disabled || ocrLoading}
               onClick={startCamera}
               style={{
                 ...btnBase,
@@ -278,7 +327,7 @@ export default function ScannerModule({
 
             <button
               type="button"
-              disabled={disabled}
+              disabled={disabled || ocrLoading}
               onClick={openFilePicker}
               style={{
                 ...btnBase,
@@ -309,8 +358,17 @@ export default function ScannerModule({
               textAlign: "center",
             }}
           >
-            Fotos JPG/PNG ou documento PDF (1ª página). Boa luz e texto legível
-            ajudam na leitura.
+            Fotos JPG/PNG ou PDF (1ª página). Boa luz ajuda na leitura.
+            {ocrLoading && (
+              <span style={{ display: "block", marginTop: 4, color: "#B45309" }}>
+                Preparando leitor (primeira vez pode levar alguns segundos)…
+              </span>
+            )}
+            {!ocrLoading && ocrReady && (
+              <span style={{ display: "block", marginTop: 4, color: "#166534" }}>
+                Leitor pronto.
+              </span>
+            )}
           </p>
 
           <button
@@ -458,8 +516,7 @@ export default function ScannerModule({
               lineHeight: 1.35,
             }}
           >
-            Na primeira vez pode demorar um pouco (download do idioma). A tela
-            continua responsiva.
+            Problemas? Use o campo de endereço manual abaixo.
           </p>
         </div>
       )}

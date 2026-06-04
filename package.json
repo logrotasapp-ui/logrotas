@@ -2,6 +2,9 @@
   "name": "logrotas",
   "version": "1.0.0",
   "scripts": {
+    "setup:tesseract": "node scripts/setup-tesseract-public.mjs",
+    "predev": "npm run setup:tesseract",
+    "prebuild": "npm run setup:tesseract",
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
@@ -15,7 +18,9 @@
     "tesseract.js": "^7.0.0"
   },
   "devDependencies": {
+    "@tesseract.js-data/por": "1.0.0",
     "@vitejs/plugin-react": "^4.0.0",
+    "tesseract.js-core": "7.0.0",
     "vite": "^4.4.0"
   }
 }
