@@ -1,5 +1,6 @@
 import { API_KEYS, API_ENDPOINTS, ORS_HEADERS, GEMINI_HEADERS } from "./apiConfig.js";
 import { runOcrOnImage } from "./ocrService.js";
+import { fileToImageBlob } from "./fileToImage.js";
 import {
   parseRomaneioTextToDestinations,
   buildParadasFromAddresses,
@@ -233,23 +234,47 @@ async function extractRomaneioAddressesFromImageGemini(file) {
  * @param {Blob|File} file
  * @param {{ onProgress?: (pct: number, status: string) => void, signal?: { aborted?: boolean }, preferGemini?: boolean }} [options]
  */
+async function resolveRomaneioImageFile(file) {
+  try {
+    const blob = await fileToImageBlob(file);
+    if (blob instanceof File) return blob;
+    const name = (file.name || "romaneio").replace(/\.pdf$/i, ".jpg");
+    return new File([blob], name, { type: blob.type || "image/jpeg" });
+  } catch (err) {
+    throw new Error(
+      err?.message ||
+        "Não foi possível abrir o arquivo. Use foto (JPG/PNG) ou PDF com a 1ª página legível."
+    );
+  }
+}
+
 export async function extractRomaneioAddressesFromImage(file, options = {}) {
   if (!file) {
     return { ok: false, error: "Nenhum arquivo selecionado.", addresses: [] };
   }
 
+  let imageFile;
+  try {
+    imageFile = await resolveRomaneioImageFile(file);
+  } catch (err) {
+    return { ok: false, error: err.message, addresses: [] };
+  }
+
   if (options.preferGemini && API_KEYS.gemini) {
-    const geminiFirst = await extractRomaneioAddressesFromImageGemini(file);
+    const geminiFirst = await extractRomaneioAddressesFromImageGemini(imageFile);
     if (geminiFirst.ok) return geminiFirst;
-    const ocrFallback = await extractRomaneioAddressesFromImageOCR(file, options);
+    const ocrFallback = await extractRomaneioAddressesFromImageOCR(
+      imageFile,
+      options
+    );
     return ocrFallback;
   }
 
-  const ocrResult = await extractRomaneioAddressesFromImageOCR(file, options);
+  const ocrResult = await extractRomaneioAddressesFromImageOCR(imageFile, options);
   if (ocrResult.ok) return ocrResult;
 
   if (API_KEYS.gemini) {
-    const geminiResult = await extractRomaneioAddressesFromImageGemini(file);
+    const geminiResult = await extractRomaneioAddressesFromImageGemini(imageFile);
     if (geminiResult.ok) {
       return {
         ...geminiResult,

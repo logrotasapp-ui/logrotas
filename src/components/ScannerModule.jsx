@@ -8,21 +8,21 @@ import {
 const C = {
   border: "#E2E8F0",
   muted: "#64748B",
-  text: "#0F172A",
   green: "#22C55E",
   red: "#DC2626",
   navy: "#1E3A8A",
 };
 
+const FILE_ACCEPT = "image/*,application/pdf,.pdf";
+
+const btnBase = {
+  fontFamily: "'Sora',sans-serif",
+  cursor: "pointer",
+  borderRadius: 12,
+};
+
 /**
- * Scanner de romaneio: câmera ou galeria → OCR (routingService) → endereços.
- *
- * @param {object} props
- * @param {boolean} [props.disabled]
- * @param {number} [props.maxToAdd] Máximo de endereços a retornar nesta captura
- * @param {(addresses: string[], meta: object) => void} props.onSuccess
- * @param {(message: string) => void} [props.onError]
- * @param {() => void} [props.onProcessingChange]
+ * Scanner de romaneio para o motorista: câmera OU arquivos (foto/PDF).
  */
 export default function ScannerModule({
   disabled = false,
@@ -30,8 +30,9 @@ export default function ScannerModule({
   onSuccess,
   onError,
   onProcessingChange,
+  onCancel,
 }) {
-  const [cameraOpen, setCameraOpen] = useState(false);
+  const [step, setStep] = useState("menu");
   const [processing, setProcessing] = useState(false);
   const [progress, setProgress] = useState(0);
   const [statusText, setStatusText] = useState("");
@@ -46,6 +47,7 @@ export default function ScannerModule({
     (busy) => {
       setProcessing(busy);
       onProcessingChange?.(busy);
+      if (busy) setStep("processing");
     },
     [onProcessingChange]
   );
@@ -58,8 +60,23 @@ export default function ScannerModule({
     if (videoRef.current) {
       videoRef.current.srcObject = null;
     }
-    setCameraOpen(false);
   }, []);
+
+  const resetToMenu = useCallback(() => {
+    stopCamera();
+    setStep("menu");
+    setCameraError("");
+  }, [stopCamera]);
+
+  const handleFullCancel = useCallback(() => {
+    abortRef.current.aborted = true;
+    cancelOcr();
+    setBusy(false);
+    setProgress(0);
+    setStatusText("");
+    resetToMenu();
+    onCancel?.();
+  }, [resetToMenu, setBusy, onCancel]);
 
   useEffect(() => {
     return () => {
@@ -93,10 +110,14 @@ export default function ScannerModule({
       setProgress(0);
       setStatusText("");
 
-      if (signal.aborted) return;
+      if (signal.aborted) {
+        resetToMenu();
+        return;
+      }
 
       if (!out.ok) {
         onError?.(out.error);
+        resetToMenu();
         return;
       }
 
@@ -105,25 +126,33 @@ export default function ScannerModule({
 
       if (slice.length === 0) {
         onError?.("Nenhum endereço disponível (limite de paradas atingido).");
+        resetToMenu();
         return;
       }
 
+      resetToMenu();
       onSuccess?.(slice, {
         method: out.method,
         fallbackFrom: out.fallbackFrom,
         totalFound: out.addresses.length,
       });
     },
-    [disabled, processing, maxToAdd, onSuccess, onError, setBusy]
+    [disabled, processing, maxToAdd, onSuccess, onError, setBusy, resetToMenu]
   );
 
-  const handleCancel = () => {
+  const handleCancelProcessing = () => {
     abortRef.current.aborted = true;
     cancelOcr();
     setBusy(false);
     setProgress(0);
     setStatusText("");
-    stopCamera();
+    resetToMenu();
+  };
+
+  const openFilePicker = () => {
+    if (disabled || processing) return;
+    setCameraError("");
+    fileInputRef.current?.click();
   };
 
   const startCamera = async () => {
@@ -131,8 +160,9 @@ export default function ScannerModule({
     setCameraError("");
 
     if (!navigator.mediaDevices?.getUserMedia) {
-      setCameraError("Câmera não disponível neste dispositivo. Use a galeria.");
-      fileInputRef.current?.click();
+      setCameraError(
+        "Câmera indisponível neste aparelho. Toque em «Arquivos e galeria»."
+      );
       return;
     }
 
@@ -146,7 +176,7 @@ export default function ScannerModule({
         audio: false,
       });
       streamRef.current = stream;
-      setCameraOpen(true);
+      setStep("camera");
       requestAnimationFrame(() => {
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
@@ -154,7 +184,9 @@ export default function ScannerModule({
         }
       });
     } catch {
-      setCameraError("Permissão de câmera negada. Use a galeria.");
+      setCameraError(
+        "Permissão da câmera negada. Use «Arquivos e galeria» para enviar uma foto ou PDF."
+      );
     }
   };
 
@@ -165,8 +197,7 @@ export default function ScannerModule({
     const canvas = document.createElement("canvas");
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
-    const ctx = canvas.getContext("2d");
-    ctx.drawImage(video, 0, 0);
+    canvas.getContext("2d").drawImage(video, 0, 0);
 
     stopCamera();
 
@@ -184,72 +215,115 @@ export default function ScannerModule({
   const handleFileChange = (e) => {
     const file = e.target.files?.[0];
     e.target.value = "";
-    if (file) processImageBlob(file);
+    if (!file) return;
+    processImageBlob(file);
+  };
+
+  const cancelBtnStyle = {
+    ...btnBase,
+    padding: "12px 16px",
+    background: "#fff",
+    border: `1.5px solid ${C.border}`,
+    color: C.muted,
+    fontWeight: 600,
+    fontSize: 13,
   };
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 12 }}>
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        gap: 10,
+        marginBottom: 12,
+      }}
+    >
+      {/* Sem capture: no mobile abre galeria/arquivos, não a câmera */}
       <input
         ref={fileInputRef}
         type="file"
-        accept="image/*"
-        capture="environment"
+        accept={FILE_ACCEPT}
         style={{ display: "none" }}
         onChange={handleFileChange}
       />
 
-      {!cameraOpen && !processing && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          <button
-            type="button"
-            disabled={disabled}
-            onClick={startCamera}
+      {step === "menu" && !processing && (
+        <>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <button
+              type="button"
+              disabled={disabled}
+              onClick={startCamera}
+              style={{
+                ...btnBase,
+                width: "100%",
+                padding: "14px",
+                background: disabled
+                  ? "#94A3B8"
+                  : "linear-gradient(135deg,#22C55E,#16A34A)",
+                border: "none",
+                color: "#fff",
+                fontWeight: 800,
+                fontSize: 15,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 9,
+                boxShadow: disabled ? "none" : "0 4px 20px #22C55E44",
+              }}
+            >
+              <span style={{ fontSize: 18 }}>📷</span>
+              Tirar foto do romaneio
+            </button>
+
+            <button
+              type="button"
+              disabled={disabled}
+              onClick={openFilePicker}
+              style={{
+                ...btnBase,
+                width: "100%",
+                padding: "14px",
+                background: disabled ? C.border : "#fff",
+                border: `2px solid ${disabled ? C.border : C.navy}`,
+                color: disabled ? C.muted : C.navy,
+                fontWeight: 800,
+                fontSize: 14,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 8,
+              }}
+            >
+              <span style={{ fontSize: 18 }}>📁</span>
+              Arquivos e galeria (foto ou PDF)
+            </button>
+          </div>
+
+          <p
             style={{
-              width: "100%",
-              padding: "14px",
-              background: disabled
-                ? "#94A3B8"
-                : "linear-gradient(135deg,#22C55E,#16A34A)",
-              border: "none",
-              borderRadius: 14,
-              cursor: disabled ? "not-allowed" : "pointer",
-              color: "#fff",
-              fontWeight: 800,
-              fontSize: 15,
-              fontFamily: "'Sora',sans-serif",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: 9,
-              boxShadow: disabled ? "none" : "0 4px 20px #22C55E44",
+              color: C.muted,
+              fontSize: 11,
+              lineHeight: 1.45,
+              margin: 0,
+              textAlign: "center",
             }}
           >
-            <span style={{ fontSize: 18 }}>📷</span> Escanear Romaneio (Câmera)
-          </button>
+            Fotos JPG/PNG ou documento PDF (1ª página). Boa luz e texto legível
+            ajudam na leitura.
+          </p>
 
           <button
             type="button"
-            disabled={disabled}
-            onClick={() => !disabled && fileInputRef.current?.click()}
-            style={{
-              width: "100%",
-              padding: "12px",
-              background: "#fff",
-              border: `1.5px solid ${C.border}`,
-              borderRadius: 12,
-              cursor: disabled ? "not-allowed" : "pointer",
-              color: C.navy,
-              fontWeight: 700,
-              fontSize: 13,
-              fontFamily: "'Sora',sans-serif",
-            }}
+            onClick={handleFullCancel}
+            style={{ ...cancelBtnStyle, width: "100%" }}
           >
-            🖼️ Escolher foto da galeria
+            Cancelar
           </button>
-        </div>
+        </>
       )}
 
-      {cameraOpen && !processing && (
+      {step === "camera" && !processing && (
         <div
           style={{
             borderRadius: 14,
@@ -262,54 +336,59 @@ export default function ScannerModule({
             ref={videoRef}
             playsInline
             muted
-            style={{ width: "100%", display: "block", maxHeight: 280, objectFit: "cover" }}
+            style={{
+              width: "100%",
+              display: "block",
+              maxHeight: 280,
+              objectFit: "cover",
+            }}
           />
           <div
             style={{
               padding: 10,
               background: "#F0FDF4",
               display: "flex",
+              flexDirection: "column",
               gap: 8,
-              flexWrap: "wrap",
             }}
           >
             <button
               type="button"
               onClick={captureFromCamera}
               style={{
-                flex: 1,
-                minWidth: 120,
-                padding: "12px",
+                ...btnBase,
+                width: "100%",
+                padding: "14px",
                 background: C.green,
                 border: "none",
-                borderRadius: 10,
                 color: "#fff",
                 fontWeight: 800,
-                fontSize: 14,
-                cursor: "pointer",
+                fontSize: 15,
               }}
             >
-              Capturar
+              Capturar e ler endereços
             </button>
-            <button
-              type="button"
-              onClick={stopCamera}
-              style={{
-                padding: "12px 16px",
-                background: "#fff",
-                border: `1px solid ${C.border}`,
-                borderRadius: 10,
-                color: C.muted,
-                fontWeight: 600,
-                fontSize: 13,
-                cursor: "pointer",
-              }}
-            >
-              Cancelar
-            </button>
-          </div>
-          <div style={{ padding: "0 12px 10px", color: C.muted, fontSize: 11, lineHeight: 1.4 }}>
-            Dica: mantenha o romaneio reto, com boa luz e texto legível.
+            <div style={{ display: "flex", gap: 8 }}>
+              <button
+                type="button"
+                onClick={resetToMenu}
+                style={{ ...cancelBtnStyle, flex: 1 }}
+              >
+                Voltar
+              </button>
+              <button
+                type="button"
+                onClick={handleFullCancel}
+                style={{
+                  ...cancelBtnStyle,
+                  flex: 1,
+                  color: C.red,
+                  borderColor: "#FCA5A5",
+                }}
+              >
+                Cancelar
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -334,7 +413,9 @@ export default function ScannerModule({
             <span style={{ color: "#166534", fontWeight: 700, fontSize: 13 }}>
               {statusText || "Processando…"}
             </span>
-            <span style={{ color: "#15803D", fontWeight: 800, fontSize: 12 }}>{progress}%</span>
+            <span style={{ color: "#15803D", fontWeight: 800, fontSize: 12 }}>
+              {progress}%
+            </span>
           </div>
           <div
             style={{
@@ -347,7 +428,7 @@ export default function ScannerModule({
           >
             <div
               style={{
-                width: `${progress}%`,
+                width: `${Math.min(100, progress)}%`,
                 height: "100%",
                 background: "linear-gradient(90deg,#22C55E,#16A34A)",
                 borderRadius: 99,
@@ -357,28 +438,33 @@ export default function ScannerModule({
           </div>
           <button
             type="button"
-            onClick={handleCancel}
+            onClick={handleCancelProcessing}
             style={{
+              ...cancelBtnStyle,
               width: "100%",
-              padding: "8px",
-              background: "#fff",
-              border: `1px solid ${C.border}`,
-              borderRadius: 8,
               color: C.red,
-              fontWeight: 600,
-              fontSize: 12,
-              cursor: "pointer",
+              borderColor: "#FCA5A5",
+              fontWeight: 700,
             }}
           >
             Cancelar leitura
           </button>
-          <div style={{ color: C.muted, fontSize: 10, marginTop: 8, lineHeight: 1.35 }}>
-            OCR roda em segundo plano (worker). A interface continua responsiva.
-          </div>
+          <p
+            style={{
+              color: C.muted,
+              fontSize: 10,
+              marginTop: 8,
+              marginBottom: 0,
+              lineHeight: 1.35,
+            }}
+          >
+            Na primeira vez pode demorar um pouco (download do idioma). A tela
+            continua responsiva.
+          </p>
         </div>
       )}
 
-      {cameraError && (
+      {cameraError && step === "menu" && !processing && (
         <div
           style={{
             background: "#FFFBEB",
@@ -387,6 +473,7 @@ export default function ScannerModule({
             padding: "10px 12px",
             color: "#92400E",
             fontSize: 12,
+            lineHeight: 1.45,
           }}
         >
           {cameraError}
