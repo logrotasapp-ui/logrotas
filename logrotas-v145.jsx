@@ -7,6 +7,7 @@ import {
   searchAddresses,
   fetchDrivingDistanceKm,
   optimizeDeliveryRoute,
+  buildParadasFromAddresses,
 } from "./src/services/routingService.js";
 import { calculateTripCosts } from "./src/services/tripCalcService.js";
 import ScannerModule from "./src/components/ScannerModule.js";
@@ -999,7 +1000,12 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade})=>{
   const handleScannerSuccess=(addresses)=>{
     setErroFoto("");
     setResultado(null);
-    setParadas(p=>[...p,...addresses.map((e,i)=>({id:Date.now()+i,endereco:e}))]);
+    const novas=buildParadasFromAddresses(addresses);
+    if(novas.length===0){
+      setErroFoto("Nenhum endereço válido após limpeza do texto.");
+      return;
+    }
+    setParadas(p=>[...p,...novas]);
   };
 
   const adicionarManual=()=>{

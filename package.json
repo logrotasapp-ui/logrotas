@@ -4,7 +4,8 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test:romaneio": "node scripts/simulate-romaneio-parser.mjs"
   },
   "dependencies": {
     "lucide-react": "^0.383.0",

@@ -14,7 +14,9 @@ const ENV_VAR_NAMES = {
  * @returns {string}
  */
 function readEnv(envName) {
-  const raw = import.meta.env[envName];
+  const env =
+    typeof import.meta !== "undefined" && import.meta.env ? import.meta.env : {};
+  const raw = env[envName];
   if (raw === undefined || raw === null || String(raw).trim() === "") {
     if (import.meta.env.DEV) {
       console.warn(

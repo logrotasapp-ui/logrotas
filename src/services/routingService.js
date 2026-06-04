@@ -1,6 +1,16 @@
 import { API_KEYS, API_ENDPOINTS, ORS_HEADERS, GEMINI_HEADERS } from "./apiConfig.js";
 import { runOcrOnImage } from "./ocrService.js";
-import { parseAddressesFromRomaneioText } from "./romaneioParser.js";
+import {
+  parseRomaneioTextToDestinations,
+  buildParadasFromAddresses,
+} from "./romaneioRouting.js";
+
+export {
+  parseRomaneioTextToDestinations,
+  buildParadasFromAddresses,
+  cleanAddressLine,
+  normalizeAddressesForRouting,
+} from "./romaneioRouting.js";
 
 export { cancelOcr, disposeOcrWorker } from "./ocrService.js";
 
@@ -136,7 +146,7 @@ export async function extractRomaneioAddressesFromImageOCR(fileOrBlob, options =
     return { ok: false, error: ocr.error, addresses: [], method: "ocr" };
   }
 
-  const addresses = parseAddressesFromRomaneioText(ocr.text);
+  const addresses = parseRomaneioTextToDestinations(ocr.text);
   if (addresses.length === 0) {
     return {
       ok: false,
@@ -148,7 +158,7 @@ export async function extractRomaneioAddressesFromImageOCR(fileOrBlob, options =
     };
   }
 
-  return { ok: true, addresses, method: "ocr" };
+  return { ok: true, addresses, paradas: buildParadasFromAddresses(addresses), method: "ocr" };
 }
 
 async function extractRomaneioAddressesFromImageGemini(file) {
@@ -191,7 +201,7 @@ async function extractRomaneioAddressesFromImageGemini(file) {
     }
 
     const texto = res.data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
-    const addresses = parseAddressesFromRomaneioText(texto);
+    const addresses = parseRomaneioTextToDestinations(texto);
 
     if (addresses.length === 0) {
       return {
@@ -202,7 +212,12 @@ async function extractRomaneioAddressesFromImageGemini(file) {
       };
     }
 
-    return { ok: true, addresses, method: "gemini" };
+    return {
+      ok: true,
+      addresses,
+      paradas: buildParadasFromAddresses(addresses),
+      method: "gemini",
+    };
   } catch {
     return {
       ok: false,
