@@ -16,7 +16,9 @@ const MAX_WIDTH = 800;
 const BINARY_THRESHOLD = 140;
 const JPEG_QUALITY = 0.72;
 const WORKER_INIT_TIMEOUT_MS = 120000;
-const RECOGNIZE_TIMEOUT_MS = 90000;
+const RECOGNIZE_TIMEOUT_MS = 180000;
+/** Sem atividade do Tesseract durante recognize (logger parado) */
+const RECOGNIZE_STALL_MS = 60000;
 const LOG = "[LogRotas OCR]";
 
 const MEMORY_ERROR_MSG =
@@ -196,6 +198,88 @@ export function isOcrWorkerReady() {
   return Boolean(workerInstance);
 }
 
+/** Reinicia o worker após travamento no reconhecimento. */
+export async function restartOcrWorker() {
+  logStep("Reiniciando worker", "após travamento");
+  activeJobId += 1;
+  workerBusy = false;
+  await terminateWorker();
+  resetTesseractConfigCache();
+  return warmupOcrWorker();
+}
+
+/**
+ * recognize com watchdog: timeout longo + falha se o logger parar.
+ * @param {import('tesseract.js').Worker} worker
+ * @param {Blob} prepared
+ * @param {number} jobId
+ * @param {(pct: number, status: string) => void} report
+ */
+function recognizeWithWatchdog(worker, prepared, jobId, report) {
+  let lastActivity = Date.now();
+  let lastReportedPct = 35;
+  let stallInterval = null;
+
+  const touch = (pct, status) => {
+    lastActivity = Date.now();
+    if (pct >= lastReportedPct) {
+      lastReportedPct = pct;
+      report(pct, status);
+    }
+  };
+
+  const recognizePromise = worker.recognize(prepared, {}, {
+    logger: (m) => {
+      if (jobId !== activeJobId) return;
+      lastActivity = Date.now();
+
+      if (m.status === "recognizing text") {
+        const sub =
+          typeof m.progress === "number" ? Math.round(m.progress * 100) : null;
+        const pct =
+          sub != null ? 35 + Math.round(m.progress * 60) : lastReportedPct;
+        touch(pct, "Lendo texto do romaneio…");
+        return;
+      }
+
+      if (
+        m.status === "loading language traineddata" ||
+        m.status === "initializing api"
+      ) {
+        const mapped = mapInitProgress(m);
+        if (mapped) touch(mapped.pct, mapped.text);
+      }
+    },
+  });
+
+  const stallPromise = new Promise((_, reject) => {
+    stallInterval = setInterval(() => {
+      if (jobId !== activeJobId) {
+        clearInterval(stallInterval);
+        return;
+      }
+      const idle = Date.now() - lastActivity;
+      if (idle >= RECOGNIZE_STALL_MS) {
+        clearInterval(stallInterval);
+        reject(
+          new Error(
+            "A leitura do texto parou de avançar. Tente outra foto com mais luz ou use o input manual."
+          )
+        );
+      } else if (idle >= 15000 && lastReportedPct <= 36) {
+        touch(
+          Math.min(94, lastReportedPct + 1),
+          "Ainda lendo… (foto grande ou pouca luz)"
+        );
+      }
+    }, 4000);
+  });
+
+  return Promise.race([recognizePromise, stallPromise]).finally(() => {
+    if (stallInterval) clearInterval(stallInterval);
+  });
+}
+
 async function getWorker(report, jobId) {
   if (workerInstance) return workerInstance;
 
@@ -318,18 +402,23 @@ export async function runOcrOnImage(fileOrBlob, options = {}) {
 
     report(35, "Lendo texto do romaneio…");
 
-    const { data } = await withTimeout(
-      worker.recognize(prepared, {}, {
-        logger: (m) => {
-          if (jobId !== activeJobId) return;
-          if (m.status === "recognizing text" && typeof m.progress === "number") {
-            report(35 + Math.round(m.progress * 60), "Lendo texto do romaneio…");
-          }
-        },
-      }),
-      RECOGNIZE_TIMEOUT_MS,
-      USER_FRIENDLY_FAIL
-    );
+    let data;
+    try {
+      const result = await withTimeout(
+        recognizeWithWatchdog(worker, prepared, jobId, report),
+        RECOGNIZE_TIMEOUT_MS,
+        USER_FRIENDLY_FAIL
+      );
+      data = result.data;
+    } catch (err) {
+      if (
+        jobId === activeJobId &&
+        String(err?.message || "").includes("parou de avançar")
+      ) {
+        await restartOcrWorker();
+      }
+      throw err;
+    }
 
     if (signal?.aborted || jobId !== activeJobId) {
       return { ok: false, error: "Leitura cancelada." };

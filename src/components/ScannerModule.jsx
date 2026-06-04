@@ -4,11 +4,77 @@ import {
   cancelOcr,
   isOcrWorkerReady,
   warmupOcrWorker,
+  restartOcrWorker,
 } from "../services/routingService.js";
 
-const SCAN_PROCESS_TIMEOUT_MS = 90000;
+/** Tempo máximo total do fluxo scanner → OCR → endereços */
+const SCAN_PROCESS_TIMEOUT_MS = 180000;
+/** Sem mudança de % na UI (ex.: travado em 35% no recognize) */
+const UI_PROGRESS_STALL_MS = 50000;
+/** Fase de reconhecimento Tesseract — tolerância um pouco maior antes de falhar */
+const UI_RECOGNIZE_STALL_MS = 70000;
+const RECOGNIZE_PHASE_PCT = 33;
 const SCAN_FALLBACK_ERROR =
   "Erro de processamento: tente uma foto com mais iluminação ou use o input manual.";
+const STALL_ERROR =
+  "A leitura parou de avançar. Aguarde o leitor ficar pronto e tente outra foto com mais luz, ou use o input manual.";
+
+/**
+ * Envolve a extração com timeout total e detecção de progresso parado.
+ * @param {() => Promise<unknown>} run
+ * @param {(pct: number, status: string) => void} onProgress
+ * @param {{ signal: { aborted: boolean }, onAbort: () => void }} ctx
+ */
+function runWithProcessingGuards(run, onProgress, ctx) {
+  let lastPct = -1;
+  let lastChangeAt = Date.now();
+  let stallTimer = null;
+  /** @type {(reason?: Error) => void} */
+  let stallReject = () => {};
+
+  const clearStall = () => {
+    if (stallTimer) {
+      clearTimeout(stallTimer);
+      stallTimer = null;
+    }
+  };
+
+  const scheduleStallCheck = (pct) => {
+    clearStall();
+    const limit =
+      pct >= RECOGNIZE_PHASE_PCT ? UI_RECOGNIZE_STALL_MS : UI_PROGRESS_STALL_MS;
+    stallTimer = setTimeout(() => {
+      ctx.onAbort();
+      stallReject(new Error(STALL_ERROR));
+    }, limit);
+  };
+
+  const monitoredProgress = (pct, status) => {
+    const now = Date.now();
+    if (pct !== lastPct || now - lastChangeAt > 8000) {
+      lastPct = pct;
+      lastChangeAt = now;
+      scheduleStallCheck(pct);
+    }
+    onProgress(pct, status);
+  };
+
+  const stallPromise = new Promise((_, reject) => {
+    stallReject = reject;
+  });
+
+  scheduleStallCheck(0);
+
+  const totalTimeout = new Promise((_, reject) => {
+    setTimeout(() => reject(new Error(SCAN_FALLBACK_ERROR)), SCAN_PROCESS_TIMEOUT_MS);
+  });
+
+  return Promise.race([
+    run(monitoredProgress).finally(clearStall),
+    stallPromise.finally(clearStall),
+    totalTimeout,
+  ]);
+}
 
 const C = {
   border: "#E2E8F0",
@@ -113,14 +179,18 @@ export default function ScannerModule({
     async (blob) => {
       if (disabled || processing) return;
 
+      setOcrLoading(true);
+      const warm = await warmupOcrWorker();
+      setOcrLoading(false);
+      if (!warm.ok) {
+        onError?.(warm.error || SCAN_FALLBACK_ERROR);
+        return;
+      }
       if (!isOcrWorkerReady()) {
-        setOcrLoading(true);
-        const warm = await warmupOcrWorker();
-        setOcrLoading(false);
-        if (!warm.ok) {
-          onError?.(warm.error || SCAN_FALLBACK_ERROR);
-          return;
-        }
+        onError?.(
+          "Leitor OCR ainda não está pronto. Aguarde alguns segundos e tente de novo."
+        );
+        return;
       }
 
       abortRef.current.aborted = false;
@@ -132,25 +202,32 @@ export default function ScannerModule({
 
       let out;
       try {
-        out = await Promise.race([
-          extractRomaneioAddressesFromImage(blob, {
+        out = await runWithProcessingGuards(
+          (onProgress) =>
+            extractRomaneioAddressesFromImage(blob, {
+              signal,
+              onProgress,
+            }),
+          (pct, status) => {
+            setProgress(pct);
+            setStatusText(status);
+          },
+          {
             signal,
-            onProgress: (pct, status) => {
-              setProgress(pct);
-              setStatusText(status);
+            onAbort: () => {
+              abortRef.current.aborted = true;
+              cancelOcr();
             },
-          }),
-          new Promise((_, reject) => {
-            setTimeout(
-              () => reject(new Error(SCAN_FALLBACK_ERROR)),
-              SCAN_PROCESS_TIMEOUT_MS
-            );
-          }),
-        ]);
+          }
+        );
       } catch (err) {
         abortRef.current.aborted = true;
         cancelOcr();
-        onError?.(err?.message || SCAN_FALLBACK_ERROR);
+        const msg = err?.message || SCAN_FALLBACK_ERROR;
+        if (msg.includes("parou de avançar") || msg === STALL_ERROR) {
+          await restartOcrWorker();
+        }
+        onError?.(msg);
         resetToMenu();
         return;
       } finally {

@@ -19,6 +19,7 @@ export {
   disposeOcrWorker,
   warmupOcrWorker,
   isOcrWorkerReady,
+  restartOcrWorker,
 } from "./ocrService.js";
 
 export { ensureTesseractAssets } from "./tesseractBootstrap.js";
