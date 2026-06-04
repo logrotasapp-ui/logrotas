@@ -24,7 +24,7 @@ export async function pdfFirstPageToImageBlob(file) {
   const data = await file.arrayBuffer();
   const pdf = await pdfjs.getDocument({ data }).promise;
   const page = await pdf.getPage(1);
-  const viewport = page.getViewport({ scale: 2 });
+  const viewport = page.getViewport({ scale: 1.25 });
 
   const canvas = document.createElement("canvas");
   canvas.width = viewport.width;

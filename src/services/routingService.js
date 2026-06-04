@@ -5,6 +5,7 @@ import {
   parseRomaneioTextToDestinations,
   buildParadasFromAddresses,
 } from "./romaneioRouting.js";
+import { cleanAddressLine } from "./romaneioParser.js";
 
 export {
   parseRomaneioTextToDestinations,
@@ -50,20 +51,133 @@ function readFileAsBase64(file) {
   });
 }
 
+// ── Endereço manual (normalização + busca aproximada) ────────────────────────
+
+const MANUAL_STRIP_CHARS = /[^\p{L}\p{M}\p{N}\s,.\-ºª°/]/gu;
+
+/**
+ * Limpa texto digitado pelo motorista (remove especiais, espaços extras, OCR-style).
+ * @param {string} text
+ * @returns {string}
+ */
+export function normalizeManualAddressInput(text) {
+  if (text == null) return "";
+  let s = cleanAddressLine(String(text));
+  s = s.replace(MANUAL_STRIP_CHARS, " ").replace(/\s+/g, " ").trim();
+  return s;
+}
+
+function tokenizeForMatch(s) {
+  return s
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "")
+    .split(/\s+/)
+    .filter((t) => t.length > 1);
+}
+
+function scoreAddressMatch(query, label) {
+  const qTokens = tokenizeForMatch(query);
+  if (qTokens.length === 0) return 0;
+  const labelNorm = label
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "");
+  let hits = 0;
+  for (const t of qTokens) {
+    if (labelNorm.includes(t)) hits += 1;
+  }
+  return hits / qTokens.length;
+}
+
+function pickBestAddressSuggestion(query, suggestions) {
+  if (!suggestions?.length) return null;
+  if (suggestions.length === 1) return suggestions[0];
+  return suggestions.reduce((best, cur) =>
+    scoreAddressMatch(query, cur.label) >= scoreAddressMatch(query, best.label)
+      ? cur
+      : best
+  );
+}
+
+/**
+ * Normaliza o texto, busca correspondência no mapa (ORS) e devolve endereço canônico.
+ * @param {string} rawText
+ * @returns {Promise<{ ok: true, endereco: string, coords: number[], normalized: string } | { ok: false, error: string, normalized: string }>}
+ */
+export async function resolveManualAddress(rawText) {
+  const normalized = normalizeManualAddressInput(rawText);
+
+  if (normalized.length < 3) {
+    return {
+      ok: false,
+      error: "Endereço muito curto. Ex.: Rua das Flores, 100 - Centro, São Paulo",
+      normalized,
+    };
+  }
+
+  const queries = [normalized];
+  const withoutNumber = normalized
+    .replace(/,?\s*n[°º]?\s*\d+[\w/-]*/gi, "")
+    .replace(/,?\s+\d+[\w/-]*\s*$/i, "")
+    .trim();
+  if (withoutNumber.length >= 3 && withoutNumber !== normalized) {
+    queries.push(withoutNumber);
+  }
+
+  for (const query of queries) {
+    const res = await searchAddresses(query, { skipNormalize: true });
+    if (!res.ok) {
+      return {
+        ok: false,
+        error: res.error || CONNECTION_ERROR,
+        normalized,
+      };
+    }
+    if (res.suggestions.length > 0) {
+      const best = pickBestAddressSuggestion(normalized, res.suggestions);
+      return {
+        ok: true,
+        endereco: best.label,
+        coords: best.coords,
+        normalized,
+      };
+    }
+  }
+
+  return {
+    ok: false,
+    error: `Não localizamos «${normalized}». Confira rua, número e cidade e tente de novo.`,
+    normalized,
+  };
+}
+
 // ── OpenRouteService ─────────────────────────────────────────────────────────
 
 /**
  * Autocomplete de endereços (Brasil).
+ * @param {string} text
+ * @param {{ skipNormalize?: boolean }} [opts]
  * @returns {{ ok: true, suggestions: Array<{label, coords}> } | { ok: false, error: string, suggestions: [] }}
  */
-export async function searchAddresses(text) {
-  if (!text || text.length < 3) {
+export async function searchAddresses(text, opts = {}) {
+  const query = opts.skipNormalize ? String(text || "").trim() : normalizeManualAddressInput(text);
+
+  if (!query || query.length < 3) {
     return { ok: true, suggestions: [] };
+  }
+
+  if (!API_KEYS.ors) {
+    return {
+      ok: false,
+      error: "Busca de endereços indisponível (configure VITE_ORS_KEY).",
+      suggestions: [],
+    };
   }
 
   const url =
     `${API_ENDPOINTS.orsGeocode}?api_key=${API_KEYS.ors}` +
-    `&text=${encodeURIComponent(text)}&boundary.country=BR&lang=pt&size=6`;
+    `&text=${encodeURIComponent(query)}&boundary.country=BR&lang=pt&size=6`;
 
   const res = await fetchJson(url);
 

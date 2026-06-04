@@ -1,61 +1,49 @@
 /**
- * OCR no cliente via Tesseract.js (Web Worker dedicado do Tesseract).
- * Pré-processamento em worker separado; idioma português (por) via CDN ou /public.
+ * OCR via Tesseract.js (Web Worker interno do Tesseract).
+ * Pré-processamento leve na thread principal: máx. 800px, preto e branco.
  */
 
-const MAX_WIDTH = 1200;
-const JPEG_QUALITY = 0.88;
-const WORKER_INIT_TIMEOUT_MS = 120000;
-const RECOGNIZE_TIMEOUT_MS = 180000;
-const PREPROCESS_TIMEOUT_MS = 45000;
+const MAX_WIDTH = 800;
+const BINARY_THRESHOLD = 140;
+const JPEG_QUALITY = 0.72;
+const WORKER_INIT_TIMEOUT_MS = 90000;
+const RECOGNIZE_TIMEOUT_MS = 120000;
 const TESSERACT_VER = "7.0.0";
 const CDN = "https://cdn.jsdelivr.net/npm";
 const LOG = "[LogRotas OCR]";
 
-/** Caminho oficial do traineddata português (LSTM) — mesmo padrão do tesseract.js */
 const POR_LANG_CDN = `${CDN}/@tesseract.js-data/por/4.0.0_best_int`;
 
 const TESSERACT_OPTIONS = {
   workerPath: `${CDN}/tesseract.js@${TESSERACT_VER}/dist/worker.min.js`,
-  /** Diretório (não arquivo .js): o Tesseract escolhe SIMD/relaxed automaticamente */
   corePath: `${CDN}/tesseract.js-core@${TESSERACT_VER}`,
   gzip: true,
 };
 
+const MEMORY_ERROR_MSG =
+  "A imagem é grande demais para este aparelho. Tire outra foto mais perto, use a galeria com arquivo menor ou digite os endereços manualmente.";
+
 let workerInstance = null;
 let workerInitPromise = null;
 let workerBusy = false;
-/** @type {number} */
 let activeJobId = 0;
-/** @type {string | null} */
 let resolvedLangPath = null;
-/** @type {Promise<string> | null} */
 let langPathProbe = null;
 
-let preprocessWorker = null;
-/** @type {number} */
-let preprocessJobId = 0;
-
-/** @param {string} step */
 function logStep(step, detail) {
   const extra = detail != null && detail !== "" ? ` — ${detail}` : "";
   console.log(`${LOG} ${step}${extra}`);
 }
 
-/** Cancela o job OCR e interrompe carregamento do worker. */
 export function cancelOcr() {
-  logStep("Cancelar", "interrompendo OCR e worker");
   activeJobId += 1;
-  preprocessJobId += 1;
   workerBusy = false;
   workerInitPromise = null;
   void terminateWorker();
 }
 
 function yieldToMainThread() {
-  return new Promise((resolve) => {
-    setTimeout(resolve, 0);
-  });
+  return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 function withTimeout(promise, ms, message) {
@@ -67,10 +55,27 @@ function withTimeout(promise, ms, message) {
   ]);
 }
 
-/**
- * Preferência: arquivo local em public/; senão CDN oficial do @tesseract.js-data.
- * @returns {Promise<string>}
- */
+function isMemoryError(err) {
+  if (!err) return false;
+  if (err instanceof RangeError) return true;
+  const msg = String(err.message || err).toLowerCase();
+  return (
+    msg.includes("memory") ||
+    msg.includes("allocation") ||
+    msg.includes("out of memory") ||
+    msg.includes("array buffer") ||
+    msg.includes("wasm")
+  );
+}
+
+function mapOcrError(err) {
+  if (isMemoryError(err)) return MEMORY_ERROR_MSG;
+  const msg = err?.message;
+  if (msg && !msg.includes("Tempo esgotado")) return msg;
+  if (msg) return msg;
+  return "Não foi possível ler o romaneio. Tente outra foto ou digite os endereços manualmente.";
+}
+
 async function resolvePortugueseLangPath() {
   if (resolvedLangPath) return resolvedLangPath;
 
@@ -83,18 +88,13 @@ async function resolvePortugueseLangPath() {
       ).href.replace(/\/$/, "");
 
       try {
-        const probeUrl = `${localBase}/por.traineddata.gz`;
-        logStep("Verificando idioma local", probeUrl);
-        const head = await fetch(probeUrl, { method: "HEAD" });
-        if (head.ok) {
-          logStep("Idioma português", "usando pasta public (offline)");
-          return localBase;
-        }
+        const head = await fetch(`${localBase}/por.traineddata.gz`, {
+          method: "HEAD",
+        });
+        if (head.ok) return localBase;
       } catch {
         /* CDN */
       }
-
-      logStep("Idioma português", `CDN oficial: ${POR_LANG_CDN}`);
       return POR_LANG_CDN;
     })();
   }
@@ -121,67 +121,39 @@ function mapInitProgress(m) {
   return null;
 }
 
-function logTesseractEvent(phase, m) {
-  const prog =
-    typeof m?.progress === "number"
-      ? `${Math.round(m.progress * 100)}%`
-      : "";
-  logStep(phase, `${m?.status || "evento"}${prog ? ` (${prog})` : ""}`);
-}
-
-/**
- * @param {(pct: number, status: string) => void} report
- * @param {number} jobId
- */
 async function initWorker(report, jobId) {
-  logStep("Carregando worker Tesseract", TESSERACT_OPTIONS.workerPath);
-
   const { createWorker, PSM } = await import("tesseract.js");
   const langPath = await resolvePortugueseLangPath();
-
-  logStep("Carregando idioma", "por (português)");
 
   const worker = await createWorker("por", 1, {
     ...TESSERACT_OPTIONS,
     langPath,
     logger: (m) => {
       if (jobId !== activeJobId) return;
-      logTesseractEvent("Worker Tesseract", m);
       const mapped = mapInitProgress(m);
       if (mapped) report(mapped.pct, mapped.text);
     },
-    errorHandler: (err) => {
-      console.warn(LOG, "Erro no worker:", err);
-    },
+    errorHandler: (err) => console.warn(LOG, err),
   });
 
-  logStep("Configurando parâmetros OCR", "PSM automático");
-  await worker.setParameters({
-    tessedit_pageseg_mode: PSM.AUTO,
-  });
-
+  await worker.setParameters({ tessedit_pageseg_mode: PSM.AUTO });
   workerInstance = worker;
-  logStep("Worker Tesseract pronto", "idioma por carregado");
   return worker;
 }
 
 async function getWorker(report, jobId) {
-  if (workerInstance) {
-    logStep("Reutilizando worker", "já inicializado");
-    return workerInstance;
-  }
+  if (workerInstance) return workerInstance;
 
   if (!workerInitPromise) {
     workerInitPromise = initWorker(report, jobId);
   }
 
   try {
-    const worker = await withTimeout(
+    return await withTimeout(
       workerInitPromise,
       WORKER_INIT_TIMEOUT_MS,
-      "Tempo esgotado ao carregar o leitor OCR. Verifique a internet e tente de novo."
+      "Tempo esgotado ao carregar o leitor OCR. Verifique a internet."
     );
-    return worker;
   } catch (err) {
     workerInitPromise = null;
     await terminateWorker();
@@ -191,7 +163,6 @@ async function getWorker(report, jobId) {
 
 async function terminateWorker() {
   if (workerInstance) {
-    logStep("Encerrando worker Tesseract");
     try {
       await workerInstance.terminate();
     } catch {
@@ -202,25 +173,21 @@ async function terminateWorker() {
   workerBusy = false;
 }
 
-function getPreprocessWorker() {
-  if (preprocessWorker) return preprocessWorker;
-  preprocessWorker = new Worker(
-    new URL("../workers/imagePreprocess.worker.js", import.meta.url),
-    { type: "module" }
-  );
-  return preprocessWorker;
-}
-
-function preprocessOnMainThread(blob) {
-  return preprocessImageForOcrMain(blob);
-}
-
 /**
- * Pré-processamento na thread principal (fallback).
+ * Redimensiona (máx. 800px) e binariza (preto e branco) — leve, sem worker extra.
  * @param {Blob} blob
  */
-async function preprocessImageForOcrMain(blob) {
-  const bitmap = await createImageBitmap(blob);
+export async function preprocessImageForOcr(blob) {
+  logStep("Processando imagem", "redimensionar + P&B (máx 800px)");
+
+  let bitmap;
+  try {
+    bitmap = await createImageBitmap(blob);
+  } catch (err) {
+    if (isMemoryError(err)) throw new Error(MEMORY_ERROR_MSG);
+    throw new Error("Não foi possível abrir a imagem.");
+  }
+
   const scale = Math.min(1, MAX_WIDTH / bitmap.width);
   const width = Math.max(1, Math.round(bitmap.width * scale));
   const height = Math.max(1, Math.round(bitmap.height * scale));
@@ -229,61 +196,37 @@ async function preprocessImageForOcrMain(blob) {
   canvas.width = width;
   canvas.height = height;
   const ctx = canvas.getContext("2d", { willReadFrequently: true });
-  ctx.filter = "grayscale(1)";
-  ctx.drawImage(bitmap, 0, 0, width, height);
-  bitmap.close();
+
+  try {
+    ctx.drawImage(bitmap, 0, 0, width, height);
+    bitmap.close();
+
+    const { data } = ctx.getImageData(0, 0, width, height);
+    for (let i = 0; i < data.length; i += 4) {
+      const gray =
+        data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114;
+      const v = gray > BINARY_THRESHOLD ? 255 : 0;
+      data[i] = data[i + 1] = data[i + 2] = v;
+      data[i + 3] = 255;
+    }
+    ctx.putImageData(new ImageData(data, width, height), 0, 0);
+  } catch (err) {
+    bitmap.close?.();
+    if (isMemoryError(err)) throw new Error(MEMORY_ERROR_MSG);
+    throw err;
+  }
 
   await yieldToMainThread();
 
   return new Promise((resolve, reject) => {
     canvas.toBlob(
-      (b) => (b ? resolve(b) : reject(new Error("Falha ao preparar imagem."))),
+      (b) => {
+        if (b) resolve(b);
+        else reject(new Error("Falha ao preparar imagem para leitura."));
+      },
       "image/jpeg",
       JPEG_QUALITY
     );
-  });
-}
-
-/**
- * Redimensiona (máx. 1200px) e escala de cinza — preferencialmente em Web Worker.
- * @param {Blob} blob
- */
-export async function preprocessImageForOcr(blob) {
-  const jobId = ++preprocessJobId;
-
-  if (typeof Worker === "undefined" || typeof OffscreenCanvas === "undefined") {
-    logStep("Processando imagem", "fallback thread principal");
-    return preprocessOnMainThread(blob);
-  }
-
-  logStep("Processando imagem", "Web Worker (redimensionar + cinza)");
-
-  const worker = getPreprocessWorker();
-
-  return withTimeout(
-    new Promise((resolve, reject) => {
-      const onMessage = (e) => {
-        if (e.data?.id !== jobId) return;
-        worker.removeEventListener("message", onMessage);
-        worker.removeEventListener("error", onError);
-        if (e.data.ok) resolve(e.data.blob);
-        else reject(new Error(e.data.error || "Pré-processamento falhou."));
-      };
-      const onError = () => {
-        worker.removeEventListener("message", onMessage);
-        worker.removeEventListener("error", onError);
-        reject(new Error("Worker de imagem indisponível."));
-      };
-      worker.addEventListener("message", onMessage);
-      worker.addEventListener("error", onError);
-      worker.postMessage({ id: jobId, blob });
-    }),
-    PREPROCESS_TIMEOUT_MS,
-    "Tempo esgotado ao preparar a imagem."
-  ).catch(async (err) => {
-    if (jobId !== preprocessJobId) throw err;
-    logStep("Processando imagem", `fallback: ${err.message}`);
-    return preprocessOnMainThread(blob);
   });
 }
 
@@ -309,34 +252,21 @@ export async function runOcrOnImage(fileOrBlob, options = {}) {
   }
 
   workerBusy = true;
-  logStep("Início do OCR");
 
   try {
-    report(5, "Preparando imagem…");
-    logStep("Processando imagem", `entrada ${fileOrBlob.size || "?"} bytes`);
+    report(8, "Preparando imagem…");
     const prepared = await preprocessImageForOcr(fileOrBlob);
-    logStep(
-      "Imagem preparada",
-      `${prepared.size} bytes, máx ${MAX_WIDTH}px, escala de cinza`
-    );
 
     if (signal?.aborted || jobId !== activeJobId) {
       return { ok: false, error: "Leitura cancelada." };
     }
 
-    report(10, "Carregando leitor OCR…");
-    logStep("Carregando idioma", "inicializando worker remoto…");
+    report(15, "Carregando leitor OCR…");
     let worker;
     try {
       worker = await getWorker(report, jobId);
     } catch (err) {
-      logStep("Falha ao carregar worker", err?.message);
-      return {
-        ok: false,
-        error:
-          err?.message ||
-          "Não foi possível iniciar o OCR. Tente galeria com foto nítida ou verifique a conexão.",
-      };
+      return { ok: false, error: mapOcrError(err) };
     }
 
     if (signal?.aborted || jobId !== activeJobId) {
@@ -344,23 +274,18 @@ export async function runOcrOnImage(fileOrBlob, options = {}) {
     }
 
     report(32, "Lendo texto do romaneio…");
-    logStep("Reconhecendo texto", "worker.recognize (thread separada)");
-
-    const recognizePromise = worker.recognize(prepared, {}, {
-      logger: (m) => {
-        if (jobId !== activeJobId) return;
-        logTesseractEvent("Reconhecimento", m);
-        if (m.status === "recognizing text" && typeof m.progress === "number") {
-          const pct = 32 + Math.round(m.progress * 65);
-          report(pct, "Lendo texto do romaneio…");
-        }
-      },
-    });
 
     const { data } = await withTimeout(
-      recognizePromise,
+      worker.recognize(prepared, {}, {
+        logger: (m) => {
+          if (jobId !== activeJobId) return;
+          if (m.status === "recognizing text" && typeof m.progress === "number") {
+            report(32 + Math.round(m.progress * 65), "Lendo texto do romaneio…");
+          }
+        },
+      }),
       RECOGNIZE_TIMEOUT_MS,
-      "Tempo esgotado na leitura do texto. Use foto menor ou mais nítida."
+      "Tempo esgotado na leitura. Use foto menor ou digite os endereços manualmente."
     );
 
     if (signal?.aborted || jobId !== activeJobId) {
@@ -368,27 +293,18 @@ export async function runOcrOnImage(fileOrBlob, options = {}) {
     }
 
     report(100, "Concluído");
-    logStep("Finalizando", "OCR concluído");
     const text = data?.text || "";
 
     if (!text.trim()) {
-      logStep("Finalizando", "nenhum texto detectado");
       return {
         ok: false,
-        error: "Nenhum texto detectado. Melhore a iluminação e o enquadramento.",
+        error: "Nenhum texto detectado. Melhore a iluminação ou digite manualmente.",
       };
     }
 
-    logStep("Finalizando", `${text.length} caracteres lidos`);
     return { ok: true, text };
   } catch (err) {
-    logStep("Erro no OCR", err?.message);
-    return {
-      ok: false,
-      error:
-        err?.message ||
-        "Falha no OCR. Tente outra foto ou use mais luz.",
-    };
+    return { ok: false, error: mapOcrError(err) };
   } finally {
     workerBusy = false;
     await yieldToMainThread();
@@ -396,11 +312,6 @@ export async function runOcrOnImage(fileOrBlob, options = {}) {
 }
 
 export async function disposeOcrWorker() {
-  logStep("Dispose", "liberando recursos OCR");
   cancelOcr();
   await terminateWorker();
-  if (preprocessWorker) {
-    preprocessWorker.terminate();
-    preprocessWorker = null;
-  }
 }

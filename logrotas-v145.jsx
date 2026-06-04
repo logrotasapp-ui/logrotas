@@ -8,6 +8,7 @@ import {
   fetchDrivingDistanceKm,
   optimizeDeliveryRoute,
   buildParadasFromAddresses,
+  resolveManualAddress,
 } from "./src/services/routingService.js";
 import { calculateTripCosts } from "./src/services/tripCalcService.js";
 import ScannerModule from "./src/components/ScannerModule.js";
@@ -989,6 +990,8 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade})=>{
   const[novoEndereco,setNovoEndereco]=useState("");
   const[processandoFoto,setProcessandoFoto]=useState(false);
   const[erroFoto,setErroFoto]=useState("");
+  const[erroManual,setErroManual]=useState("");
+  const[adicionandoManual,setAdicionandoManual]=useState(false);
   const[otimizando,setOtimizando]=useState(false);
   const[erroOtimizar,setErroOtimizar]=useState("");
   const[resultado,setResultado]=useState(null);
@@ -1008,12 +1011,24 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade})=>{
     setParadas(p=>[...p,...novas]);
   };
 
-  const adicionarManual=()=>{
-    if(!novoEndereco.trim())return;
-    if(atingiuLimite)return;
-    setParadas(p=>[...p,{id:Date.now(),endereco:novoEndereco.trim()}]);
-    setNovoEndereco("");
-    setResultado(null);
+  const adicionarManual=async()=>{
+    if(!novoEndereco.trim()||atingiuLimite||adicionandoManual)return;
+    setErroManual("");
+    setAdicionandoManual(true);
+    try{
+      const out=await resolveManualAddress(novoEndereco);
+      if(!out.ok){
+        setErroManual(out.error);
+        return;
+      }
+      setParadas(p=>[...p,{id:Date.now(),endereco:out.endereco,coords:out.coords}]);
+      setNovoEndereco("");
+      setResultado(null);
+    }catch{
+      setErroManual("Não foi possível validar o endereço. Verifique sua conexão e tente de novo.");
+    }finally{
+      setAdicionandoManual(false);
+    }
   };
 
   const removerParada=(id)=>{
@@ -1077,19 +1092,24 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade})=>{
       )}
 
       {/* Input manual */}
+      {erroManual&&(
+        <div style={{background:"#FFF5F5",border:"1.5px solid #FCA5A5",borderRadius:10,padding:"10px 13px",marginBottom:10,color:"#DC2626",fontSize:13,fontWeight:600}}>
+          ⚠️ {erroManual}
+        </div>
+      )}
       <div style={{display:"flex",gap:8,marginBottom:atingiuLimite?8:14}}>
         <div style={{flex:1,display:"flex",alignItems:"center",background:atingiuLimite?C.subtle:"#fff",border:`1.5px solid ${atingiuLimite?C.border:C.border}`,borderRadius:11,overflow:"hidden"}}
           onFocusCapture={e=>!atingiuLimite&&(e.currentTarget.style.borderColor="#22C55E")}
           onBlurCapture={e=>e.currentTarget.style.borderColor=C.border}>
-          <input value={novoEndereco} onChange={e=>!atingiuLimite&&setNovoEndereco(e.target.value)}
-            placeholder={atingiuLimite?"Limite de paradas atingido":"Adicionar endereço manualmente..."}
-            disabled={atingiuLimite}
-            onKeyDown={e=>e.key==="Enter"&&adicionarManual()}
+          <input value={novoEndereco} onChange={e=>{if(!atingiuLimite){setNovoEndereco(e.target.value);setErroManual("");}}}
+            placeholder={atingiuLimite?"Limite de paradas atingido":"Ex.: Rua das Flores, 100 - Centro"}
+            disabled={atingiuLimite||adicionandoManual}
+            onKeyDown={e=>e.key==="Enter"&&!adicionandoManual&&adicionarManual()}
             style={{flex:1,background:"transparent",border:"none",outline:"none",color:atingiuLimite?C.muted:C.text,padding:"10px 13px",fontSize:13,cursor:atingiuLimite?"not-allowed":"text"}}/>
         </div>
-        <button onClick={adicionarManual} disabled={atingiuLimite}
-          style={{background:atingiuLimite?"#94A3B8":"#22C55E",border:"none",borderRadius:11,padding:"0 16px",cursor:atingiuLimite?"not-allowed":"pointer",color:"#fff",fontWeight:700,fontSize:13,display:"flex",alignItems:"center",gap:5}}>
-          <PlusIcon size={15}/> Add
+        <button onClick={adicionarManual} disabled={atingiuLimite||adicionandoManual}
+          style={{background:atingiuLimite||adicionandoManual?"#94A3B8":"#22C55E",border:"none",borderRadius:11,padding:"0 16px",cursor:atingiuLimite||adicionandoManual?"not-allowed":"pointer",color:"#fff",fontWeight:700,fontSize:13,display:"flex",alignItems:"center",gap:5,minWidth:72}}>
+          <PlusIcon size={15}/> {adicionandoManual?"…":"Add"}
         </button>
       </div>
 
