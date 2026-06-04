@@ -1,0 +1,18 @@
+# Dependências e build
+node_modules/
+dist/
+
+# Variáveis de ambiente (nunca commitar chaves reais)
+.env
+.env.*
+!.env.example
+.env.local
+.env.*.local
+
+# Logs e cache
+*.log
+npm-debug.log*
+.DS_Store
+
+# Vite
+.vite/
