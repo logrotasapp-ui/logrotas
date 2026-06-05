@@ -1006,6 +1006,7 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade})=>{
   const[novoEndereco,setNovoEndereco]=useState("");
   const[processandoFoto,setProcessandoFoto]=useState(false);
   const[erroFoto,setErroFoto]=useState("");
+  const[avisoScanFalha,setAvisoScanFalha]=useState("");
   const[erroManual,setErroManual]=useState("");
   const[adicionandoManual,setAdicionandoManual]=useState(false);
   const[otimizando,setOtimizando]=useState(false);
@@ -1027,13 +1028,21 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade})=>{
   },[]);
 
   // ALTERADO V159 — geocoding Mapbox com proximity (GPS + cadeia) só p/ endereços do Gemini
-  const handleScannerSuccess=async(addresses)=>{
+  // V169 — paradas com confianca ok|warn; feedback para FAIL
+  const handleScannerSuccess=async(novasParadas,meta)=>{
     setErroFoto("");
+    setAvisoScanFalha("");
     setResultado(null);
-    const novas=buildParadasFromAddresses(addresses);
+    const novas=Array.isArray(novasParadas)?novasParadas:[];
     if(novas.length===0){
       setErroFoto("Nenhum endereço válido após limpeza do texto.");
       return;
+    }
+    if(meta?.failedCount>0){
+      const n=meta.failedCount;
+      setAvisoScanFalha(
+        `❌ ${n===1?"Endereço não identificado":"Endereços não identificados"} — adicione manualmente`
+      );
     }
     setProcessandoFoto(true);
     try{
@@ -1123,7 +1132,13 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade})=>{
       {/* Erro foto */}
       {erroFoto&&(
         <div style={{background:"#FFF5F5",border:"1.5px solid #FCA5A5",borderRadius:10,padding:"10px 13px",marginBottom:12,color:"#DC2626",fontSize:13,fontWeight:600}}>
-          ⚠️ {erroFoto}
+          {erroFoto.startsWith("❌")?erroFoto:`⚠️ ${erroFoto}`}
+        </div>
+      )}
+
+      {avisoScanFalha&&(
+        <div style={{background:"#FFF5F5",border:"1.5px solid #FCA5A5",borderRadius:10,padding:"10px 13px",marginBottom:12,color:"#DC2626",fontSize:13,fontWeight:600}}>
+          {avisoScanFalha}
         </div>
       )}
 
@@ -1286,15 +1301,27 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade})=>{
             </div>
           </div>
           {paradas.map((p,i)=>(
-            <div key={p.id} style={{display:"flex",alignItems:"center",gap:10,background:resultado?"#F0FDF4":C.subtle,border:`1.5px solid ${resultado?"#86EFAC":C.border}`,borderRadius:11,padding:"10px 13px",transition:"all .3s"}}>
-              <div style={{width:24,height:24,borderRadius:"50%",background:resultado?"#22C55E":"#3B82F6",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
-                <span style={{color:"#fff",fontWeight:800,fontSize:11}}>{i+1}</span>
+            <div key={p.id} style={{
+              display:"flex",flexDirection:"column",gap:6,
+              background:p.confianca==="warn"?"#FFFBEB":resultado?"#F0FDF4":C.subtle,
+              border:`1.5px solid ${p.confianca==="warn"?"#FDE68A":resultado?"#86EFAC":C.border}`,
+              borderRadius:11,padding:"10px 13px",transition:"all .3s",
+            }}>
+              <div style={{display:"flex",alignItems:"center",gap:10}}>
+                <div style={{width:24,height:24,borderRadius:"50%",background:p.confianca==="warn"?"#F59E0B":resultado?"#22C55E":"#3B82F6",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                  <span style={{color:"#fff",fontWeight:800,fontSize:11}}>{i+1}</span>
+                </div>
+                <span style={{flex:1,color:C.text,fontSize:13}}>{p.endereco}</span>
+                <button onClick={()=>removerParada(p.id)}
+                  style={{background:C.redLight,border:"none",borderRadius:7,padding:5,cursor:"pointer",color:C.red,display:"flex",flexShrink:0}}>
+                  <Trash2Icon size={13}/>
+                </button>
               </div>
-              <span style={{flex:1,color:C.text,fontSize:13}}>{p.endereco}</span>
-              <button onClick={()=>removerParada(p.id)}
-                style={{background:C.redLight,border:"none",borderRadius:7,padding:5,cursor:"pointer",color:C.red,display:"flex",flexShrink:0}}>
-                <Trash2Icon size={13}/>
-              </button>
+              {p.confianca==="warn"&&(
+                <div style={{color:"#92400E",fontSize:11,fontWeight:600,paddingLeft:34}}>
+                  ⚠️ Verifique este endereço
+                </div>
+              )}
             </div>
           ))}
         </div>

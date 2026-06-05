@@ -131,8 +131,9 @@ export default function ScannerModule({
         return;
       }
 
-      const limit = Number.isFinite(maxToAdd) ? maxToAdd : out.addresses.length;
-      const slice = out.addresses.slice(0, Math.max(0, limit));
+      const paradas = out.paradas || [];
+      const limit = Number.isFinite(maxToAdd) ? maxToAdd : paradas.length;
+      const slice = paradas.slice(0, Math.max(0, limit));
 
       if (slice.length === 0) {
         onError?.("Nenhum endereço disponível (limite de paradas atingido).");
@@ -143,7 +144,8 @@ export default function ScannerModule({
       resetToMenu();
       onSuccess?.(slice, {
         method: out.method,
-        totalFound: out.addresses.length,
+        totalFound: paradas.length,
+        failedCount: out.failedCount || 0,
       });
     },
     [disabled, processing, maxToAdd, onSuccess, onError, setBusy, resetToMenu]

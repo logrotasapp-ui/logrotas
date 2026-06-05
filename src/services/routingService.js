@@ -18,13 +18,17 @@ export { resolvePlaceSuggestion } from "./googlePlacesService.js";
 import { fileToImageBlob } from "./fileToImage.js";
 import {
   parseRomaneioTextToDestinations,
+  parseGeminiRomaneioResponse,
   buildParadasFromAddresses,
+  buildParadasFromGeminiItems,
 } from "./romaneioRouting.js";
 import { cleanAddressLine } from "./romaneioParser.js";
 
 export {
   parseRomaneioTextToDestinations,
+  parseGeminiRomaneioResponse,
   buildParadasFromAddresses,
+  buildParadasFromGeminiItems,
   cleanAddressLine,
   normalizeAddressesForRouting,
 } from "./romaneioRouting.js";
@@ -32,22 +36,29 @@ export {
 /** Valor estimado por eixo por praça de pedágio (R$). */
 export const TOLL_PER_AXLE = 3.2;
 
-// V168 — prompt Gemini: romaneio ou qualquer etiqueta de entrega (qualquer transportadora)
+// V169 — prompt Gemini anti-alucinação: romaneio ou etiqueta (qualquer transportadora)
 const ROMANEIO_PROMPT =
-  "Analise esta imagem de um documento de entrega. Identifique o tipo antes de extrair.\n\n" +
-  "FORMATO 1 — ROMANEIO: lista com múltiplos endereços de destino. Extraia TODOS os endereços de entrega, um por linha.\n\n" +
-  "FORMATO 2 — ETIQUETA DE PACOTE (qualquer layout ou transportadora: Shopee, Mercado Livre, Amazon, Shein, DANFE, transportadoras regionais, etiquetas próprias, etc.): " +
-  "uma etiqueta = uma parada (uma linha). O destinatário pode ser pessoa física ou jurídica. " +
-  "Identifique a seção de DESTINO pelo contexto visual e pelos rótulos (DESTINATÁRIO, ENTREGA, PARA, CLIENTE, etc.) — em geral aparece antes do endereço de entrega. " +
-  "Extraia do destinatário: Rua, Número, Complemento (se houver), Bairro, Cidade e CEP. Use o CEP para confirmar ou inferir cidade e UF quando disponível. " +
-  "NUNCA use endereço ou dados da seção REMETENTE. IGNORE sempre: códigos de rastreio, códigos internos (corredor, gaiola, hub, ordem, parada, SKU, NF, série) e demais metadados logísticos. " +
-  "Se existir o campo \"Pacotes nesta parada\", inclua ao final da linha: \" · N pacote(s)\".\n\n" +
-  "FORMATO DE SAÍDA OBRIGATÓRIO (uma linha por endereço):\n" +
-  "Rua/Avenida, Número[, Complemento] - Bairro, Cidade - UF\n" +
-  "Exemplo: Rua Atucuri, 650, Apto 12 - Chácara Santo Antônio, São Paulo - SP\n" +
-  "Sempre inclua cidade e UF (2 letras). Se a cidade não estiver visível, infira pelo CEP ou bairro. " +
-  "Bairros como Chácara Santo Antônio, Itaim Bibi, Moema e Vila Mariana são inequivocamente São Paulo - SP.\n\n" +
-  "Retorne somente os endereços (com pacotes quando aplicável), sem numeração, sem texto adicional, sem explicações.";
+  "Analise esta imagem de documento de entrega (romaneio ou etiqueta). REGRAS OBRIGATÓRIAS:\n\n" +
+  "1. Retorne SOMENTE endereços que existem LITERALMENTE na imagem — NUNCA invente, complete ou infira endereços que não estejam visíveis.\n" +
+  "2. Cada etiqueta física na imagem = exatamente UMA linha de saída.\n" +
+  "3. Ignore COMPLETAMENTE tudo após a palavra REMETENTE (incluindo endereço de remetente).\n" +
+  "4. O CEP deve confirmar a cidade. Se cidade e CEP não baterem, use o CEP para determinar a cidade correta pelo formato brasileiro " +
+  "(ex.: 03xxx = São Paulo zona leste, 04xxx = São Paulo zona sul, 01xxx/02xxx = região metropolitana de SP).\n" +
+  "5. Se não houver endereço de destinatário claro, retorne FAIL sem endereço — NUNCA invente.\n\n" +
+  "ROMANEIO: extraia cada endereço de destino visível — uma linha por endereço.\n" +
+  "ETIQUETA (Shopee, Mercado Livre, Amazon, Shein, DANFE, transportadoras regionais, etiquetas próprias, etc.): " +
+  "uma etiqueta = uma linha. Destinatário PF ou PJ. Extraia Rua, Número, Complemento, Bairro, Cidade e CEP somente do destinatário. " +
+  "Ignore rastreio, corredor, gaiola, hub, ordem, parada, SKU, NF, série e demais metadados.\n\n" +
+  "FORMATO DE SAÍDA (prefixo obrigatório em cada linha):\n" +
+  "OK|Rua/Avenida, Número[, Complemento] - Bairro, Cidade - UF\n" +
+  "WARN|endereço parcial ou duvidoso mas com dados visíveis na imagem\n" +
+  "FAIL|\n\n" +
+  "OK = endereço legível e confiável (CEP confirma cidade/UF ou está ausente mas o restante é claro).\n" +
+  "WARN = incompleto ou duvidoso, porém utilizável.\n" +
+  "FAIL = destinatário não identificado.\n" +
+  "Exemplo: OK|Rua Atucuri, 650 - Chácara Santo Antônio, São Paulo - SP\n" +
+  "Se \"Pacotes nesta parada\" estiver visível, inclua ao final: \" · N pacote(s)\".\n" +
+  "Sem numeração, sem explicações — somente linhas prefixadas.";
 
 const CONNECTION_ERROR =
   "Erro de conexão. Verifique sua internet e tente novamente.";
@@ -583,14 +594,42 @@ export async function extractRomaneioAddressesFromImageGemini(file, options = {}
 
     report(75, "Interpretando endereços…");
     const texto = res.data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
-    const addresses = parseRomaneioTextToDestinations(texto);
+    const items = parseGeminiRomaneioResponse(texto);
+    const failedCount = items.filter((i) => i.confianca === "fail").length;
+    const paradas = buildParadasFromGeminiItems(items);
+    const addresses = paradas.map((p) => p.endereco);
 
-    if (addresses.length === 0) {
+    if (items.length === 0) {
       return {
         ok: false,
         error:
           "Nenhum endereço encontrado na foto. Tente mais luz, enquadre o romaneio ou use o input manual.",
         addresses: [],
+        failedCount: 0,
+        method: "gemini",
+        rawTextPreview: texto.slice(0, 400),
+      };
+    }
+
+    if (paradas.length === 0 && failedCount > 0) {
+      return {
+        ok: false,
+        error: "❌ Endereço não identificado — adicione manualmente.",
+        addresses: [],
+        paradas: [],
+        failedCount,
+        method: "gemini",
+        rawTextPreview: texto.slice(0, 400),
+      };
+    }
+
+    if (paradas.length === 0) {
+      return {
+        ok: false,
+        error:
+          "Nenhum endereço encontrado na foto. Tente mais luz, enquadre o romaneio ou use o input manual.",
+        addresses: [],
+        failedCount,
         method: "gemini",
         rawTextPreview: texto.slice(0, 400),
       };
@@ -600,7 +639,8 @@ export async function extractRomaneioAddressesFromImageGemini(file, options = {}
     return {
       ok: true,
       addresses,
-      paradas: buildParadasFromAddresses(addresses),
+      paradas,
+      failedCount,
       method: "gemini",
     };
   } catch (err) {

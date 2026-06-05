@@ -156,3 +156,42 @@ export function parseAddressesFromRomaneioText(rawText) {
 
   return normalizeAddressesForRouting(addresses);
 }
+
+const GEMINI_PREFIX_LINE =
+  /^(OK|WARN|FAIL)\s*\|\s*(.*)$/i;
+
+/**
+ * V169 — Resposta do Gemini com prefixos OK| / WARN| / FAIL|
+ * @param {string} rawText
+ * @returns {Array<{ confianca: 'ok'|'warn'|'fail', endereco: string|null }>}
+ */
+export function parseGeminiRomaneioResponse(rawText) {
+  if (!rawText || !String(rawText).trim()) return [];
+
+  const items = [];
+
+  for (const rawLine of String(rawText).split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line) continue;
+
+    const match = line.match(GEMINI_PREFIX_LINE);
+    if (!match) continue;
+
+    const tag = match[1].toUpperCase();
+    const body = cleanAddressLine(match[2] || "");
+
+    if (tag === "FAIL" || !body) {
+      items.push({ confianca: "fail", endereco: null });
+      continue;
+    }
+
+    if (tag === "WARN") {
+      items.push({ confianca: "warn", endereco: body });
+      continue;
+    }
+
+    items.push({ confianca: "ok", endereco: body });
+  }
+
+  return items;
+}
