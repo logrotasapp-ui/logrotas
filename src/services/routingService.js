@@ -279,6 +279,28 @@ export async function fetchDrivingDistanceKm(originCoords, destCoords) {
     return { ok: false, error: "Coordenadas de origem e destino são obrigatórias.", distanceKm: null };
   }
 
+  if (API_KEYS.mapbox) {
+    const path = `${originCoords[0]},${originCoords[1]};${destCoords[0]},${destCoords[1]}`;
+    const url =
+      `${API_ENDPOINTS.mapboxDirections}/${path}` +
+      `?access_token=${API_KEYS.mapbox}&overview=false`;
+    const mb = await fetchJson(url);
+    if (!mb.networkError && mb.ok) {
+      const meters = mb.data?.routes?.[0]?.distance;
+      if (meters != null) {
+        return { ok: true, distanceKm: Math.round(meters / 1000) };
+      }
+    }
+  }
+
+  if (!API_KEYS.ors) {
+    return {
+      ok: false,
+      error: CONNECTION_ERROR,
+      distanceKm: null,
+    };
+  }
+
   const res = await fetchJson(API_ENDPOINTS.orsDirections, {
     method: "POST",
     headers: { ...ORS_HEADERS.json, ...ORS_HEADERS.auth() },

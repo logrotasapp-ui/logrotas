@@ -38,6 +38,7 @@ export const API_ENDPOINTS = {
   orsGeocode: "https://api.openrouteservice.org/geocode/autocomplete",
   orsDirections: "https://api.openrouteservice.org/v2/directions/driving-hgv",
   mapboxGeocoding: "https://api.mapbox.com/geocoding/v5/mapbox.places",
+  mapboxDirections: "https://api.mapbox.com/directions/v5/mapbox/driving",
   mapboxOptimization: "https://api.mapbox.com/optimized-trips/v1/mapbox/driving",
   geminiGenerate:
     "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent",
