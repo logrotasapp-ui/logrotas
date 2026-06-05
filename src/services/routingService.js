@@ -1,4 +1,10 @@
-import { API_KEYS, API_ENDPOINTS, ORS_HEADERS, GEMINI_HEADERS } from "./apiConfig.js";
+import {
+  API_KEYS,
+  API_ENDPOINTS,
+  ORS_HEADERS,
+  GEMINI_HEADERS,
+  SEARCH_COUNTRIES,
+} from "./apiConfig.js";
 import { fileToImageBlob } from "./fileToImage.js";
 import {
   parseRomaneioTextToDestinations,
@@ -26,6 +32,9 @@ const CONNECTION_ERROR =
 let cachedGeocodeProximity = null;
 let geocodeProximityRequested = false;
 
+/** V159 — fallback de proximity no fluxo romaneio/Gemini (último endereço geocodificado) */
+let lastRomaneioGeocodeProximity = null;
+
 /**
  * Solicita a localização do usuário para priorizar sugestões próximas (não bloqueia).
  * Pode ser chamado cedo (ex.: ao abrir calculadora) para o GPS responder antes da digitação.
@@ -47,7 +56,7 @@ function mapboxGeocodeSearchParams() {
   const params = new URLSearchParams({
     access_token: API_KEYS.mapbox,
     limit: "6",
-    country: "br",
+    country: SEARCH_COUNTRIES, // ALTERADO V159
     language: "pt",
     autocomplete: "true",
     types: "address,place,locality,neighborhood,postcode",
@@ -56,6 +65,10 @@ function mapboxGeocodeSearchParams() {
     params.set("proximity", `${cachedGeocodeProximity[0]},${cachedGeocodeProximity[1]}`);
   }
   return params;
+}
+
+function resolveProximityForRomaneio() {
+  return cachedGeocodeProximity || lastRomaneioGeocodeProximity;
 }
 
 // ── HTTP helpers ─────────────────────────────────────────────────────────────
@@ -320,6 +333,42 @@ export async function fetchDrivingDistanceKm(originCoords, destCoords) {
   return { ok: true, distanceKm };
 }
 
+/**
+ * V159 — Soma distâncias driving (Mapbox) de trechos consecutivos com coordenadas.
+ * @param {Array<[number, number] | null>} coordsList [lng,lat] por parada, na ordem da rota
+ * @returns {{ ok: true, distanceKm: number, segmentKm: number[] } | { ok: false, error?: string, segmentKm: [] }}
+ */
+export async function fetchRouteTotalDistanceKm(coordsList) {
+  if (!coordsList?.length || coordsList.length < 2) {
+    return { ok: false, error: "Rota incompleta.", distanceKm: null, segmentKm: [] };
+  }
+
+  const segmentKm = [];
+  let total = 0;
+
+  for (let i = 0; i < coordsList.length - 1; i++) {
+    const a = coordsList[i];
+    const b = coordsList[i + 1];
+    if (!a || !b) {
+      segmentKm.push(null);
+      continue;
+    }
+    const out = await fetchDrivingDistanceKm(a, b);
+    if (!out.ok || out.distanceKm == null) {
+      return { ok: false, error: out.error, distanceKm: null, segmentKm: [] };
+    }
+    segmentKm.push(out.distanceKm);
+    total += out.distanceKm;
+  }
+
+  const validSegments = segmentKm.filter((km) => km != null);
+  if (validSegments.length === 0) {
+    return { ok: false, error: "Defina origem e destino no mapa.", distanceKm: null, segmentKm: [] };
+  }
+
+  return { ok: true, distanceKm: total, segmentKm };
+}
+
 // ── Mapbox ───────────────────────────────────────────────────────────────────
 
 /** Geocodifica um endereço para exibição no mapa (não usado na otimização). */
@@ -331,7 +380,7 @@ async function geocodeMapboxAddress(endereco) {
   const query = encodeURIComponent(`${endereco}, Brasil`);
   const url =
     `${API_ENDPOINTS.mapboxGeocoding}/${query}.json` +
-    `?access_token=${API_KEYS.mapbox}&limit=1&country=br&language=pt`;
+    `?access_token=${API_KEYS.mapbox}&limit=1&country=${SEARCH_COUNTRIES}&language=pt`; // ALTERADO V159
 
   const res = await fetchJson(url);
   if (!res.ok) return null;
@@ -340,6 +389,61 @@ async function geocodeMapboxAddress(endereco) {
   if (!feat) return null;
 
   return { lng: feat.center[0], lat: feat.center[1] };
+}
+
+/**
+ * V159 — Geocoding só para endereços extraídos pelo Gemini (romaneio).
+ * Proximity: GPS do motorista → último endereço geocodificado com sucesso.
+ */
+export async function geocodeRomaneioExtractedAddress(endereco) {
+  if (!API_KEYS.mapbox || !endereco?.trim()) {
+    return { ok: false, endereco: null, coords: null };
+  }
+
+  warmGeocodeProximity();
+  const proximity = resolveProximityForRomaneio();
+  const params = new URLSearchParams({
+    access_token: API_KEYS.mapbox,
+    limit: "1",
+    country: SEARCH_COUNTRIES,
+    language: "pt",
+  });
+  if (proximity) {
+    params.set("proximity", `${proximity[0]},${proximity[1]}`);
+  }
+
+  const query = encodeURIComponent(String(endereco).trim());
+  const url = `${API_ENDPOINTS.mapboxGeocoding}/${query}.json?${params}`;
+  const res = await fetchJson(url);
+
+  if (!res.ok || !res.data?.features?.[0]) {
+    return { ok: false, endereco: null, coords: null };
+  }
+
+  const feat = res.data.features[0];
+  const coords = feat.center;
+  lastRomaneioGeocodeProximity = coords;
+
+  return {
+    ok: true,
+    endereco: feat.place_name,
+    coords,
+  };
+}
+
+/** V159 — Geocodifica lista de endereços do romaneio em sequência (proximity em cadeia). */
+export async function geocodeRomaneioExtractedAddresses(paradas) {
+  warmGeocodeProximity();
+  const out = [];
+  for (const p of paradas || []) {
+    const g = await geocodeRomaneioExtractedAddress(p.endereco);
+    if (g.ok) {
+      out.push({ ...p, endereco: g.endereco, coords: g.coords });
+    } else {
+      out.push(p);
+    }
+  }
+  return out;
 }
 
 async function fetchMapboxOptimization(coordsList) {

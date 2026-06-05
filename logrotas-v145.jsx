@@ -6,7 +6,8 @@ import {
   calculateProfitMeta,
   searchAddresses,
   warmGeocodeProximity,
-  fetchDrivingDistanceKm,
+  fetchRouteTotalDistanceKm,
+  geocodeRomaneioExtractedAddresses,
   optimizeDeliveryRoute,
   buildParadasFromAddresses,
   resolveManualAddress,
@@ -989,7 +990,7 @@ const CalcSelector=({onFrete,onViagem,onOtimizar,onClose})=>(
   </ModalWrap>
 );
 
-// ── OTIMIZAR ENTREGAS (V156 — Gemini + Mapbox via routingService) ─────────────
+// ── OTIMIZAR ENTREGAS (V159 — geocoding romaneio com proximity) ───────────────
 
 const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade})=>{
   const[paradas,setParadas]=useState([]);
@@ -1006,7 +1007,8 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade})=>{
   const LIMITE=isPro?Infinity:10;
   const atingiuLimite=paradas.length>=LIMITE;
 
-  const handleScannerSuccess=(addresses)=>{
+  // ALTERADO V159 — geocoding Mapbox com proximity (GPS + cadeia) só p/ endereços do Gemini
+  const handleScannerSuccess=async(addresses)=>{
     setErroFoto("");
     setResultado(null);
     const novas=buildParadasFromAddresses(addresses);
@@ -1014,7 +1016,15 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade})=>{
       setErroFoto("Nenhum endereço válido após limpeza do texto.");
       return;
     }
-    setParadas(p=>[...p,...novas]);
+    setProcessandoFoto(true);
+    try{
+      const geocoded=await geocodeRomaneioExtractedAddresses(novas);
+      setParadas(p=>[...p,...geocoded]);
+    }catch{
+      setErroFoto("Erro ao localizar endereços no mapa. Tente de novo.");
+    }finally{
+      setProcessandoFoto(false);
+    }
   };
 
   const adicionarManual=async()=>{
@@ -1246,7 +1256,7 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade})=>{
   );
 };
 
-// ── CALCULADORA DE VIAGEM ─────────────────────────────────────────────────────
+// ── CALCULADORA DE VIAGEM (V159 — KM total = soma dos trechos Mapbox Directions) ─
 const TripCalcModal=({onClose,vehicles})=>{
   const TRIP_VEHICLES=[
     {id:"moto",   emoji:"🏍️", label:"Moto",         consumption:25, axles:1, electric:false},
@@ -1268,14 +1278,13 @@ const TripCalcModal=({onClose,vehicles})=>{
 
   useEffect(()=>{ warmGeocodeProximity(); }, []);
 
+  // ALTERADO V159 — soma origem→paradas→destino (campo KM continua editável)
   const buscarDistAuto=async(stopsAtuais)=>{
-    const origem=stopsAtuais[0]?.coords;
-    const destino=stopsAtuais[stopsAtuais.length-1]?.coords;
-    if(!origem||!destino)return;
+    const coordsList=stopsAtuais.map(s=>s.coords);
     setBuscandoDist(true);
-    const out=await fetchDrivingDistanceKm(origem,destino);
+    const out=await fetchRouteTotalDistanceKm(coordsList);
     setBuscandoDist(false);
-    if(out.ok&&out.distanceKm)setDistancia(String(out.distanceKm));
+    if(out.ok&&out.distanceKm!=null)setDistancia(String(out.distanceKm));
   };
 
   const veiculo=TRIP_VEHICLES.find(v=>v.id===vehicleId)||TRIP_VEHICLES[1];
@@ -1339,7 +1348,11 @@ const TripCalcModal=({onClose,vehicles})=>{
               <AddressInput
                 value={stop.v}
                 onChange={v=>setStops(s=>s.map(x=>x.id===stop.id?{...x,v,coords:null}:x))}
-                onSelect={s=>setStops(st=>st.map(x=>x.id===stop.id?{...x,v:s.label,coords:s.coords}:x))}
+                onSelect={s=>{
+                  const nov=stops.map(x=>x.id===stop.id?{...x,v:s.label,coords:s.coords}:x);
+                  setStops(nov);
+                  buscarDistAuto(nov);
+                }}
                 placeholder={`Parada ${i+1}`}
                 dotColor={C.orange}
               />
@@ -1367,7 +1380,7 @@ const TripCalcModal=({onClose,vehicles})=>{
             dotColor={C.red}
           />
 
-          {/* KM total */}
+          {/* KM total — editável manualmente (fallback) */}
           <div style={{display:"flex",alignItems:"center",background:"#fff",border:`1.5px solid ${buscandoDist?"#3B82F6":C.border}`,borderRadius:10,overflow:"hidden"}}
             onFocusCapture={e=>e.currentTarget.style.borderColor="#3B82F6"}
             onBlurCapture={e=>e.currentTarget.style.borderColor=C.border}>
@@ -1529,15 +1542,16 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
 
   useEffect(()=>{ warmGeocodeProximity(); }, []);
 
-  // Quando origem e destino tiverem coords, busca distância automaticamente
+  // ALTERADO V159 — um KM por trecho + soma no total (Mapbox Directions driving)
   const buscarDistAuto=async(stopsAtuais)=>{
-    const origem=stopsAtuais[0]?.coords;
-    const destino=stopsAtuais[stopsAtuais.length-1]?.coords;
-    if(!origem||!destino)return;
+    const coordsList=stopsAtuais.map(s=>s.coords);
     setBuscandoDist(true);
-    const out=await fetchDrivingDistanceKm(origem,destino);
+    const out=await fetchRouteTotalDistanceKm(coordsList);
     setBuscandoDist(false);
-    if(out.ok&&out.distanceKm){setDists([String(out.distanceKm)]);}
+    if(!out.ok)return;
+    const segments=(out.segmentKm||[]).map(km=>(km!=null?String(km):""));
+    while(segments.length<stopsAtuais.length-1)segments.push("");
+    setDists(segments.slice(0,stopsAtuais.length-1));
   };
 
   const veh=vehicles.find(v=>v.id===vehicleId)||vehicles[0];
@@ -1629,7 +1643,11 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
                 <AddressInput
                   value={stop.v}
                   onChange={v=>setStops(s=>s.map(x=>x.id===stop.id?{...x,v,coords:null}:x))}
-                  onSelect={s=>setStops(st=>st.map(x=>x.id===stop.id?{...x,v:s.label,coords:s.coords}:x))}
+                  onSelect={s=>{
+                    const nov=stops.map(x=>x.id===stop.id?{...x,v:s.label,coords:s.coords}:x);
+                    setStops(nov);
+                    buscarDistAuto(nov);
+                  }}
                   placeholder={`Parada ${i+1}`}
                   dotColor={C.orange}
                 />
