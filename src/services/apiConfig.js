@@ -40,7 +40,7 @@ export const API_ENDPOINTS = {
   mapboxGeocoding: "https://api.mapbox.com/geocoding/v5/mapbox.places",
   mapboxOptimization: "https://api.mapbox.com/optimized-trips/v1/mapbox/driving",
   geminiGenerate:
-    "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent",
+    "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-001:generateContent",
 };
 
 export const ORS_HEADERS = {
