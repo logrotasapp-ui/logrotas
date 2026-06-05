@@ -12,6 +12,7 @@ import {
 } from "./src/services/routingService.js";
 import { calculateTripCosts } from "./src/services/tripCalcService.js";
 import ScannerModule from "./src/components/ScannerModule.js";
+import DeliveryMap from "./src/components/DeliveryMap.js";
 import {
   CheckIcon, XIcon, ZapIcon, UsersIcon, StarIcon,
   ArrowRightIcon, ArrowLeftIcon, CrownIcon, LockIcon, PhoneIcon,
@@ -1134,6 +1135,13 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade})=>{
           <div style={{fontSize:36,marginBottom:8}}>📍</div>
           <div style={{color:C.text,fontWeight:700,fontSize:14,marginBottom:4}}>Nenhuma parada adicionada</div>
           <div style={{color:C.muted,fontSize:13}}>Importe um romaneio ou adicione endereços manualmente</div>
+        </div>
+      )}
+
+      {paradas.length>=2&&(
+        <div style={{marginBottom:14}}>
+          <div style={{color:C.navy,fontWeight:700,fontSize:13,marginBottom:8}}>🗺️ Mapa das entregas</div>
+          <DeliveryMap paradas={paradas} height={240}/>
         </div>
       )}
 

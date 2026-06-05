@@ -221,6 +221,11 @@ export async function fetchDrivingDistanceKm(originCoords, destCoords) {
 
 // ── Mapbox ───────────────────────────────────────────────────────────────────
 
+/** Geocodifica um endereço para exibição no mapa (não usado na otimização). */
+export async function geocodeAddressForDisplay(endereco) {
+  return geocodeMapboxAddress(endereco);
+}
+
 async function geocodeMapboxAddress(endereco) {
   const query = encodeURIComponent(`${endereco}, Brasil`);
   const url =
