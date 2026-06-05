@@ -5,6 +5,12 @@ import {
   GEMINI_HEADERS,
   SEARCH_COUNTRIES,
 } from "./apiConfig.js";
+import {
+  fetchGooglePlacePredictions,
+  resolvePlaceSuggestion,
+} from "./googlePlacesService.js";
+
+export { resolvePlaceSuggestion } from "./googlePlacesService.js";
 import { fileToImageBlob } from "./fileToImage.js";
 import {
   parseRomaneioTextToDestinations,
@@ -188,10 +194,12 @@ export async function resolveManualAddress(rawText) {
     }
     if (res.suggestions.length > 0) {
       const best = pickBestAddressSuggestion(normalized, res.suggestions);
+      const resolved = await resolvePlaceSuggestion(best);
+      if (!resolved?.coords) continue;
       return {
         ok: true,
-        endereco: best.label,
-        coords: best.coords,
+        endereco: resolved.label,
+        coords: resolved.coords,
         normalized,
       };
     }
@@ -207,47 +215,37 @@ export async function resolveManualAddress(rawText) {
 // ── OpenRouteService ─────────────────────────────────────────────────────────
 
 /**
- * Autocomplete de endereços via Mapbox (mesmo provedor da otimização de rotas).
+ * V163 — Autocomplete via Google Places (country=SEARCH_COUNTRIES).
  * @param {string} query — texto já normalizado
  */
-async function searchAddressesMapbox(query) {
+async function searchAddressesGoogle(query) {
   warmGeocodeProximity();
 
-  const searchText = encodeURIComponent(query);
-  const url = `${API_ENDPOINTS.mapboxGeocoding}/${searchText}.json?${mapboxGeocodeSearchParams()}`;
-
-  const res = await fetchJson(url);
-
-  if (res.networkError) {
-    return { ok: false, error: CONNECTION_ERROR, suggestions: [] };
-  }
-
-  if (!res.ok) {
-    const apiMsg = res.data?.message;
+  if (!API_KEYS.googleMaps) {
     return {
       ok: false,
-      error:
-        apiMsg ||
-        (res.status === 401
-          ? "Token Mapbox inválido. Verifique VITE_MAPBOX_TOKEN."
-          : `Busca de endereços indisponível (${res.status || "erro"}).`),
+      error: "Busca de endereços indisponível (configure VITE_GOOGLE_MAPS_KEY).",
       suggestions: [],
     };
   }
 
-  const suggestions = (res.data?.features || []).map((f) => ({
-    label: f.place_name,
-    coords: f.center,
-  }));
-
-  return { ok: true, suggestions };
+  try {
+    const suggestions = await fetchGooglePlacePredictions(query, cachedGeocodeProximity);
+    return { ok: true, suggestions };
+  } catch (err) {
+    return {
+      ok: false,
+      error: err?.message || CONNECTION_ERROR,
+      suggestions: [],
+    };
+  }
 }
 
 /**
- * Autocomplete de endereços (Brasil) — Mapbox; ORS só se não houver token Mapbox.
+ * Autocomplete de endereços (Brasil) — Google Places Autocomplete API.
  * @param {string} text
  * @param {{ skipNormalize?: boolean }} [opts]
- * @returns {{ ok: true, suggestions: Array<{label, coords}> } | { ok: false, error: string, suggestions: [] }}
+ * @returns {{ ok: true, suggestions: Array<{label, placeId?, coords?}> } | { ok: false, error: string, suggestions: [] }}
  */
 export async function searchAddresses(text, opts = {}) {
   const query = opts.skipNormalize ? String(text || "").trim() : normalizeManualAddressInput(text);
@@ -256,36 +254,7 @@ export async function searchAddresses(text, opts = {}) {
     return { ok: true, suggestions: [] };
   }
 
-  warmGeocodeProximity();
-
-  if (API_KEYS.mapbox) {
-    return searchAddressesMapbox(query);
-  }
-
-  if (!API_KEYS.ors) {
-    return {
-      ok: false,
-      error: "Busca de endereços indisponível (configure VITE_MAPBOX_TOKEN).",
-      suggestions: [],
-    };
-  }
-
-  const url =
-    `${API_ENDPOINTS.orsGeocode}?api_key=${API_KEYS.ors}` +
-    `&text=${encodeURIComponent(query)}&boundary.country=BR&lang=pt&size=6`;
-
-  const res = await fetchJson(url);
-
-  if (res.networkError) {
-    return { ok: false, error: CONNECTION_ERROR, suggestions: [] };
-  }
-
-  const suggestions = (res.data?.features || []).map((f) => ({
-    label: f.properties.label,
-    coords: f.geometry.coordinates,
-  }));
-
-  return { ok: true, suggestions };
+  return searchAddressesGoogle(query);
 }
 
 /**

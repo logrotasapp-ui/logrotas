@@ -7,6 +7,7 @@ const ENV_VAR_NAMES = {
   ors: "VITE_ORS_KEY",
   mapbox: "VITE_MAPBOX_TOKEN",
   gemini: "VITE_GEMINI_KEY",
+  googleMaps: "VITE_GOOGLE_MAPS_KEY",
 };
 
 /**
@@ -28,13 +29,14 @@ function readEnv(envName) {
   return String(raw).trim();
 }
 
-/** País(es) Mapbox Geocoding — expandir p/ LATAM: ex. "br,ar,uy" */
+/** País(es) em buscas de endereço — expandir p/ LATAM: ex. "br" ou múltiplos no Google */
 export const SEARCH_COUNTRIES = "br";
 
 export const API_KEYS = {
   ors: readEnv(ENV_VAR_NAMES.ors),
   mapbox: readEnv(ENV_VAR_NAMES.mapbox),
   gemini: readEnv(ENV_VAR_NAMES.gemini),
+  googleMaps: readEnv(ENV_VAR_NAMES.googleMaps),
 };
 
 export const API_ENDPOINTS = {
