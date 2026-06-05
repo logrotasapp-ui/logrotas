@@ -51,15 +51,38 @@ function createNumberedMarker(lng, lat, order) {
   });
 }
 
+function createDriverMarker(lng, lat) {
+  return new window.google.maps.Marker({
+    position: { lat, lng },
+    title: "Sua localização",
+    icon: {
+      path: window.google.maps.SymbolPath.CIRCLE,
+      scale: 18,
+      fillColor: "#F59E0B",
+      fillOpacity: 1,
+      strokeColor: "#ffffff",
+      strokeWeight: 3,
+    },
+    label: {
+      text: "▲",
+      color: "#ffffff",
+      fontSize: "12px",
+      fontWeight: "700",
+    },
+    zIndex: Number(window.google.maps.Marker.MAX_ZINDEX) + 1000,
+  });
+}
+
 /**
- * V165 — Mapa Google Maps com agrupamento (cluster) e marcadores numerados.
- * @param {{ paradas: Array<{id, endereco, coords?, ordem?}>, height?: number | string }} props
+ * V166 — Mapa Google Maps com marcador do motorista, clusters e paradas numeradas.
+ * @param {{ paradas: Array<{id, endereco, coords?, ordem?}>, height?: number | string, motoristaCoords?: [number, number] | null }} props
  */
-export default function DeliveryMap({ paradas, height = 260 }) {
+export default function DeliveryMap({ paradas, height = 260, motoristaCoords = null }) {
   const containerRef = useRef(null);
   const mapRef = useRef(null);
   const clustererRef = useRef(null);
   const markersRef = useRef([]);
+  const driverMarkerRef = useRef(null);
   const applyRequestIdRef = useRef(0);
   const [mapReady, setMapReady] = useState(false);
   const [status, setStatus] = useState("idle");
@@ -72,10 +95,23 @@ export default function DeliveryMap({ paradas, height = 260 }) {
     clustererRef.current = null;
   }, []);
 
+  const updateDriverMarker = useCallback((map, coords) => {
+    if (driverMarkerRef.current) {
+      driverMarkerRef.current.setMap(null);
+      driverMarkerRef.current = null;
+    }
+    if (!map || !coords || coords.length < 2) return;
+
+    const [lng, lat] = coords;
+    driverMarkerRef.current = createDriverMarker(lng, lat);
+    driverMarkerRef.current.setMap(map);
+  }, []);
+
   const applyParadas = useCallback(
-    async (map, list) => {
+    async (map, list, driverCoords) => {
       const requestId = ++applyRequestIdRef.current;
       clearMarkers();
+      updateDriverMarker(map, driverCoords);
 
       if (!list?.length) {
         if (requestId !== applyRequestIdRef.current) return;
@@ -117,6 +153,9 @@ export default function DeliveryMap({ paradas, height = 260 }) {
           const [lng, lat] = f.geometry.coordinates;
           bounds.extend({ lat, lng });
         });
+        if (driverCoords?.length >= 2) {
+          bounds.extend({ lat: driverCoords[1], lng: driverCoords[0] });
+        }
         map.fitBounds(bounds, 48);
 
         setStatus("ready");
@@ -131,7 +170,7 @@ export default function DeliveryMap({ paradas, height = 260 }) {
         setHint("Erro ao carregar marcadores.");
       }
     },
-    [clearMarkers]
+    [clearMarkers, updateDriverMarker]
   );
 
   useEffect(() => {
@@ -168,6 +207,10 @@ export default function DeliveryMap({ paradas, height = 260 }) {
 
     return () => {
       cancelled = true;
+      if (driverMarkerRef.current) {
+        driverMarkerRef.current.setMap(null);
+        driverMarkerRef.current = null;
+      }
       clearMarkers();
       mapRef.current = null;
       setMapReady(false);
@@ -179,14 +222,14 @@ export default function DeliveryMap({ paradas, height = 260 }) {
     if (!map || !mapReady) return;
 
     let cancelled = false;
-    applyParadas(map, paradas).then(() => {
+    applyParadas(map, paradas, motoristaCoords).then(() => {
       if (cancelled) return;
     });
 
     return () => {
       cancelled = true;
     };
-  }, [paradas, mapReady, applyParadas]);
+  }, [paradas, motoristaCoords, mapReady, applyParadas]);
 
   if (status === "no-token") {
     return (
@@ -250,6 +293,12 @@ export default function DeliveryMap({ paradas, height = 260 }) {
           }}
         >
           {hint}
+          {motoristaCoords && (
+            <>
+              {" "}
+              <span style={{ color: "#D97706", fontWeight: 600 }}>▲ laranja = você</span>
+            </>
+          )}
         </p>
       )}
     </div>

@@ -1,5 +1,5 @@
 /**
- * V165 — Google Directions API (otimização de paradas com optimizeWaypoints).
+ * V166 — Google Directions API (origem GPS do motorista ou fallback 1ª parada).
  */
 
 import { API_KEYS } from "./apiConfig.js";
@@ -29,7 +29,7 @@ function findRestIndexByCoord(rest, lat, lng) {
 }
 
 /**
- * V165 — Fallback quando waypoint_order não vem na resposta (ex.: round-trip).
+ * Fallback quando waypoint_order não vem na resposta (ex.: round-trip).
  * @param {google.maps.DirectionsRoute} route
  * @param {Array<{ coord: { lng: number, lat: number } }>} rest
  * @returns {number[]}
@@ -64,8 +64,80 @@ function resolveWaypointOrder(route, rest) {
   return inferWaypointOrderFromLegs(route, rest);
 }
 
-function directionsRoute(entries) {
+function handleDirectionsResult(resolve, route, rest, roundTrip = false) {
+  const legs = route.legs || [];
+  const metricLegs = roundTrip && legs.length > 1 ? legs.slice(0, -1) : legs;
+  resolve({
+    ok: true,
+    waypointOrder: resolveWaypointOrder(route, rest),
+    route,
+    legs,
+    totalDistanceM: sumLegsMetric(metricLegs, "distance"),
+    totalDurationS: sumLegsMetric(metricLegs, "duration"),
+  });
+}
+
+/**
+ * V166 — Origem GPS: todas as paradas são waypoints otimizáveis.
+ * Fallback: 1ª parada fixa como origem (comportamento anterior).
+ */
+function directionsRoute(entries, driverOrigin = null) {
   const service = new window.google.maps.DirectionsService();
+  const useGps = Boolean(driverOrigin);
+
+  if (useGps) {
+    const origin = latLngFromCoord(driverOrigin);
+    const allWaypoints = entries.map((e) => ({
+      location: latLngFromCoord(e.coord),
+      stopover: true,
+    }));
+
+    if (allWaypoints.length === 1) {
+      return new Promise((resolve) => {
+        service.route(
+          {
+            origin,
+            destination: allWaypoints[0].location,
+            travelMode: window.google.maps.TravelMode.DRIVING,
+          },
+          (result, status) => {
+            if (status !== window.google.maps.DirectionsStatus.OK || !result?.routes?.[0]) {
+              resolve({
+                ok: false,
+                error: DIRECTIONS_ERRORS[status] || "Erro na otimização. Tente novamente.",
+              });
+              return;
+            }
+            const route = result.routes[0];
+            handleDirectionsResult(resolve, route, entries, false);
+          }
+        );
+      });
+    }
+
+    return new Promise((resolve) => {
+      service.route(
+        {
+          origin,
+          destination: origin,
+          waypoints: allWaypoints,
+          optimizeWaypoints: true,
+          travelMode: window.google.maps.TravelMode.DRIVING,
+        },
+        (result, status) => {
+          if (status !== window.google.maps.DirectionsStatus.OK || !result?.routes?.[0]) {
+            resolve({
+              ok: false,
+              error: DIRECTIONS_ERRORS[status] || "Erro na otimização. Tente novamente.",
+            });
+            return;
+          }
+          handleDirectionsResult(resolve, result.routes[0], entries, true);
+        }
+      );
+    });
+  }
+
   const origin = latLngFromCoord(entries[0].coord);
   const last = entries[entries.length - 1].coord;
 
@@ -122,27 +194,18 @@ function directionsRoute(entries) {
           return;
         }
         const route = result.routes[0];
-        const legs = route.legs || [];
-        const metricLegs = legs.length > 1 ? legs.slice(0, -1) : legs;
         const rest = entries.slice(1);
-        resolve({
-          ok: true,
-          waypointOrder: resolveWaypointOrder(route, rest),
-          route,
-          legs,
-          totalDistanceM: sumLegsMetric(metricLegs, "distance"),
-          totalDurationS: sumLegsMetric(metricLegs, "duration"),
-        });
+        handleDirectionsResult(resolve, route, rest, true);
       }
     );
   });
 }
 
 /**
- * Otimiza ordem das paradas a partir do primeiro endereço (fixo).
  * @param {Array<{ parada: object, coord: { lng: number, lat: number } }>} entries
+ * @param {{ lng: number, lat: number } | null} [driverOrigin]
  */
-export async function fetchGoogleOptimizedRoute(entries) {
+export async function fetchGoogleOptimizedRoute(entries, driverOrigin = null) {
   if (!API_KEYS.googleMaps) {
     return {
       ok: false,
@@ -155,7 +218,9 @@ export async function fetchGoogleOptimizedRoute(entries) {
 
   try {
     await waitForGoogleMaps();
-    return directionsRoute(entries);
+    const usedDriverOrigin = Boolean(driverOrigin);
+    const result = await directionsRoute(entries, driverOrigin);
+    return { ...result, usedDriverOrigin };
   } catch (err) {
     return {
       ok: false,
@@ -165,12 +230,18 @@ export async function fetchGoogleOptimizedRoute(entries) {
 }
 
 /**
- * V165 — Primeira parada fixa; demais reordenadas por waypoint_order (ou legs).
+ * V166 — Reordena paradas pelo waypoint_order do Google.
  * @param {Array<{ parada: object, coord: { lng: number, lat: number } }>} entries
  * @param {number[]} waypointOrder
  * @param {google.maps.DirectionsRoute | null} [route]
+ * @param {{ allAsWaypoints?: boolean }} [options]
  */
-export function reorderStopsByGoogleWaypointOrder(entries, waypointOrder, route = null) {
+export function reorderStopsByGoogleWaypointOrder(
+  entries,
+  waypointOrder,
+  route = null,
+  { allAsWaypoints = false } = {}
+) {
   if (!entries?.length) return [];
 
   const toParada = (entry, ordem) => ({
@@ -178,6 +249,17 @@ export function reorderStopsByGoogleWaypointOrder(entries, waypointOrder, route 
     ordem,
     coords: [entry.coord.lng, entry.coord.lat],
   });
+
+  if (allAsWaypoints) {
+    const order =
+      Array.isArray(waypointOrder) && waypointOrder.length === entries.length
+        ? waypointOrder
+        : route
+          ? inferWaypointOrderFromLegs(route, entries)
+          : entries.map((_, i) => i);
+
+    return order.map((idx, i) => toParada(entries[idx], i + 1));
+  }
 
   if (entries.length === 1) return [toParada(entries[0], 1)];
 

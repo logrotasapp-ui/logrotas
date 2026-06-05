@@ -7,6 +7,7 @@ import {
   searchAddresses,
   resolvePlaceSuggestion,
   warmGeocodeProximity,
+  getDriverGeolocation,
   fetchRouteTotalDistanceKm,
   geocodeRomaneioExtractedAddresses,
   optimizeDeliveryRoute,
@@ -998,7 +999,7 @@ const CalcSelector=({onFrete,onViagem,onOtimizar,onClose})=>(
   </ModalWrap>
 );
 
-// ── OTIMIZAR ENTREGAS (V164 — mapa e otimização Google Maps) ───────────────────
+// ── OTIMIZAR ENTREGAS (V166 — origem GPS do motorista na otimização) ───────────
 
 const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade})=>{
   const[paradas,setParadas]=useState([]);
@@ -1011,10 +1012,19 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade})=>{
   const[erroOtimizar,setErroOtimizar]=useState("");
   const[resultado,setResultado]=useState(null);
   const[mapaExpandido,setMapaExpandido]=useState(false);
+  const[posicaoMotorista,setPosicaoMotorista]=useState(null);
 
   const isPro=plan==="pro";
   const LIMITE=isPro?Infinity:10;
   const atingiuLimite=paradas.length>=LIMITE;
+
+  // V166 — GPS do motorista no mapa (e como origem da otimização)
+  useEffect(()=>{
+    warmGeocodeProximity();
+    getDriverGeolocation().then((pos)=>{
+      if(pos)setPosicaoMotorista([pos.lng,pos.lat]);
+    });
+  },[]);
 
   // ALTERADO V159 — geocoding Mapbox com proximity (GPS + cadeia) só p/ endereços do Gemini
   const handleScannerSuccess=async(addresses)=>{
@@ -1071,7 +1081,7 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade})=>{
     window.open(`https://www.google.com/maps/dir/${waypoints}`,"_blank");
   };
 
-  // V165 — geocoding completo → Directions (optimizeWaypoints) → reordena lista e mapa
+  // V166 — geocoding → GPS como origin → todas paradas como waypoints otimizáveis
   const handleOtimizarRota=async()=>{
     if(paradas.length<2)return;
     setOtimizando(true);
@@ -1086,6 +1096,7 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade})=>{
       setErroOtimizar(out.error);
       return;
     }
+    if(out.motoristaCoords)setPosicaoMotorista(out.motoristaCoords);
     setParadas(out.paradasOtimizadas);
     setResultado(out.resultado);
   };
@@ -1169,6 +1180,7 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade})=>{
           <DeliveryMap
             key={paradas.map((p,i)=>`${i}:${p.id}`).join("|")}
             paradas={paradas}
+            motoristaCoords={posicaoMotorista}
             height={240}
           />
           {/* V161 — expandir mapa em overlay tela cheia */}
@@ -1247,6 +1259,7 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade})=>{
               <DeliveryMap
                 key={`fs-${paradas.map((p,i)=>`${i}:${p.id}`).join("|")}`}
                 paradas={paradas}
+                motoristaCoords={posicaoMotorista}
                 height="90vh"
               />
             </div>

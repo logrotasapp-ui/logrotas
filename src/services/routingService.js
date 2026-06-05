@@ -68,6 +68,50 @@ export function warmGeocodeProximity() {
   );
 }
 
+/**
+ * V166 — Localização GPS do motorista para otimização de entregas.
+ * @param {{ preferFresh?: boolean }} [options]
+ * @returns {Promise<{ lng: number, lat: number } | null>}
+ */
+export function getDriverGeolocation(options = {}) {
+  const { preferFresh = false } = options;
+
+  return new Promise((resolve) => {
+    if (!preferFresh && cachedGeocodeProximity) {
+      resolve({ lng: cachedGeocodeProximity[0], lat: cachedGeocodeProximity[1] });
+      return;
+    }
+    if (typeof navigator === "undefined" || !navigator.geolocation) {
+      resolve(
+        cachedGeocodeProximity
+          ? { lng: cachedGeocodeProximity[0], lat: cachedGeocodeProximity[1] }
+          : null
+      );
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        cachedGeocodeProximity = [pos.coords.longitude, pos.coords.latitude];
+        geocodeProximityRequested = true;
+        resolve({ lng: pos.coords.longitude, lat: pos.coords.latitude });
+      },
+      () => {
+        resolve(
+          cachedGeocodeProximity
+            ? { lng: cachedGeocodeProximity[0], lat: cachedGeocodeProximity[1] }
+            : null
+        );
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 12000,
+        maximumAge: preferFresh ? 0 : 600000,
+      }
+    );
+  });
+}
+
 function mapboxGeocodeSearchParams() {
   const params = new URLSearchParams({
     access_token: API_KEYS.mapbox,
@@ -612,7 +656,7 @@ export async function extractRomaneioAddressesFromImage(file, options = {}) {
 }
 
 /**
- * V165 — Geocodifica todas as paradas, depois otimiza (Google Directions) e calcula métricas.
+ * V166 — Geocodifica paradas; origem = GPS do motorista (fallback: 1ª parada).
  * @param {Array<{id, endereco}>} paradas
  */
 export async function optimizeDeliveryRoute(paradas, options = {}) {
@@ -636,7 +680,12 @@ export async function optimizeDeliveryRoute(paradas, options = {}) {
       };
     }
 
-    const optRes = await fetchGoogleOptimizedRoute(entries);
+    const driverPos = await getDriverGeolocation({ preferFresh: true });
+    const driverOrigin = driverPos
+      ? { lng: driverPos.lng, lat: driverPos.lat }
+      : null;
+
+    const optRes = await fetchGoogleOptimizedRoute(entries, driverOrigin);
 
     if (!optRes.ok) {
       return { ok: false, error: optRes.error || "Erro na otimização. Tente novamente." };
@@ -645,7 +694,8 @@ export async function optimizeDeliveryRoute(paradas, options = {}) {
     const paradasOtimizadas = reorderStopsByGoogleWaypointOrder(
       entries,
       optRes.waypointOrder,
-      optRes.route
+      optRes.route,
+      { allAsWaypoints: optRes.usedDriverOrigin }
     );
     const resultado = buildOptimizationMetrics({
       trip: {
@@ -657,7 +707,13 @@ export async function optimizeDeliveryRoute(paradas, options = {}) {
       precoCombustivel,
     });
 
-    return { ok: true, paradasOtimizadas, resultado };
+    return {
+      ok: true,
+      paradasOtimizadas,
+      resultado,
+      motoristaCoords: driverOrigin ? [driverOrigin.lng, driverOrigin.lat] : null,
+      usedDriverOrigin: optRes.usedDriverOrigin,
+    };
   } catch {
     return { ok: false, error: CONNECTION_ERROR };
   }
