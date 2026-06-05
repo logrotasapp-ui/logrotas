@@ -990,7 +990,7 @@ const CalcSelector=({onFrete,onViagem,onOtimizar,onClose})=>(
   </ModalWrap>
 );
 
-// ── OTIMIZAR ENTREGAS (V161 — mapa expandível em tela cheia) ───────────────────
+// ── OTIMIZAR ENTREGAS (V162 — otimização Mapbox + mapa V161) ───────────────────
 
 const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade})=>{
   const[paradas,setParadas]=useState([]);
@@ -1063,7 +1063,7 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade})=>{
     window.open(`https://www.google.com/maps/dir/${waypoints}`,"_blank");
   };
 
-  // V156 — Mapbox Optimization API real
+  // V162 — aplica paradasOtimizadas (waypoint_index) no mapa e na lista
   const handleOtimizarRota=async()=>{
     if(paradas.length<2)return;
     setOtimizando(true);

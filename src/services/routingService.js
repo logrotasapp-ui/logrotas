@@ -454,11 +454,24 @@ export async function geocodeRomaneioExtractedAddresses(paradas) {
 
 async function fetchMapboxOptimization(coordsList) {
   const coordsStr = coordsList.map((c) => `${c.lng},${c.lat}`).join(";");
+  // V162 — reordena todos os waypoints (não fixar só o meio da lista)
   const url =
     `${API_ENDPOINTS.mapboxOptimization}/${coordsStr}` +
-    `?access_token=${API_KEYS.mapbox}&roundtrip=false&source=first&destination=last&geometries=geojson`;
+    `?access_token=${API_KEYS.mapbox}&roundtrip=true&source=any&destination=any&geometries=geojson`;
 
   return fetchJson(url);
+}
+
+/** Usa coords já geocodificadas na parada; senão geocode Mapbox (otimização). */
+async function resolveParadaCoordForOptimization(parada) {
+  const c = parada?.coords;
+  if (Array.isArray(c) && c.length >= 2) {
+    return { lng: Number(c[0]), lat: Number(c[1]) };
+  }
+  if (c && typeof c.lng === "number" && typeof c.lat === "number") {
+    return { lng: c.lng, lat: c.lat };
+  }
+  return geocodeMapboxAddress(parada.endereco);
 }
 
 // ── Romaneio: Gemini Vision (Gemini 2.5 Flash Lite) ────────────────────────────
@@ -647,19 +660,21 @@ export async function optimizeDeliveryRoute(paradas, options = {}) {
   }
 
   try {
-    const coords = await Promise.all(
-      paradas.map((p) => geocodeMapboxAddress(p.endereco))
-    );
-    const validas = coords.filter(Boolean);
+    // V162 — uma entrada por parada (índice alinhado aos waypoints da Mapbox)
+    const entries = [];
+    for (const parada of paradas) {
+      const coord = await resolveParadaCoordForOptimization(parada);
+      if (coord) entries.push({ parada, coord });
+    }
 
-    if (validas.length < 2) {
+    if (entries.length < 2) {
       return {
         ok: false,
         error: "Não foi possível localizar os endereços. Verifique se estão completos.",
       };
     }
 
-    const optRes = await fetchMapboxOptimization(validas);
+    const optRes = await fetchMapboxOptimization(entries.map((e) => e.coord));
 
     if (optRes.networkError) {
       return { ok: false, error: CONNECTION_ERROR };
@@ -667,10 +682,14 @@ export async function optimizeDeliveryRoute(paradas, options = {}) {
 
     const optData = optRes.data;
     if (optData?.code !== "Ok") {
-      return { ok: false, error: "Erro na otimização. Tente novamente." };
+      const apiMsg = optData?.message;
+      return {
+        ok: false,
+        error: apiMsg ? String(apiMsg) : "Erro na otimização. Tente novamente.",
+      };
     }
 
-    const paradasOtimizadas = reorderStopsByWaypoints(paradas, optData.waypoints || []);
+    const paradasOtimizadas = reorderStopsByWaypoints(entries, optData.waypoints || []);
     const resultado = buildOptimizationMetrics({
       trip: optData.trips?.[0],
       fallbackStopCount: validas.length,
@@ -807,9 +826,30 @@ export function calculateProfitMeta({ lucroFinal, freteSug, metaLucroPercent }) 
   };
 }
 
-export function reorderStopsByWaypoints(paradas, waypoints) {
-  const ordemOtimizada = (waypoints || []).map((w) => w.waypoint_index);
-  return ordemOtimizada.map((i) => paradas[i]).filter(Boolean);
+/**
+ * V162 — Reordena paradas pela resposta da Optimization API.
+ * `waypoints` vem na ordem das coordenadas enviadas; `waypoint_index` é a posição na rota otimizada.
+ * @param {Array<{ parada: object, coord: { lng, lat } }>} entries
+ */
+export function reorderStopsByWaypoints(entries, waypoints) {
+  if (!entries?.length || !waypoints?.length) return [];
+
+  return [...waypoints]
+    .map((w, inputIdx) => ({
+      inputIdx,
+      visitIdx: typeof w.waypoint_index === "number" ? w.waypoint_index : inputIdx,
+    }))
+    .sort((a, b) => a.visitIdx - b.visitIdx)
+    .map(({ inputIdx }) => {
+      const entry = entries[inputIdx];
+      if (!entry) return null;
+      const { lng, lat } = entry.coord;
+      return {
+        ...entry.parada,
+        coords: [lng, lat],
+      };
+    })
+    .filter(Boolean);
 }
 
 export function buildOptimizationMetrics({
