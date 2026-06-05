@@ -990,7 +990,7 @@ const CalcSelector=({onFrete,onViagem,onOtimizar,onClose})=>(
   </ModalWrap>
 );
 
-// ── OTIMIZAR ENTREGAS (V160 — prompt Gemini com cidade/UF) ─────────────────────
+// ── OTIMIZAR ENTREGAS (V161 — mapa expandível em tela cheia) ───────────────────
 
 const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade})=>{
   const[paradas,setParadas]=useState([]);
@@ -1002,6 +1002,7 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade})=>{
   const[otimizando,setOtimizando]=useState(false);
   const[erroOtimizar,setErroOtimizar]=useState("");
   const[resultado,setResultado]=useState(null);
+  const[mapaExpandido,setMapaExpandido]=useState(false);
 
   const isPro=plan==="pro";
   const LIMITE=isPro?Infinity:10;
@@ -1158,6 +1159,82 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade})=>{
         <div style={{marginBottom:14}}>
           <div style={{color:C.navy,fontWeight:700,fontSize:13,marginBottom:8}}>🗺️ Mapa das entregas</div>
           <DeliveryMap paradas={paradas} height={240}/>
+          {/* V161 — expandir mapa em overlay tela cheia */}
+          <button
+            type="button"
+            onClick={()=>setMapaExpandido(true)}
+            style={{
+              marginTop:10,
+              width:"100%",
+              padding:"10px 14px",
+              background:"#EFF6FF",
+              border:"1.5px solid #BFDBFE",
+              borderRadius:10,
+              cursor:"pointer",
+              color:"#1D4ED8",
+              fontWeight:700,
+              fontSize:13,
+              display:"flex",
+              alignItems:"center",
+              justifyContent:"center",
+              gap:8,
+            }}
+          >
+            <span style={{fontSize:16}}>⛶</span> Expandir mapa
+          </button>
+        </div>
+      )}
+
+      {mapaExpandido&&paradas.length>=2&&(
+        <div
+          style={{
+            position:"fixed",
+            inset:0,
+            zIndex:500,
+            background:"rgba(15,23,42,0.72)",
+            display:"flex",
+            alignItems:"center",
+            justifyContent:"center",
+          }}
+        >
+          <div
+            style={{
+              position:"relative",
+              width:"100%",
+              height:"90vh",
+              maxWidth:"100vw",
+              padding:"0 12px",
+              boxSizing:"border-box",
+            }}
+          >
+            <button
+              type="button"
+              onClick={()=>setMapaExpandido(false)}
+              aria-label="Fechar mapa"
+              style={{
+                position:"absolute",
+                top:8,
+                right:20,
+                zIndex:502,
+                width:40,
+                height:40,
+                borderRadius:10,
+                border:"none",
+                background:"#fff",
+                boxShadow:"0 4px 16px #00000044",
+                cursor:"pointer",
+                display:"flex",
+                alignItems:"center",
+                justifyContent:"center",
+                color:C.muted,
+              }}
+            >
+              <XIcon size={18}/>
+            </button>
+            <div style={{width:"100%",height:"100%",borderRadius:12,overflow:"hidden"}}>
+              <DeliveryMap paradas={paradas} height="90vh"/>
+            </div>
+          </div>
         </div>
       )}
 
