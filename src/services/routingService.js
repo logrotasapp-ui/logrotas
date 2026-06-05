@@ -32,14 +32,19 @@ export {
 /** Valor estimado por eixo por praça de pedágio (R$). */
 export const TOLL_PER_AXLE = 3.2;
 
-// V160 — prompt romaneio: cidade e UF obrigatórios em cada linha
+// V167 — prompt Gemini: romaneio (lista) ou etiqueta de pacote (destinatário)
 const ROMANEIO_PROMPT =
-  "Analise esta imagem de um romaneio de entregas. Extraia APENAS os endereços de entrega, um por linha. " +
-  "Formato obrigatório de cada linha: Rua Nome, Número - Bairro, Cidade - UF. " +
-  "Exemplo: Av. Paulista, 900 - Bela Vista, São Paulo - SP. " +
-  "Sempre inclua cidade e estado (UF com 2 letras). " +
-  "Se a cidade não estiver visível no romaneio, infira pelo contexto (ex.: bairros Consolação, Itaim Bibi ou Moema são inequivocamente São Paulo - SP). " +
-  "Retorne somente os endereços, sem numeração, sem texto adicional, sem explicações.";
+  "Analise esta imagem de um documento de entrega. Identifique o formato antes de extrair.\n\n" +
+  "FORMATO 1 — ROMANEIO: lista de entregas com múltiplos endereços de destino. Extraia TODOS os endereços de entrega, um por linha.\n\n" +
+  "FORMATO 2 — ETIQUETA DE PACOTE: documento individual com campos como DESTINATÁRIO, REMETENTE, CEP, Bairro, Parada, \"Pacotes nesta parada\". " +
+  "Regras: extraia SOMENTE o endereço do DESTINATÁRIO — nunca use dados do REMETENTE; uma etiqueta = uma parada (uma linha); " +
+  "se existir o campo \"Pacotes nesta parada\", inclua o número ao final da mesma linha no formato \" · N pacote(s)\".\n\n" +
+  "FORMATO DE SAÍDA OBRIGATÓRIO para ambos os formatos (uma linha por endereço):\n" +
+  "Rua/Avenida, Número - Bairro, Cidade - UF\n" +
+  "Exemplo: Rua Atucuri, 650 - Chácara Santo Antônio, São Paulo - SP\n" +
+  "Sempre inclua cidade e UF (2 letras). Se a cidade não estiver visível, infira pelo CEP ou pelo bairro. " +
+  "Bairros como Chácara Santo Antônio, Itaim Bibi, Moema e Vila Mariana são inequivocamente São Paulo - SP.\n\n" +
+  "Retorne somente os endereços (com pacotes quando aplicável), sem numeração, sem texto adicional, sem explicações.";
 
 const CONNECTION_ERROR =
   "Erro de conexão. Verifique sua internet e tente novamente.";
