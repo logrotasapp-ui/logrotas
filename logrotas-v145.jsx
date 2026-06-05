@@ -998,7 +998,7 @@ const CalcSelector=({onFrete,onViagem,onOtimizar,onClose})=>(
   </ModalWrap>
 );
 
-// ── OTIMIZAR ENTREGAS (V163 — autocomplete Google; otimização Mapbox V162) ─────
+// ── OTIMIZAR ENTREGAS (V164 — mapa e otimização Google Maps) ───────────────────
 
 const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade})=>{
   const[paradas,setParadas]=useState([]);
@@ -1071,7 +1071,7 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade})=>{
     window.open(`https://www.google.com/maps/dir/${waypoints}`,"_blank");
   };
 
-  // V162 — aplica paradasOtimizadas (waypoint_index) no mapa e na lista
+  // V164 — aplica paradasOtimizadas (Google Directions waypoint_order) no mapa e na lista
   const handleOtimizarRota=async()=>{
     if(paradas.length<2)return;
     setOtimizando(true);
@@ -1106,7 +1106,7 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade})=>{
       {/* Aviso integração ativa */}
       <div style={{background:"#F0FDF4",border:"1px solid #86EFAC",borderRadius:10,padding:"9px 13px",marginBottom:14,display:"flex",alignItems:"center",gap:8}}>
         <span style={{fontSize:14}}>✅</span>
-        <span style={{color:"#166534",fontSize:11,lineHeight:1.4}}>Leitura de romaneio <b>Gemini 2.5 Flash Lite</b> · rotas <b>Mapbox</b></span>
+        <span style={{color:"#166534",fontSize:11,lineHeight:1.4}}>Leitura de romaneio <b>Gemini 2.5 Flash Lite</b> · rotas <b>Google Maps</b></span>
       </div>
 
       {/* Erro foto */}

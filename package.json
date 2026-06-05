@@ -8,8 +8,8 @@
     "test:romaneio": "node scripts/simulate-romaneio-parser.mjs"
   },
   "dependencies": {
+    "@googlemaps/markerclusterer": "^2.5.3",
     "lucide-react": "^0.383.0",
-    "mapbox-gl": "^3.24.0",
     "pdfjs-dist": "^4.10.38",
     "react": "^18.2.0",
     "react-dom": "^18.2.0"

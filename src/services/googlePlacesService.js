@@ -3,37 +3,19 @@
  */
 
 import { API_KEYS, SEARCH_COUNTRIES } from "./apiConfig.js";
+import { waitForGoogleMaps } from "./googleMapsLoader.js";
 
 let placesDetailsService = null;
 
 /**
  * Aguarda o script do Google Maps (index.html) e a biblioteca `places`.
  */
-export function waitForGooglePlaces(timeoutMs = 15000) {
-  return new Promise((resolve, reject) => {
-    if (typeof window === "undefined") {
-      reject(new Error("Google Places indisponível"));
-      return;
-    }
-    const ready = () => window.google?.maps?.places;
-    if (ready()) {
-      ensurePlacesDetailsService();
-      resolve();
-      return;
-    }
-    const start = Date.now();
-    const tick = () => {
-      if (ready()) {
-        ensurePlacesDetailsService();
-        resolve();
-      } else if (Date.now() - start > timeoutMs) {
-        reject(new Error("Google Places não carregou. Verifique VITE_GOOGLE_MAPS_KEY."));
-      } else {
-        setTimeout(tick, 80);
-      }
-    };
-    tick();
-  });
+export async function waitForGooglePlaces(timeoutMs = 15000) {
+  await waitForGoogleMaps(timeoutMs);
+  if (!window.google?.maps?.places) {
+    throw new Error("Google Places não carregou. Verifique VITE_GOOGLE_MAPS_KEY.");
+  }
+  ensurePlacesDetailsService();
 }
 
 function ensurePlacesDetailsService() {

@@ -1,207 +1,174 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import mapboxgl from "mapbox-gl";
-import "mapbox-gl/dist/mapbox-gl.css";
+import { MarkerClusterer } from "@googlemaps/markerclusterer";
 import { API_KEYS } from "../services/apiConfig.js";
 import { buildDeliveryMapFeatures } from "../services/mapDisplayService.js";
+import { waitForGoogleMaps } from "../services/googleMapsLoader.js";
 
-const SOURCE_ID = "delivery-paradas";
-const CLUSTER_LAYER = "delivery-clusters";
-const CLUSTER_COUNT_LAYER = "delivery-cluster-count";
-const POINT_LAYER = "delivery-point";
-const POINT_LABEL_LAYER = "delivery-point-label";
+const DEFAULT_CENTER = { lat: -23.5505, lng: -46.6333 };
 
-const EMPTY_FC = { type: "FeatureCollection", features: [] };
+class DeliveryClusterRenderer {
+  render({ count, position }) {
+    const color = count < 5 ? "#22C55E" : count < 12 ? "#16A34A" : "#15803D";
+    const scale = count < 5 ? 20 : count < 12 ? 26 : 32;
+    return new window.google.maps.Marker({
+      position,
+      icon: {
+        path: window.google.maps.SymbolPath.CIRCLE,
+        scale,
+        fillColor: color,
+        fillOpacity: 1,
+        strokeColor: "#ffffff",
+        strokeWeight: 2,
+      },
+      label: {
+        text: String(count),
+        color: "#ffffff",
+        fontSize: "13px",
+        fontWeight: "700",
+      },
+      zIndex: Number(window.google.maps.Marker.MAX_ZINDEX) + count,
+    });
+  }
+}
+
+function createNumberedMarker(map, lng, lat, order) {
+  return new window.google.maps.Marker({
+    map,
+    position: { lat, lng },
+    icon: {
+      path: window.google.maps.SymbolPath.CIRCLE,
+      scale: 16,
+      fillColor: "#3B82F6",
+      fillOpacity: 1,
+      strokeColor: "#ffffff",
+      strokeWeight: 2,
+    },
+    label: {
+      text: String(order),
+      color: "#ffffff",
+      fontSize: "11px",
+      fontWeight: "700",
+    },
+  });
+}
 
 /**
- * Mapa Mapbox GL com agrupamento (cluster) de entregas.
- * @param {{ paradas: Array<{id, endereco, coords?}>, height?: number }} props
+ * V164 — Mapa Google Maps com agrupamento (cluster) e marcadores numerados.
+ * @param {{ paradas: Array<{id, endereco, coords?}>, height?: number | string }} props
  */
 export default function DeliveryMap({ paradas, height = 260 }) {
   const containerRef = useRef(null);
   const mapRef = useRef(null);
-  const layersReadyRef = useRef(false);
+  const clustererRef = useRef(null);
+  const markersRef = useRef([]);
   const [mapReady, setMapReady] = useState(false);
   const [status, setStatus] = useState("idle");
   const [hint, setHint] = useState("");
 
-  const applyParadas = useCallback(async (map, list) => {
-    if (!list?.length) {
-      const src = map.getSource(SOURCE_ID);
-      if (src) src.setData(EMPTY_FC);
-      setStatus("empty");
-      setHint("");
-      return;
-    }
+  const clearMarkers = useCallback(() => {
+    markersRef.current.forEach((m) => m.setMap(null));
+    markersRef.current = [];
+    clustererRef.current?.clearMarkers();
+    clustererRef.current = null;
+  }, []);
 
-    setStatus("loading");
-    setHint("Localizando endereços no mapa…");
+  const applyParadas = useCallback(
+    async (map, list) => {
+      clearMarkers();
 
-    try {
-      const features = await buildDeliveryMapFeatures(list);
-      const src = map.getSource(SOURCE_ID);
-      if (!src) return;
-
-      src.setData({ type: "FeatureCollection", features });
-
-      if (features.length === 0) {
+      if (!list?.length) {
         setStatus("empty");
-        setHint("Não foi possível posicionar os endereços no mapa.");
+        setHint("");
         return;
       }
 
-      setStatus("ready");
-      setHint(
-        features.length < list.length
-          ? `${features.length} de ${list.length} endereços no mapa. Toque no agrupamento para ampliar.`
-          : "Toque no círculo com número para ver cada entrega."
-      );
+      setStatus("loading");
+      setHint("Localizando endereços no mapa…");
 
-      const bounds = new mapboxgl.LngLatBounds();
-      features.forEach((f) => {
-        bounds.extend(f.geometry.coordinates);
-      });
-      map.fitBounds(bounds, { padding: 48, maxZoom: 14, duration: 600 });
-    } catch {
-      setStatus("error");
-      setHint("Erro ao carregar marcadores.");
-    }
-  }, []);
+      try {
+        const features = await buildDeliveryMapFeatures(list);
+
+        if (features.length === 0) {
+          setStatus("empty");
+          setHint("Não foi possível posicionar os endereços no mapa.");
+          return;
+        }
+
+        const markers = features.map((f) => {
+          const [lng, lat] = f.geometry.coordinates;
+          return createNumberedMarker(map, lng, lat, f.properties.order);
+        });
+
+        markersRef.current = markers;
+        clustererRef.current = new MarkerClusterer({
+          map,
+          markers,
+          renderer: new DeliveryClusterRenderer(),
+          onClusterClick: (_, cluster, gmap) => {
+            gmap.fitBounds(cluster.bounds);
+          },
+        });
+
+        const bounds = new window.google.maps.LatLngBounds();
+        features.forEach((f) => {
+          const [lng, lat] = f.geometry.coordinates;
+          bounds.extend({ lat, lng });
+        });
+        map.fitBounds(bounds, 48);
+
+        setStatus("ready");
+        setHint(
+          features.length < list.length
+            ? `${features.length} de ${list.length} endereços no mapa. Toque no agrupamento para ampliar.`
+            : "Toque no círculo com número para ver cada entrega."
+        );
+      } catch {
+        setStatus("error");
+        setHint("Erro ao carregar marcadores.");
+      }
+    },
+    [clearMarkers]
+  );
 
   useEffect(() => {
-    if (!API_KEYS.mapbox) {
+    if (!API_KEYS.googleMaps) {
       setStatus("no-token");
-      setHint("Configure VITE_MAPBOX_TOKEN para ver o mapa.");
+      setHint("Configure VITE_GOOGLE_MAPS_KEY para ver o mapa.");
       return;
     }
     if (!containerRef.current || mapRef.current) return;
 
-    mapboxgl.accessToken = API_KEYS.mapbox;
-    const map = new mapboxgl.Map({
-      container: containerRef.current,
-      style: "mapbox://styles/mapbox/streets-v12",
-      center: [-46.6333, -23.5505],
-      zoom: 10,
-    });
+    let cancelled = false;
 
-    map.addControl(new mapboxgl.NavigationControl({ showCompass: false }), "top-right");
-    mapRef.current = map;
+    waitForGoogleMaps()
+      .then(() => {
+        if (cancelled || !containerRef.current) return;
 
-    const onClusterClick = (e) => {
-      const feats = map.queryRenderedFeatures(e.point, {
-        layers: [CLUSTER_LAYER],
-      });
-      const clusterId = feats[0]?.properties?.cluster_id;
-      const src = map.getSource(SOURCE_ID);
-      if (clusterId == null || !src) return;
-
-      src.getClusterExpansionZoom(clusterId, (err, zoom) => {
-        if (err) return;
-        map.easeTo({
-          center: feats[0].geometry.coordinates,
-          zoom,
-          duration: 500,
+        const map = new window.google.maps.Map(containerRef.current, {
+          center: DEFAULT_CENTER,
+          zoom: 10,
+          mapTypeControl: false,
+          streetViewControl: false,
+          fullscreenControl: false,
         });
-      });
-    };
 
-    const setupLayers = () => {
-      map.addSource(SOURCE_ID, {
-        type: "geojson",
-        data: EMPTY_FC,
-        cluster: true,
-        clusterMaxZoom: 14,
-        clusterRadius: 55,
+        mapRef.current = map;
+        setMapReady(true);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setStatus("no-token");
+          setHint("Google Maps não carregou. Verifique VITE_GOOGLE_MAPS_KEY.");
+        }
       });
-
-      map.addLayer({
-        id: CLUSTER_LAYER,
-        type: "circle",
-        source: SOURCE_ID,
-        filter: ["has", "point_count"],
-        paint: {
-          "circle-color": [
-            "step",
-            ["get", "point_count"],
-            "#22C55E",
-            5,
-            "#16A34A",
-            12,
-            "#15803D",
-          ],
-          "circle-radius": [
-            "step",
-            ["get", "point_count"],
-            20,
-            5,
-            26,
-            12,
-            32,
-          ],
-          "circle-stroke-width": 2,
-          "circle-stroke-color": "#ffffff",
-        },
-      });
-
-      map.addLayer({
-        id: CLUSTER_COUNT_LAYER,
-        type: "symbol",
-        source: SOURCE_ID,
-        filter: ["has", "point_count"],
-        layout: {
-          "text-field": ["get", "point_count_abbreviated"],
-          "text-font": ["DIN Offc Pro Medium", "Arial Unicode MS Bold"],
-          "text-size": 13,
-        },
-        paint: { "text-color": "#ffffff" },
-      });
-
-      map.addLayer({
-        id: POINT_LAYER,
-        type: "circle",
-        source: SOURCE_ID,
-        filter: ["!", ["has", "point_count"]],
-        paint: {
-          "circle-color": "#3B82F6",
-          "circle-radius": 16,
-          "circle-stroke-width": 2,
-          "circle-stroke-color": "#ffffff",
-        },
-      });
-
-      map.addLayer({
-        id: POINT_LABEL_LAYER,
-        type: "symbol",
-        source: SOURCE_ID,
-        filter: ["!", ["has", "point_count"]],
-        layout: {
-          "text-field": ["to-string", ["get", "order"]],
-          "text-font": ["DIN Offc Pro Medium", "Arial Unicode MS Bold"],
-          "text-size": 11,
-        },
-        paint: { "text-color": "#ffffff" },
-      });
-
-      map.on("click", CLUSTER_LAYER, onClusterClick);
-      map.on("mouseenter", CLUSTER_LAYER, () => {
-        map.getCanvas().style.cursor = "pointer";
-      });
-      map.on("mouseleave", CLUSTER_LAYER, () => {
-        map.getCanvas().style.cursor = "";
-      });
-
-      layersReadyRef.current = true;
-      setMapReady(true);
-    };
-
-    map.once("load", setupLayers);
 
     return () => {
-      layersReadyRef.current = false;
-      setMapReady(false);
-      map.remove();
+      cancelled = true;
+      clearMarkers();
       mapRef.current = null;
+      setMapReady(false);
     };
-  }, []);
+  }, [clearMarkers]);
 
   useEffect(() => {
     const map = mapRef.current;

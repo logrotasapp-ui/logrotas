@@ -9,6 +9,10 @@ import {
   fetchGooglePlacePredictions,
   resolvePlaceSuggestion,
 } from "./googlePlacesService.js";
+import {
+  fetchGoogleOptimizedRoute,
+  reorderStopsByGoogleWaypointOrder,
+} from "./googleDirectionsService.js";
 
 export { resolvePlaceSuggestion } from "./googlePlacesService.js";
 import { fileToImageBlob } from "./fileToImage.js";
@@ -421,16 +425,6 @@ export async function geocodeRomaneioExtractedAddresses(paradas) {
   return out;
 }
 
-async function fetchMapboxOptimization(coordsList) {
-  const coordsStr = coordsList.map((c) => `${c.lng},${c.lat}`).join(";");
-  // V162 — reordena todos os waypoints (não fixar só o meio da lista)
-  const url =
-    `${API_ENDPOINTS.mapboxOptimization}/${coordsStr}` +
-    `?access_token=${API_KEYS.mapbox}&roundtrip=true&source=any&destination=any&geometries=geojson`;
-
-  return fetchJson(url);
-}
-
 /** Usa coords já geocodificadas na parada; senão geocode Mapbox (otimização). */
 async function resolveParadaCoordForOptimization(parada) {
   const c = parada?.coords;
@@ -618,7 +612,7 @@ export async function extractRomaneioAddressesFromImage(file, options = {}) {
 }
 
 /**
- * Geocodifica, otimiza ordem das paradas (Mapbox) e calcula métricas.
+ * V164 — Geocodifica, otimiza ordem das paradas (Google Directions) e calcula métricas.
  * @param {Array<{id, endereco}>} paradas
  */
 export async function optimizeDeliveryRoute(paradas, options = {}) {
@@ -629,7 +623,6 @@ export async function optimizeDeliveryRoute(paradas, options = {}) {
   }
 
   try {
-    // V162 — uma entrada por parada (índice alinhado aos waypoints da Mapbox)
     const entries = [];
     for (const parada of paradas) {
       const coord = await resolveParadaCoordForOptimization(parada);
@@ -643,25 +636,22 @@ export async function optimizeDeliveryRoute(paradas, options = {}) {
       };
     }
 
-    const optRes = await fetchMapboxOptimization(entries.map((e) => e.coord));
+    const optRes = await fetchGoogleOptimizedRoute(entries);
 
-    if (optRes.networkError) {
-      return { ok: false, error: CONNECTION_ERROR };
+    if (!optRes.ok) {
+      return { ok: false, error: optRes.error || "Erro na otimização. Tente novamente." };
     }
 
-    const optData = optRes.data;
-    if (optData?.code !== "Ok") {
-      const apiMsg = optData?.message;
-      return {
-        ok: false,
-        error: apiMsg ? String(apiMsg) : "Erro na otimização. Tente novamente.",
-      };
-    }
-
-    const paradasOtimizadas = reorderStopsByWaypoints(entries, optData.waypoints || []);
+    const paradasOtimizadas = reorderStopsByGoogleWaypointOrder(
+      entries,
+      optRes.waypointOrder
+    );
     const resultado = buildOptimizationMetrics({
-      trip: optData.trips?.[0],
-      fallbackStopCount: validas.length,
+      trip: {
+        distance: optRes.totalDistanceM,
+        duration: optRes.totalDurationS,
+      },
+      fallbackStopCount: entries.length,
       consumoKmL,
       precoCombustivel,
     });
