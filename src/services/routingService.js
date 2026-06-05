@@ -36,25 +36,31 @@ export {
 /** Valor estimado por eixo por praça de pedágio (R$). */
 export const TOLL_PER_AXLE = 3.2;
 
-// V169 — prompt Gemini anti-alucinação: romaneio ou etiqueta (qualquer transportadora)
+// V170 — prompt Gemini: validação literal palavra a palavra + CEP como fonte da verdade
 const ROMANEIO_PROMPT =
-  "Analise esta imagem de documento de entrega (romaneio ou etiqueta). REGRAS OBRIGATÓRIAS:\n\n" +
-  "1. Retorne SOMENTE endereços que existem LITERALMENTE na imagem — NUNCA invente, complete ou infira endereços que não estejam visíveis.\n" +
-  "2. Cada etiqueta física na imagem = exatamente UMA linha de saída.\n" +
-  "3. Ignore COMPLETAMENTE tudo após a palavra REMETENTE (incluindo endereço de remetente).\n" +
-  "4. O CEP deve confirmar a cidade. Se cidade e CEP não baterem, use o CEP para determinar a cidade correta pelo formato brasileiro " +
-  "(ex.: 03xxx = São Paulo zona leste, 04xxx = São Paulo zona sul, 01xxx/02xxx = região metropolitana de SP).\n" +
-  "5. Se não houver endereço de destinatário claro, retorne FAIL sem endereço — NUNCA invente.\n\n" +
-  "ROMANEIO: extraia cada endereço de destino visível — uma linha por endereço.\n" +
-  "ETIQUETA (Shopee, Mercado Livre, Amazon, Shein, DANFE, transportadoras regionais, etiquetas próprias, etc.): " +
-  "uma etiqueta = uma linha. Destinatário PF ou PJ. Extraia Rua, Número, Complemento, Bairro, Cidade e CEP somente do destinatário. " +
-  "Ignore rastreio, corredor, gaiola, hub, ordem, parada, SKU, NF, série e demais metadados.\n\n" +
-  "FORMATO DE SAÍDA (prefixo obrigatório em cada linha):\n" +
+  "Analise esta imagem de documento de entrega (romaneio ou etiqueta). REGRAS ABSOLUTAS — violar qualquer uma é erro grave:\n\n" +
+  "VALIDAÇÃO LITERAL (obrigatória antes de cada linha de saída):\n" +
+  "- Antes de retornar qualquer endereço, verifique se CADA PALAVRA do endereço (rua, número, bairro, cidade, UF) aparece LITERALMENTE na imagem.\n" +
+  "- NUNCA complete, corrija ou infira partes do endereço que não estejam visíveis na imagem.\n" +
+  "- Se tiver dúvida sobre QUALQUER parte do endereço → retorne WARN com apenas o que estiver visível, NUNCA invente.\n" +
+  "- Se não houver destinatário identificável → FAIL| (linha vazia).\n\n" +
+  "CEP (fonte da verdade para validação, NÃO para inventar):\n" +
+  "- O CEP visível na imagem é OBRIGATÓRIO para confirmar cidade/UF em linhas OK.\n" +
+  "- Se o CEP não bater com a cidade escrita na etiqueta, corrija a cidade/UF pelo CEP (o CEP prevalece).\n" +
+  "- Use faixas de CEP apenas para VALIDAR, nunca para inferir cidade se o nome da cidade não estiver legível na imagem:\n" +
+  "  03xxx/04xxx = São Paulo-SP | 88xxx = Santa Catarina | 60xxx = Ceará | 01xxx/02xxx = região metropolitana SP.\n" +
+  "- PROIBIDO retornar cidades como Pacoti-CE ou Siderópolis-SC se esses nomes NÃO aparecerem literalmente na imagem.\n\n" +
+  "ETIQUETAS E ROMANEIOS:\n" +
+  "- Máximo de 1 endereço por etiqueta física. Se houver mais de 1 candidato, use SOMENTE o do DESTINATÁRIO.\n" +
+  "- Ignore COMPLETAMENTE tudo após a palavra REMETENTE.\n" +
+  "- Ignore rastreio, corredor, gaiola, hub, ordem, parada, SKU, NF, série.\n" +
+  "- ROMANEIO: uma linha por endereço de destino visível. ETIQUETA (qualquer transportadora): uma etiqueta = uma linha.\n\n" +
+  "FORMATO DE SAÍDA (prefixo obrigatório, uma linha por etiqueta/endereço):\n" +
   "OK|Rua/Avenida, Número[, Complemento] - Bairro, Cidade - UF\n" +
-  "WARN|endereço parcial ou duvidoso mas com dados visíveis na imagem\n" +
+  "WARN|somente trechos literalmente visíveis e duvidosos\n" +
   "FAIL|\n\n" +
-  "OK = endereço legível e confiável (CEP confirma cidade/UF ou está ausente mas o restante é claro).\n" +
-  "WARN = incompleto ou duvidoso, porém utilizável.\n" +
+  "OK = todas as palavras literais na imagem + CEP visível confirma cidade/UF.\n" +
+  "WARN = qualquer dúvida, CEP ausente, ou endereço incompleto — sem inventar o que falta.\n" +
   "FAIL = destinatário não identificado.\n" +
   "Exemplo: OK|Rua Atucuri, 650 - Chácara Santo Antônio, São Paulo - SP\n" +
   "Se \"Pacotes nesta parada\" estiver visível, inclua ao final: \" · N pacote(s)\".\n" +
