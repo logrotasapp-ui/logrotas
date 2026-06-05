@@ -5,6 +5,7 @@ import {
   calculateFreteQuote,
   calculateProfitMeta,
   searchAddresses,
+  warmGeocodeProximity,
   fetchDrivingDistanceKm,
   optimizeDeliveryRoute,
   buildParadasFromAddresses,
@@ -86,7 +87,10 @@ const AddressInput=({value,onChange,onSelect,placeholder,dotColor})=>{
   const timerRef=useRef(null);
   const cor=dotColor||C.green;
 
-  useEffect(()=>{return()=>{if(timerRef.current)clearTimeout(timerRef.current);};},[]);
+  useEffect(()=>{
+    warmGeocodeProximity();
+    return()=>{if(timerRef.current)clearTimeout(timerRef.current);};
+  },[]);
 
   const handleChange=v=>{
     onChange(v);
@@ -1259,6 +1263,8 @@ const TripCalcModal=({onClose,vehicles})=>{
   const[result,setResult]=useState(null);
   const[erro,setErro]=useState("");
 
+  useEffect(()=>{ warmGeocodeProximity(); }, []);
+
   const veiculo=TRIP_VEHICLES.find(v=>v.id===vehicleId)||TRIP_VEHICLES[1];
   const isElec=veiculo?.electric;
   const temCarretinha=(vehicleId==="carro"||vehicleId==="eletric")&&carretinha;
@@ -1302,22 +1308,22 @@ const TripCalcModal=({onClose,vehicles})=>{
           <div style={{color:C.navy,fontWeight:700,fontSize:12,textTransform:"uppercase",letterSpacing:0.5,marginBottom:2}}>🗺️ Rota</div>
 
           {/* Origem */}
-          <div style={{display:"flex",alignItems:"center",gap:8}}>
-            <div style={{width:10,height:10,borderRadius:"50%",background:"#22C55E",flexShrink:0}}/>
-            <input value={stops[0]?.v||""} onChange={e=>setStops(s=>s.map((x,i)=>i===0?{...x,v:e.target.value}:x))}
-              placeholder="Origem (opcional)"
-              style={{flex:1,background:"#fff",border:`1.5px solid ${C.border}`,borderRadius:10,outline:"none",color:C.text,padding:"10px 13px",fontSize:14}}
-              onFocus={e=>e.target.style.borderColor="#3B82F6"} onBlur={e=>e.target.style.borderColor=C.border}/>
-          </div>
+          <AddressInput
+            value={stops[0]?.v||""}
+            onChange={v=>setStops(s=>s.map((x,i)=>i===0?{...x,v}:x))}
+            placeholder="Origem (opcional)"
+            dotColor="#22C55E"
+          />
 
           {/* Paradas intermediárias */}
           {stops.slice(1,-1).map((stop,i)=>(
             <div key={stop.id} style={{display:"flex",alignItems:"center",gap:8}}>
-              <div style={{width:10,height:10,borderRadius:"50%",background:C.orange,flexShrink:0}}/>
-              <input value={stop.v} onChange={e=>setStops(s=>s.map(x=>x.id===stop.id?{...x,v:e.target.value}:x))}
+              <AddressInput
+                value={stop.v}
+                onChange={v=>setStops(s=>s.map(x=>x.id===stop.id?{...x,v}:x))}
                 placeholder={`Parada ${i+1}`}
-                style={{flex:1,background:"#fff",border:`1.5px solid ${C.border}`,borderRadius:10,outline:"none",color:C.text,padding:"10px 13px",fontSize:14}}
-                onFocus={e=>e.target.style.borderColor="#3B82F6"} onBlur={e=>e.target.style.borderColor=C.border}/>
+                dotColor={C.orange}
+              />
               <button onClick={()=>setStops(s=>s.filter(x=>x.id!==stop.id))}
                 style={{background:C.redLight,border:"none",borderRadius:8,padding:6,cursor:"pointer",color:C.red,display:"flex",flexShrink:0}}><Trash2Icon size={12}/></button>
             </div>

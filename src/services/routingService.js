@@ -22,6 +22,42 @@ const ROMANEIO_PROMPT =
 const CONNECTION_ERROR =
   "Erro de conexão. Verifique sua internet e tente novamente.";
 
+/** @type {[number, number] | null} [lng, lat] — viés de proximidade Mapbox */
+let cachedGeocodeProximity = null;
+let geocodeProximityRequested = false;
+
+/**
+ * Solicita a localização do usuário para priorizar sugestões próximas (não bloqueia).
+ * Pode ser chamado cedo (ex.: ao abrir calculadora) para o GPS responder antes da digitação.
+ */
+export function warmGeocodeProximity() {
+  if (geocodeProximityRequested || cachedGeocodeProximity) return;
+  if (typeof navigator === "undefined" || !navigator.geolocation) return;
+  geocodeProximityRequested = true;
+  navigator.geolocation.getCurrentPosition(
+    (pos) => {
+      cachedGeocodeProximity = [pos.coords.longitude, pos.coords.latitude];
+    },
+    () => {},
+    { enableHighAccuracy: false, timeout: 10000, maximumAge: 600000 }
+  );
+}
+
+function mapboxGeocodeSearchParams() {
+  const params = new URLSearchParams({
+    access_token: API_KEYS.mapbox,
+    limit: "6",
+    country: "br",
+    language: "pt",
+    autocomplete: "true",
+    types: "address,place,locality,neighborhood,postcode",
+  });
+  if (cachedGeocodeProximity) {
+    params.set("proximity", `${cachedGeocodeProximity[0]},${cachedGeocodeProximity[1]}`);
+  }
+  return params;
+}
+
 // ── HTTP helpers ─────────────────────────────────────────────────────────────
 
 async function fetchJson(url, options = {}) {
@@ -156,10 +192,10 @@ export async function resolveManualAddress(rawText) {
  * @param {string} query — texto já normalizado
  */
 async function searchAddressesMapbox(query) {
-  const searchText = encodeURIComponent(`${query}, Brasil`);
-  const url =
-    `${API_ENDPOINTS.mapboxGeocoding}/${searchText}.json` +
-    `?access_token=${API_KEYS.mapbox}&limit=6&country=br&language=pt`;
+  warmGeocodeProximity();
+
+  const searchText = encodeURIComponent(query);
+  const url = `${API_ENDPOINTS.mapboxGeocoding}/${searchText}.json?${mapboxGeocodeSearchParams()}`;
 
   const res = await fetchJson(url);
 
@@ -200,6 +236,8 @@ export async function searchAddresses(text, opts = {}) {
   if (!query || query.length < 3) {
     return { ok: true, suggestions: [] };
   }
+
+  warmGeocodeProximity();
 
   if (API_KEYS.mapbox) {
     return searchAddressesMapbox(query);
