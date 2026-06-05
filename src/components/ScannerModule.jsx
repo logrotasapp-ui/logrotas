@@ -22,7 +22,7 @@ const btnBase = {
 };
 
 /**
- * Scanner de romaneio: câmera ou arquivo → Gemini 1.5 Flash (nuvem).
+ * Scanner de romaneio: câmera ou arquivo → Gemini 2.0 Flash (nuvem).
  */
 export default function ScannerModule({
   disabled = false,
@@ -317,7 +317,7 @@ export default function ScannerModule({
             }}
           >
             Fotos JPG/PNG ou PDF (1ª página). Requer internet — leitura via{" "}
-            <b>Gemini 1.5 Flash</b>.
+            <b>Gemini 2.0 Flash</b>.
           </p>
 
           <button
