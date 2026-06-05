@@ -32,17 +32,20 @@ export {
 /** Valor estimado por eixo por praça de pedágio (R$). */
 export const TOLL_PER_AXLE = 3.2;
 
-// V167 — prompt Gemini: romaneio (lista) ou etiqueta de pacote (destinatário)
+// V168 — prompt Gemini: romaneio ou qualquer etiqueta de entrega (qualquer transportadora)
 const ROMANEIO_PROMPT =
-  "Analise esta imagem de um documento de entrega. Identifique o formato antes de extrair.\n\n" +
-  "FORMATO 1 — ROMANEIO: lista de entregas com múltiplos endereços de destino. Extraia TODOS os endereços de entrega, um por linha.\n\n" +
-  "FORMATO 2 — ETIQUETA DE PACOTE: documento individual com campos como DESTINATÁRIO, REMETENTE, CEP, Bairro, Parada, \"Pacotes nesta parada\". " +
-  "Regras: extraia SOMENTE o endereço do DESTINATÁRIO — nunca use dados do REMETENTE; uma etiqueta = uma parada (uma linha); " +
-  "se existir o campo \"Pacotes nesta parada\", inclua o número ao final da mesma linha no formato \" · N pacote(s)\".\n\n" +
-  "FORMATO DE SAÍDA OBRIGATÓRIO para ambos os formatos (uma linha por endereço):\n" +
-  "Rua/Avenida, Número - Bairro, Cidade - UF\n" +
-  "Exemplo: Rua Atucuri, 650 - Chácara Santo Antônio, São Paulo - SP\n" +
-  "Sempre inclua cidade e UF (2 letras). Se a cidade não estiver visível, infira pelo CEP ou pelo bairro. " +
+  "Analise esta imagem de um documento de entrega. Identifique o tipo antes de extrair.\n\n" +
+  "FORMATO 1 — ROMANEIO: lista com múltiplos endereços de destino. Extraia TODOS os endereços de entrega, um por linha.\n\n" +
+  "FORMATO 2 — ETIQUETA DE PACOTE (qualquer layout ou transportadora: Shopee, Mercado Livre, Amazon, Shein, DANFE, transportadoras regionais, etiquetas próprias, etc.): " +
+  "uma etiqueta = uma parada (uma linha). O destinatário pode ser pessoa física ou jurídica. " +
+  "Identifique a seção de DESTINO pelo contexto visual e pelos rótulos (DESTINATÁRIO, ENTREGA, PARA, CLIENTE, etc.) — em geral aparece antes do endereço de entrega. " +
+  "Extraia do destinatário: Rua, Número, Complemento (se houver), Bairro, Cidade e CEP. Use o CEP para confirmar ou inferir cidade e UF quando disponível. " +
+  "NUNCA use endereço ou dados da seção REMETENTE. IGNORE sempre: códigos de rastreio, códigos internos (corredor, gaiola, hub, ordem, parada, SKU, NF, série) e demais metadados logísticos. " +
+  "Se existir o campo \"Pacotes nesta parada\", inclua ao final da linha: \" · N pacote(s)\".\n\n" +
+  "FORMATO DE SAÍDA OBRIGATÓRIO (uma linha por endereço):\n" +
+  "Rua/Avenida, Número[, Complemento] - Bairro, Cidade - UF\n" +
+  "Exemplo: Rua Atucuri, 650, Apto 12 - Chácara Santo Antônio, São Paulo - SP\n" +
+  "Sempre inclua cidade e UF (2 letras). Se a cidade não estiver visível, infira pelo CEP ou bairro. " +
   "Bairros como Chácara Santo Antônio, Itaim Bibi, Moema e Vila Mariana são inequivocamente São Paulo - SP.\n\n" +
   "Retorne somente os endereços (com pacotes quando aplicável), sem numeração, sem texto adicional, sem explicações.";
 
