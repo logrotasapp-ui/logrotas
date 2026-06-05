@@ -17,6 +17,61 @@ function latLngFromCoord(coord) {
   return new window.google.maps.LatLng(coord.lat, coord.lng);
 }
 
+function latLngFromLngLatPair(pair) {
+  const [lng, lat] = pair;
+  return new window.google.maps.LatLng(lat, lng);
+}
+
+/**
+ * V171 — Distância driving entre dois pontos (calculadoras Viagem/Frete).
+ * @param {[number, number]} originCoords [lng, lat]
+ * @param {[number, number]} destCoords [lng, lat]
+ */
+export async function fetchGoogleDrivingDistanceKm(originCoords, destCoords) {
+  if (!API_KEYS.googleMaps) {
+    return { ok: false, error: "Google Maps indisponível.", distanceKm: null };
+  }
+  if (!originCoords || !destCoords) {
+    return { ok: false, error: "Coordenadas inválidas.", distanceKm: null };
+  }
+
+  try {
+    await waitForGoogleMaps();
+    const service = new window.google.maps.DirectionsService();
+
+    return new Promise((resolve) => {
+      service.route(
+        {
+          origin: latLngFromLngLatPair(originCoords),
+          destination: latLngFromLngLatPair(destCoords),
+          travelMode: window.google.maps.TravelMode.DRIVING,
+        },
+        (result, status) => {
+          if (
+            status !== window.google.maps.DirectionsStatus.OK ||
+            !result?.routes?.[0]?.legs?.length
+          ) {
+            resolve({
+              ok: false,
+              error: DIRECTIONS_ERRORS[status] || "Não foi possível calcular a rota.",
+              distanceKm: null,
+            });
+            return;
+          }
+          const meters = sumLegsMetric(result.routes[0].legs, "distance");
+          resolve({ ok: true, distanceKm: Math.round(meters / 1000) });
+        }
+      );
+    });
+  } catch (err) {
+    return {
+      ok: false,
+      error: err?.message || "Erro ao calcular distância.",
+      distanceKm: null,
+    };
+  }
+}
+
 function sumLegsMetric(legs, field) {
   return (legs || []).reduce((sum, leg) => sum + (leg?.[field]?.value || 0), 0);
 }

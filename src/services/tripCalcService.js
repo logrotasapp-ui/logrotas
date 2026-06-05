@@ -1,8 +1,5 @@
-import { TOLL_PER_AXLE } from "./routingService.js";
-
 /**
- * Calculadora de Viagem — apenas lógica local (sem chamadas de API).
- * Autocomplete e distância de rota: routingService (searchAddresses, fetchDrivingDistanceKm).
+ * V171 — Calculadora de Viagem (lógica local; rede via routingService).
  */
 
 /**
@@ -16,8 +13,7 @@ export function calculateTripCosts(input) {
     consumo,
     defaultConsumo,
     combustivelPreco,
-    pedagioPracas,
-    totalAxles,
+    pedagioTotalReais,
   } = input;
 
   if (!distanciaKm || parseFloat(distanciaKm) <= 0) {
@@ -37,8 +33,7 @@ export function calculateTripCosts(input) {
   const custoComb = isElec
     ? (dist / 100) * cons * preco
     : (dist / cons) * preco;
-  const custoPed =
-    (parseInt(pedagioPracas, 10) || 0) * TOLL_PER_AXLE * totalAxles;
+  const custoPed = (parseFloat(pedagioTotalReais) || 0) * (roundTrip ? 2 : 1);
   const total = custoComb + custoPed;
 
   return {
@@ -54,4 +49,3 @@ export function calculateTripCosts(input) {
   };
 }
 
-export { TOLL_PER_AXLE };

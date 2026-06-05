@@ -11,6 +11,7 @@ import {
 } from "./googlePlacesService.js";
 import {
   fetchGoogleOptimizedRoute,
+  fetchGoogleDrivingDistanceKm,
   reorderStopsByGoogleWaypointOrder,
 } from "./googleDirectionsService.js";
 
@@ -36,7 +37,7 @@ export {
 /** Valor estimado por eixo por praça de pedágio (R$). */
 export const TOLL_PER_AXLE = 3.2;
 
-// V170 — prompt Gemini: validação literal palavra a palavra + CEP como fonte da verdade
+// V171 — calculadoras: Google Directions + pedágio em R$; V170 — prompt Gemini anti-alucinação
 const ROMANEIO_PROMPT =
   "Analise esta imagem de documento de entrega (romaneio ou etiqueta). REGRAS ABSOLUTAS — violar qualquer uma é erro grave:\n\n" +
   "VALIDAÇÃO LITERAL (obrigatória antes de cada linha de saída):\n" +
@@ -331,13 +332,18 @@ export async function searchAddresses(text, opts = {}) {
 }
 
 /**
- * Distância de condução origem → destino (km), perfil HGV.
+ * V171 — Distância driving origem → destino (Google Directions; fallback Mapbox/ORS).
  * @param {[number, number]} originCoords [lng, lat]
  * @param {[number, number]} destCoords [lng, lat]
  */
 export async function fetchDrivingDistanceKm(originCoords, destCoords) {
   if (!originCoords || !destCoords) {
     return { ok: false, error: "Coordenadas de origem e destino são obrigatórias.", distanceKm: null };
+  }
+
+  if (API_KEYS.googleMaps) {
+    const google = await fetchGoogleDrivingDistanceKm(originCoords, destCoords);
+    if (google.ok && google.distanceKm != null) return google;
   }
 
   if (API_KEYS.mapbox) {
@@ -382,7 +388,7 @@ export async function fetchDrivingDistanceKm(originCoords, destCoords) {
 }
 
 /**
- * V159 — Soma distâncias driving (Mapbox) de trechos consecutivos com coordenadas.
+ * V171 — Soma distâncias driving (Google Directions) de trechos consecutivos com coordenadas.
  * @param {Array<[number, number] | null>} coordsList [lng,lat] por parada, na ordem da rota
  * @returns {{ ok: true, distanceKm: number, segmentKm: number[] } | { ok: false, error?: string, segmentKm: [] }}
  */
@@ -801,7 +807,7 @@ export function calculateRouteCosts(input) {
     defaultConsumptionKmL = 1,
     arlaConsumption,
     arlaPrice,
-    tollCount,
+    tollTotalReais,
     totalAxles,
     freight,
   } = input;
@@ -837,8 +843,7 @@ export function calculateRouteCosts(input) {
   const arlaL100 = parseFloat(arlaConsumption) || 3.5;
   const arlaCost = isTruck ? (tot / 100) * arlaL100 * parseFloat(arlaPrice || 0) : 0;
 
-  const numPracas = parseFloat(tollCount) || 0;
-  const tollCost = numPracas * totalAxles * TOLL_PER_AXLE * (roundTrip ? 2 : 1);
+  const tollCost = (parseFloat(tollTotalReais) || 0) * (roundTrip ? 2 : 1);
   const total = energyCost + arlaCost + tollCost;
   const freteVal = parseFloat(freight) || 0;
   const lucro = freteVal - total;
