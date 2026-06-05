@@ -1,5 +1,5 @@
 /**
- * Dados do mapa de entregas (somente visualização — não altera otimização/frete).
+ * V165 — Dados do mapa de entregas (ordem = índice da lista / campo ordem após otimização).
  */
 
 import { geocodeAddressForDisplay } from "./routingService.js";
@@ -32,7 +32,7 @@ export async function buildDeliveryMapFeatures(paradas) {
       type: "Feature",
       properties: {
         id: p.id ?? i,
-        order: i + 1,
+        order: p.ordem ?? i + 1,
         label: p.endereco || `Entrega ${i + 1}`,
       },
       geometry: {

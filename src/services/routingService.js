@@ -612,7 +612,7 @@ export async function extractRomaneioAddressesFromImage(file, options = {}) {
 }
 
 /**
- * V164 — Geocodifica, otimiza ordem das paradas (Google Directions) e calcula métricas.
+ * V165 — Geocodifica todas as paradas, depois otimiza (Google Directions) e calcula métricas.
  * @param {Array<{id, endereco}>} paradas
  */
 export async function optimizeDeliveryRoute(paradas, options = {}) {
@@ -644,7 +644,8 @@ export async function optimizeDeliveryRoute(paradas, options = {}) {
 
     const paradasOtimizadas = reorderStopsByGoogleWaypointOrder(
       entries,
-      optRes.waypointOrder
+      optRes.waypointOrder,
+      optRes.route
     );
     const resultado = buildOptimizationMetrics({
       trip: {

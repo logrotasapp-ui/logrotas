@@ -31,9 +31,8 @@ class DeliveryClusterRenderer {
   }
 }
 
-function createNumberedMarker(map, lng, lat, order) {
+function createNumberedMarker(lng, lat, order) {
   return new window.google.maps.Marker({
-    map,
     position: { lat, lng },
     icon: {
       path: window.google.maps.SymbolPath.CIRCLE,
@@ -53,14 +52,15 @@ function createNumberedMarker(map, lng, lat, order) {
 }
 
 /**
- * V164 — Mapa Google Maps com agrupamento (cluster) e marcadores numerados.
- * @param {{ paradas: Array<{id, endereco, coords?}>, height?: number | string }} props
+ * V165 — Mapa Google Maps com agrupamento (cluster) e marcadores numerados.
+ * @param {{ paradas: Array<{id, endereco, coords?, ordem?}>, height?: number | string }} props
  */
 export default function DeliveryMap({ paradas, height = 260 }) {
   const containerRef = useRef(null);
   const mapRef = useRef(null);
   const clustererRef = useRef(null);
   const markersRef = useRef([]);
+  const applyRequestIdRef = useRef(0);
   const [mapReady, setMapReady] = useState(false);
   const [status, setStatus] = useState("idle");
   const [hint, setHint] = useState("");
@@ -74,9 +74,11 @@ export default function DeliveryMap({ paradas, height = 260 }) {
 
   const applyParadas = useCallback(
     async (map, list) => {
+      const requestId = ++applyRequestIdRef.current;
       clearMarkers();
 
       if (!list?.length) {
+        if (requestId !== applyRequestIdRef.current) return;
         setStatus("empty");
         setHint("");
         return;
@@ -87,6 +89,7 @@ export default function DeliveryMap({ paradas, height = 260 }) {
 
       try {
         const features = await buildDeliveryMapFeatures(list);
+        if (requestId !== applyRequestIdRef.current) return;
 
         if (features.length === 0) {
           setStatus("empty");
@@ -96,7 +99,7 @@ export default function DeliveryMap({ paradas, height = 260 }) {
 
         const markers = features.map((f) => {
           const [lng, lat] = f.geometry.coordinates;
-          return createNumberedMarker(map, lng, lat, f.properties.order);
+          return createNumberedMarker(lng, lat, f.properties.order);
         });
 
         markersRef.current = markers;
@@ -123,6 +126,7 @@ export default function DeliveryMap({ paradas, height = 260 }) {
             : "Toque no círculo com número para ver cada entrega."
         );
       } catch {
+        if (requestId !== applyRequestIdRef.current) return;
         setStatus("error");
         setHint("Erro ao carregar marcadores.");
       }

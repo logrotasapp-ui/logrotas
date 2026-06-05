@@ -1,5 +1,5 @@
 /**
- * V164 — Google Directions API (otimização de paradas com optimizeWaypoints).
+ * V165 — Google Directions API (otimização de paradas com optimizeWaypoints).
  */
 
 import { API_KEYS } from "./apiConfig.js";
@@ -19,6 +19,49 @@ function latLngFromCoord(coord) {
 
 function sumLegsMetric(legs, field) {
   return (legs || []).reduce((sum, leg) => sum + (leg?.[field]?.value || 0), 0);
+}
+
+function findRestIndexByCoord(rest, lat, lng) {
+  return rest.findIndex(
+    (e) =>
+      Math.abs(e.coord.lat - lat) < 1e-4 && Math.abs(e.coord.lng - lng) < 1e-4
+  );
+}
+
+/**
+ * V165 — Fallback quando waypoint_order não vem na resposta (ex.: round-trip).
+ * @param {google.maps.DirectionsRoute} route
+ * @param {Array<{ coord: { lng: number, lat: number } }>} rest
+ * @returns {number[]}
+ */
+export function inferWaypointOrderFromLegs(route, rest) {
+  const legs = route?.legs;
+  if (!legs?.length || !rest?.length) return rest.map((_, i) => i);
+
+  const visitLegs = legs.length > 1 ? legs.slice(0, -1) : legs;
+  const order = [];
+
+  for (const leg of visitLegs) {
+    const end = leg.end_location;
+    const idx = findRestIndexByCoord(rest, end.lat(), end.lng());
+    if (idx >= 0 && !order.includes(idx)) order.push(idx);
+  }
+
+  if (order.length < rest.length) {
+    rest.forEach((_, i) => {
+      if (!order.includes(i)) order.push(i);
+    });
+  }
+
+  return order;
+}
+
+function resolveWaypointOrder(route, rest) {
+  const wp = route?.waypoint_order;
+  if (Array.isArray(wp) && wp.length === rest.length) {
+    return wp;
+  }
+  return inferWaypointOrderFromLegs(route, rest);
 }
 
 function directionsRoute(entries) {
@@ -46,6 +89,7 @@ function directionsRoute(entries) {
           resolve({
             ok: true,
             waypointOrder: [],
+            route,
             legs: route.legs,
             totalDistanceM: sumLegsMetric(route.legs, "distance"),
             totalDurationS: sumLegsMetric(route.legs, "duration"),
@@ -80,9 +124,11 @@ function directionsRoute(entries) {
         const route = result.routes[0];
         const legs = route.legs || [];
         const metricLegs = legs.length > 1 ? legs.slice(0, -1) : legs;
+        const rest = entries.slice(1);
         resolve({
           ok: true,
-          waypointOrder: route.waypoint_order || [],
+          waypointOrder: resolveWaypointOrder(route, rest),
+          route,
           legs,
           totalDistanceM: sumLegsMetric(metricLegs, "distance"),
           totalDurationS: sumLegsMetric(metricLegs, "duration"),
@@ -119,32 +165,36 @@ export async function fetchGoogleOptimizedRoute(entries) {
 }
 
 /**
- * V164 — Primeira parada fixa; demais reordenadas por waypoint_order do Google.
+ * V165 — Primeira parada fixa; demais reordenadas por waypoint_order (ou legs).
  * @param {Array<{ parada: object, coord: { lng: number, lat: number } }>} entries
  * @param {number[]} waypointOrder
+ * @param {google.maps.DirectionsRoute | null} [route]
  */
-export function reorderStopsByGoogleWaypointOrder(entries, waypointOrder) {
+export function reorderStopsByGoogleWaypointOrder(entries, waypointOrder, route = null) {
   if (!entries?.length) return [];
 
-  const toParada = (entry) => ({
+  const toParada = (entry, ordem) => ({
     ...entry.parada,
+    ordem,
     coords: [entry.coord.lng, entry.coord.lat],
   });
 
-  if (entries.length === 1) return [toParada(entries[0])];
+  if (entries.length === 1) return [toParada(entries[0], 1)];
 
   const first = entries[0];
   const rest = entries.slice(1);
 
   if (rest.length === 1) {
-    return [toParada(first), toParada(rest[0])];
+    return [toParada(first, 1), toParada(rest[0], 2)];
   }
 
   const order =
-    waypointOrder?.length === rest.length
+    Array.isArray(waypointOrder) && waypointOrder.length === rest.length
       ? waypointOrder
-      : rest.map((_, i) => i);
+      : route
+        ? inferWaypointOrderFromLegs(route, rest)
+        : rest.map((_, i) => i);
 
   const orderedRest = order.map((idx) => rest[idx]).filter(Boolean);
-  return [toParada(first), ...orderedRest.map(toParada)];
+  return [toParada(first, 1), ...orderedRest.map((entry, i) => toParada(entry, i + 2))];
 }

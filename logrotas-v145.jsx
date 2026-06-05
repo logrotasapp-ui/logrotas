@@ -1071,7 +1071,7 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade})=>{
     window.open(`https://www.google.com/maps/dir/${waypoints}`,"_blank");
   };
 
-  // V164 — aplica paradasOtimizadas (Google Directions waypoint_order) no mapa e na lista
+  // V165 — geocoding completo → Directions (optimizeWaypoints) → reordena lista e mapa
   const handleOtimizarRota=async()=>{
     if(paradas.length<2)return;
     setOtimizando(true);
@@ -1166,7 +1166,11 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade})=>{
       {paradas.length>=2&&(
         <div style={{marginBottom:14}}>
           <div style={{color:C.navy,fontWeight:700,fontSize:13,marginBottom:8}}>🗺️ Mapa das entregas</div>
-          <DeliveryMap paradas={paradas} height={240}/>
+          <DeliveryMap
+            key={paradas.map((p,i)=>`${i}:${p.id}`).join("|")}
+            paradas={paradas}
+            height={240}
+          />
           {/* V161 — expandir mapa em overlay tela cheia */}
           <button
             type="button"
@@ -1240,7 +1244,11 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade})=>{
               <XIcon size={18}/>
             </button>
             <div style={{width:"100%",height:"100%",borderRadius:12,overflow:"hidden"}}>
-              <DeliveryMap paradas={paradas} height="90vh"/>
+              <DeliveryMap
+                key={`fs-${paradas.map((p,i)=>`${i}:${p.id}`).join("|")}`}
+                paradas={paradas}
+                height="90vh"
+              />
             </div>
           </div>
         </div>
