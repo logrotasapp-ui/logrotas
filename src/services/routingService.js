@@ -22,8 +22,14 @@ export {
 /** Valor estimado por eixo por praça de pedágio (R$). */
 export const TOLL_PER_AXLE = 3.2;
 
+// V160 — prompt romaneio: cidade e UF obrigatórios em cada linha
 const ROMANEIO_PROMPT =
-  "Analise esta imagem de um romaneio de entregas. Extraia APENAS os endereços de entrega, um por linha, no formato 'Rua/Av, número - Bairro'. Retorne somente os endereços, sem numeração, sem texto adicional, sem explicações.";
+  "Analise esta imagem de um romaneio de entregas. Extraia APENAS os endereços de entrega, um por linha. " +
+  "Formato obrigatório de cada linha: Rua Nome, Número - Bairro, Cidade - UF. " +
+  "Exemplo: Av. Paulista, 900 - Bela Vista, São Paulo - SP. " +
+  "Sempre inclua cidade e estado (UF com 2 letras). " +
+  "Se a cidade não estiver visível no romaneio, infira pelo contexto (ex.: bairros Consolação, Itaim Bibi ou Moema são inequivocamente São Paulo - SP). " +
+  "Retorne somente os endereços, sem numeração, sem texto adicional, sem explicações.";
 
 const CONNECTION_ERROR =
   "Erro de conexão. Verifique sua internet e tente novamente.";

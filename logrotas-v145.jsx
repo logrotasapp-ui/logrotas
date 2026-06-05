@@ -990,7 +990,7 @@ const CalcSelector=({onFrete,onViagem,onOtimizar,onClose})=>(
   </ModalWrap>
 );
 
-// ── OTIMIZAR ENTREGAS (V159 — geocoding romaneio com proximity) ───────────────
+// ── OTIMIZAR ENTREGAS (V160 — prompt Gemini com cidade/UF) ─────────────────────
 
 const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade})=>{
   const[paradas,setParadas]=useState([]);
