@@ -152,7 +152,44 @@ export async function resolveManualAddress(rawText) {
 // ── OpenRouteService ─────────────────────────────────────────────────────────
 
 /**
- * Autocomplete de endereços (Brasil).
+ * Autocomplete de endereços via Mapbox (mesmo provedor da otimização de rotas).
+ * @param {string} query — texto já normalizado
+ */
+async function searchAddressesMapbox(query) {
+  const searchText = encodeURIComponent(`${query}, Brasil`);
+  const url =
+    `${API_ENDPOINTS.mapboxGeocoding}/${searchText}.json` +
+    `?access_token=${API_KEYS.mapbox}&limit=6&country=br&language=pt`;
+
+  const res = await fetchJson(url);
+
+  if (res.networkError) {
+    return { ok: false, error: CONNECTION_ERROR, suggestions: [] };
+  }
+
+  if (!res.ok) {
+    const apiMsg = res.data?.message;
+    return {
+      ok: false,
+      error:
+        apiMsg ||
+        (res.status === 401
+          ? "Token Mapbox inválido. Verifique VITE_MAPBOX_TOKEN."
+          : `Busca de endereços indisponível (${res.status || "erro"}).`),
+      suggestions: [],
+    };
+  }
+
+  const suggestions = (res.data?.features || []).map((f) => ({
+    label: f.place_name,
+    coords: f.center,
+  }));
+
+  return { ok: true, suggestions };
+}
+
+/**
+ * Autocomplete de endereços (Brasil) — Mapbox; ORS só se não houver token Mapbox.
  * @param {string} text
  * @param {{ skipNormalize?: boolean }} [opts]
  * @returns {{ ok: true, suggestions: Array<{label, coords}> } | { ok: false, error: string, suggestions: [] }}
@@ -164,10 +201,14 @@ export async function searchAddresses(text, opts = {}) {
     return { ok: true, suggestions: [] };
   }
 
+  if (API_KEYS.mapbox) {
+    return searchAddressesMapbox(query);
+  }
+
   if (!API_KEYS.ors) {
     return {
       ok: false,
-      error: "Busca de endereços indisponível (configure VITE_ORS_KEY).",
+      error: "Busca de endereços indisponível (configure VITE_MAPBOX_TOKEN).",
       suggestions: [],
     };
   }
