@@ -245,7 +245,7 @@ async function fetchMapboxOptimization(coordsList) {
   return fetchJson(url);
 }
 
-// ── Romaneio: Gemini Vision (Gemini 2.0 Flash) ─────────────────────────────────
+// ── Romaneio: Gemini Vision (Gemini 2.5 Flash Lite) ────────────────────────────
 
 function geminiErrorMessage(res) {
   const apiMsg =
@@ -264,7 +264,7 @@ function geminiErrorMessage(res) {
 }
 
 /**
- * Envia imagem do romaneio ao Gemini 2.0 Flash e extrai endereços.
+ * Envia imagem do romaneio ao Gemini 2.5 Flash Lite e extrai endereços.
  * @param {Blob|File} file
  * @param {{ onProgress?: (pct: number, status: string) => void, signal?: { aborted?: boolean } }} [options]
  */
@@ -375,7 +375,7 @@ export async function extractRomaneioAddressesFromImageGemini(file, options = {}
 }
 
 /**
- * Converte foto/PDF em imagem e extrai endereços via Gemini 2.0 Flash.
+ * Converte foto/PDF em imagem e extrai endereços via Gemini 2.5 Flash Lite.
  * @param {Blob|File} file
  * @param {{ onProgress?: (pct: number, status: string) => void, signal?: { aborted?: boolean } }} [options]
  */
