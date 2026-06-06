@@ -1,5 +1,5 @@
 /**
- * Dados do mapa de entregas — agrupa paradas no mesmo ponto.
+ * Dados do mapa de entregas — um marcador por parada.
  */
 
 import { geocodeAddressForDisplay } from "./routingService.js";
@@ -16,16 +16,12 @@ function resolveCoords(parada) {
   return null;
 }
 
-function locationKey(lng, lat) {
-  return `${lng.toFixed(5)},${lat.toFixed(5)}`;
-}
-
 /**
- * @param {Array<{ id?: number, endereco?: string, coords?: number[], ordem?: number }>} paradas
+ * @param {Array<{ id?: number, endereco?: string, coords?: number[], ordem?: number, entregue?: boolean }>} paradas
  * @returns {Promise<import("geojson").Feature[]>}
  */
 export async function buildDeliveryMapFeatures(paradas) {
-  const points = [];
+  const features = [];
 
   for (let i = 0; i < (paradas || []).length; i++) {
     const p = paradas[i];
@@ -45,55 +41,20 @@ export async function buildDeliveryMapFeatures(paradas) {
       continue;
     }
 
-    points.push({ lng, lat, order, id: p.id ?? i });
-  }
-
-  const groups = new Map();
-  for (const pt of points) {
-    const key = locationKey(pt.lng, pt.lat);
-    if (!groups.has(key)) {
-      groups.set(key, { lng: pt.lng, lat: pt.lat, orders: [] });
-    }
-    groups.get(key).orders.push(pt.order);
-  }
-
-  return Array.from(groups.values()).map((g) => {
-    const orders = [...g.orders].sort((a, b) => a - b);
-    const packageCount = orders.length;
-    return {
+    features.push({
       type: "Feature",
       properties: {
-        packageCount,
-        orders,
-        order: orders[0],
+        packageCount: 1,
+        orders: [order],
+        order,
+        entregue: !!p.entregue,
       },
       geometry: {
         type: "Point",
-        coordinates: [g.lng, g.lat],
+        coordinates: [lng, lat],
       },
-    };
-  });
-}
-
-/** Conta entregas por endereço normalizado (lista de paradas). */
-export function countParadasPorEndereco(paradas) {
-  const counts = {};
-  for (const p of paradas || []) {
-    const key = String(p?.endereco || "")
-      .trim()
-      .toLowerCase()
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "");
-    if (!key) continue;
-    counts[key] = (counts[key] || 0) + 1;
+    });
   }
-  return counts;
-}
 
-export function enderecoKey(endereco) {
-  return String(endereco || "")
-    .trim()
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "");
+  return features;
 }

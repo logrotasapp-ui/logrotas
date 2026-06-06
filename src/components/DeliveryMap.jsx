@@ -32,13 +32,13 @@ class DeliveryClusterRenderer {
   }
 }
 
-function createNumberedMarker(lng, lat, order) {
+function createNumberedMarker(lng, lat, order, entregue = false) {
   return new window.google.maps.Marker({
     position: { lat, lng },
     icon: {
       path: window.google.maps.SymbolPath.CIRCLE,
       scale: 16,
-      fillColor: "#3B82F6",
+      fillColor: entregue ? "#94A3B8" : "#3B82F6",
       fillOpacity: 1,
       strokeColor: "#ffffff",
       strokeWeight: 2,
@@ -76,13 +76,14 @@ function createDriverMarker(lng, lat) {
 
 /**
  * V172 — Mapa Google Maps + botão flutuante “Minha localização”.
- * @param {{ paradas: Array<{id, endereco, coords?, ordem?}>, height?: number | string, motoristaCoords?: [number, number] | null, showLocateButton?: boolean, onDriverLocationUpdate?: (coords: [number, number]) => void }} props
+ * @param {{ paradas: Array<{id, endereco, coords?, ordem?, entregue?}>, height?: number | string, motoristaCoords?: [number, number] | null, showLocateButton?: boolean, gestureHandling?: string, onDriverLocationUpdate?: (coords: [number, number]) => void }} props
  */
 export default function DeliveryMap({
   paradas,
   height = 260,
   motoristaCoords = null,
   showLocateButton = false,
+  gestureHandling = "cooperative",
   onDriverLocationUpdate,
 }) {
   const containerRef = useRef(null);
@@ -173,8 +174,8 @@ export default function DeliveryMap({
 
         const markers = features.map((f) => {
           const [lng, lat] = f.geometry.coordinates;
-          const { packageCount, orders } = f.properties;
-          const marker = createNumberedMarker(lng, lat, f.properties.order);
+          const { packageCount, orders, entregue } = f.properties;
+          const marker = createNumberedMarker(lng, lat, f.properties.order, entregue);
           marker.addListener("click", () => {
             if (!infoWindowRef.current) {
               infoWindowRef.current = new window.google.maps.InfoWindow();
@@ -247,6 +248,7 @@ export default function DeliveryMap({
           mapTypeControl: false,
           streetViewControl: false,
           fullscreenControl: false,
+          gestureHandling,
         });
 
         mapRef.current = map;
@@ -269,7 +271,13 @@ export default function DeliveryMap({
       mapRef.current = null;
       setMapReady(false);
     };
-  }, [clearMarkers]);
+  }, [clearMarkers, gestureHandling]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+    map.setOptions({ gestureHandling });
+  }, [gestureHandling, mapReady]);
 
   useEffect(() => {
     const map = mapRef.current;

@@ -22,7 +22,6 @@ import {
 import { calculateTripCosts } from "./src/services/tripCalcService.js";
 import ScannerModule from "./src/components/ScannerModule.js";
 import DeliveryMap from "./src/components/DeliveryMap.js";
-import { countParadasPorEndereco, enderecoKey } from "./src/services/mapDisplayService.js";
 import { OFFLINE_KEYS, readOfflineCache, writeOfflineCache } from "./src/services/offlineStorage.js";
 import {
   CheckIcon, XIcon, ZapIcon, UsersIcon, StarIcon,
@@ -1119,7 +1118,13 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade})=>{
     writeOfflineCache(OFFLINE_KEYS.otimizar,{paradas});
   },[offlineHydrated,paradas]);
 
-  const pacotesPorEndereco=countParadasPorEndereco(paradas);
+  const entreguesCount=paradas.filter(p=>p.entregue).length;
+  const pendentesCount=paradas.length-entreguesCount;
+  const todasEntregues=paradas.length>0&&pendentesCount===0;
+
+  const marcarEntregue=(id)=>{
+    setParadas(p=>p.map(x=>x.id===id?{...x,entregue:true}:x));
+  };
 
   // Geocoding Google com proximity (GPS + cadeia) p/ endereços do Gemini
   // V169 — paradas com confianca ok|warn; feedback para FAIL
@@ -1282,7 +1287,7 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade})=>{
         <div style={{marginBottom:14}}>
           <div style={{color:C.navy,fontWeight:700,fontSize:13,marginBottom:8}}>🗺️ Mapa das entregas</div>
           <DeliveryMap
-            key={paradas.map((p,i)=>`${i}:${p.id}`).join("|")}
+            key={paradas.map((p,i)=>`${i}:${p.id}:${p.entregue?"1":"0"}`).join("|")}
             paradas={paradas}
             motoristaCoords={posicaoMotorista}
             height={240}
@@ -1363,11 +1368,12 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade})=>{
             </button>
             <div style={{width:"100%",height:"100%",borderRadius:12,overflow:"hidden"}}>
               <DeliveryMap
-                key={`fs-${paradas.map((p,i)=>`${i}:${p.id}`).join("|")}`}
+                key={`fs-${paradas.map((p,i)=>`${i}:${p.id}:${p.entregue?"1":"0"}`).join("|")}`}
                 paradas={paradas}
                 motoristaCoords={posicaoMotorista}
                 height="90vh"
                 showLocateButton
+                gestureHandling="greedy"
                 onDriverLocationUpdate={setPosicaoMotorista}
               />
             </div>
@@ -1375,11 +1381,17 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade})=>{
         </div>
       )}
 
+      {todasEntregues&&(
+        <div style={{background:"linear-gradient(135deg,#22C55E,#16A34A)",borderRadius:12,padding:"12px 16px",marginBottom:14,textAlign:"center",boxShadow:"0 4px 14px #22C55E44"}}>
+          <span style={{color:"#fff",fontWeight:800,fontSize:14}}>🎉 Todas as entregas concluídas!</span>
+        </div>
+      )}
+
       {paradas.length>0&&(
         <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:14}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
             <span style={{color:C.navy,fontWeight:700,fontSize:13}}>
-              {paradas.length} endereço{paradas.length!==1?"s":""} · {paradas.length} pacote{paradas.length!==1?"s":""} {resultado?"— rota otimizada ✅":""}
+              {paradas.length} endereço{paradas.length!==1?"s":""} · {entreguesCount} entregue{entreguesCount!==1?"s":""} · {pendentesCount} pendente{pendentesCount!==1?"s":""} {resultado?"— rota otimizada ✅":""}
             </span>
             <div style={{display:"flex",alignItems:"center",gap:8}}>
               {!isPro&&(
@@ -1395,30 +1407,36 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade})=>{
           </div>
           {paradas.map((p,i)=>(
             <div key={p.id} style={{
-              display:"flex",flexDirection:"column",gap:6,
-              background:p.confianca==="warn"?"#FFFBEB":resultado?"#F0FDF4":C.subtle,
-              border:`1.5px solid ${p.confianca==="warn"?"#FDE68A":resultado?"#86EFAC":C.border}`,
-              borderRadius:11,padding:"10px 13px",transition:"all .3s",
+              display:"flex",flexDirection:"column",gap:8,
+              background:p.entregue?"#F1F5F9":p.confianca==="warn"?"#FFFBEB":resultado?"#F0FDF4":C.subtle,
+              border:`1.5px solid ${p.entregue?"#E2E8F0":p.confianca==="warn"?"#FDE68A":resultado?"#86EFAC":C.border}`,
+              borderRadius:11,padding:"10px 13px",transition:"all .3s",position:"relative",
             }}>
-              <div style={{display:"flex",alignItems:"center",gap:10}}>
-                <div style={{width:24,height:24,borderRadius:"50%",background:p.confianca==="warn"?"#F59E0B":resultado?"#22C55E":"#3B82F6",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+              <div style={{display:"flex",alignItems:"flex-start",gap:10,paddingRight:36}}>
+                <div style={{width:24,height:24,borderRadius:"50%",background:p.entregue?"#94A3B8":p.confianca==="warn"?"#F59E0B":resultado?"#22C55E":"#3B82F6",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,marginTop:1}}>
                   <span style={{color:"#fff",fontWeight:800,fontSize:11}}>{i+1}</span>
                 </div>
-                <span style={{flex:1,color:C.text,fontSize:13,display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
-                  {p.endereco}
-                  {(pacotesPorEndereco[enderecoKey(p.endereco)]||0)>=2&&(
-                    <span style={{color:"#166534",fontSize:11,fontWeight:700,whiteSpace:"nowrap"}}>
-                      📦 {pacotesPorEndereco[enderecoKey(p.endereco)]} pacotes
-                    </span>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{color:p.entregue?"#94A3B8":C.text,fontSize:13,textDecoration:p.entregue?"line-through":"none",lineHeight:1.4}}>
+                    {p.endereco}
+                  </div>
+                  {!p.entregue&&(
+                    <span style={{display:"inline-block",marginTop:4,color:"#166534",fontSize:11,fontWeight:700}}>📦 1 pacote</span>
                   )}
-                </span>
-                <button onClick={()=>setParadaRemover(p.id)}
-                  style={{background:C.redLight,border:"none",borderRadius:7,padding:5,cursor:"pointer",color:C.red,display:"flex",flexShrink:0}}>
-                  <Trash2Icon size={13}/>
-                </button>
+                </div>
               </div>
-              {p.confianca==="warn"&&(
-                <div style={{color:"#92400E",fontSize:11,fontWeight:600,paddingLeft:34}}>
+              <button onClick={()=>setParadaRemover(p.id)}
+                style={{position:"absolute",top:10,right:10,background:C.redLight,border:"none",borderRadius:7,padding:5,cursor:"pointer",color:C.red,display:"flex",flexShrink:0}}>
+                <Trash2Icon size={13}/>
+              </button>
+              {!p.entregue&&(
+                <button type="button" onClick={()=>marcarEntregue(p.id)}
+                  style={{width:"100%",padding:"10px 14px",background:"#F0FDF4",border:"1.5px solid #86EFAC",borderRadius:10,cursor:"pointer",color:"#166534",fontWeight:700,fontSize:13,display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
+                  ✅ Entregue
+                </button>
+              )}
+              {p.confianca==="warn"&&!p.entregue&&(
+                <div style={{color:"#92400E",fontSize:11,fontWeight:600,paddingLeft:34,marginTop:-4}}>
                   ⚠️ Verifique este endereço
                 </div>
               )}
@@ -1535,7 +1553,6 @@ const TripCalcModal=({onClose,vehicles})=>{
     const temDados=cached&&(
       String(cached.consumo||"").trim()||
       String(cached.combustivel||"").trim()||
-      String(cached.pedagio||"").trim()||
       cached.vehicleId
     );
     if(temDados){
@@ -1543,7 +1560,6 @@ const TripCalcModal=({onClose,vehicles})=>{
       if(cached.carretinha!=null)setCarretinha(cached.carretinha);
       if(cached.consumo!=null)setConsumo(String(cached.consumo));
       if(cached.combustivel!=null)setCombustivel(String(cached.combustivel));
-      if(cached.pedagio!=null)setPedagio(String(cached.pedagio));
       setOfflineRestored(true);
       setTimeout(()=>setOfflineRestored(false),3500);
     }
@@ -1555,13 +1571,12 @@ const TripCalcModal=({onClose,vehicles})=>{
     const temDados=
       String(consumo||"").trim()||
       String(combustivel||"").trim()||
-      String(pedagio||"").trim()||
       vehicleId!=="carro";
     if(!temDados)return;
     writeOfflineCache(OFFLINE_KEYS.viagem,{
-      vehicleId,carretinha,consumo,combustivel,pedagio,
+      vehicleId,carretinha,consumo,combustivel,
     });
-  },[offlineHydrated,vehicleId,carretinha,consumo,combustivel,pedagio]);
+  },[offlineHydrated,vehicleId,carretinha,consumo,combustivel]);
 
   // V171 — soma origem→paradas→destino via Google Directions (KM editável)
   const buscarDistAuto=async(stopsAtuais)=>{
@@ -1854,7 +1869,6 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
     const temDados=cached&&(
       String(cached.fuelPrice||"").trim()||
       String(cached.consumo||"").trim()||
-      String(cached.pedagioTotal||"").trim()||
       String(cached.cargo||"").trim()||
       cached.vehicleId
     );
@@ -1862,7 +1876,6 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
       if(cached.vehicleId)setVehicleId(cached.vehicleId);
       if(cached.fuelPrice!=null)setFuelPrice(String(cached.fuelPrice));
       if(cached.consumo!=null)setConsumo(String(cached.consumo));
-      if(cached.pedagioTotal!=null)setPedagioTotal(String(cached.pedagioTotal));
       if(cached.trailer)setTrailer(cached.trailer);
       if(cached.trailerAxleMap)setTrailerAxleMap(cached.trailerAxleMap);
       if(cached.cargo!=null)setCargo(String(cached.cargo));
@@ -1877,14 +1890,13 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
     const temDados=
       String(fuelPrice||"").trim()||
       String(consumo||"").trim()||
-      String(pedagioTotal||"").trim()||
       String(cargo||"").trim()||
       vehicleId!=="carro"||trailer!=="none";
     if(!temDados)return;
     writeOfflineCache(OFFLINE_KEYS.frete,{
-      vehicleId,fuelPrice,consumo,pedagioTotal,trailer,trailerAxleMap,cargo,
+      vehicleId,fuelPrice,consumo,trailer,trailerAxleMap,cargo,
     });
-  },[offlineHydrated,vehicleId,fuelPrice,consumo,pedagioTotal,trailer,trailerAxleMap,cargo]);
+  },[offlineHydrated,vehicleId,fuelPrice,consumo,trailer,trailerAxleMap,cargo]);
 
   // V171 — KM por trecho via Google Directions driving
   const buscarDistAuto=async(stopsAtuais)=>{
