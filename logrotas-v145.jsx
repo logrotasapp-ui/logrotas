@@ -1374,6 +1374,7 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade})=>{
                 motoristaCoords={posicaoMotorista}
                 height="90vh"
                 showLocateButton
+                expandedMap
                 gestureHandling="greedy"
                 onDriverLocationUpdate={setPosicaoMotorista}
               />
@@ -1432,7 +1433,7 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade})=>{
               </button>
               {!p.entregue&&resultado&&(
                 <button type="button" onClick={()=>marcarEntregue(p.id)}
-                  style={{width:"100%",padding:"10px 14px",background:"#FF8C42",border:"none",borderRadius:10,cursor:"pointer",color:"#fff",fontWeight:700,fontSize:13,display:"flex",alignItems:"center",justifyContent:"center",gap:6,boxShadow:"0 2px 8px #FF8C4244"}}>
+                  style={{width:"100%",padding:"10px 14px",background:"#FFCB8A",border:"none",borderRadius:10,cursor:"pointer",color:"#333333",fontWeight:700,fontSize:13,display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
                   ✅ Confirmar entrega
                 </button>
               )}

@@ -52,6 +52,21 @@ function createNumberedMarker(lng, lat, order, entregue = false) {
   });
 }
 
+function GoogleLocationIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true">
+      <circle cx="12" cy="12" r="2.5" fill="#4285F4" />
+      <circle cx="12" cy="12" r="7" fill="none" stroke="#4285F4" strokeWidth="2" />
+      <path
+        d="M12 2v3M12 19v3M2 12h3M19 12h3"
+        stroke="#4285F4"
+        strokeWidth="2"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
 function createDriverMarker(lng, lat) {
   return new window.google.maps.Marker({
     position: { lat, lng },
@@ -76,13 +91,14 @@ function createDriverMarker(lng, lat) {
 
 /**
  * V172 — Mapa Google Maps + botão flutuante “Minha localização”.
- * @param {{ paradas: Array<{id, endereco, coords?, ordem?, entregue?}>, height?: number | string, motoristaCoords?: [number, number] | null, showLocateButton?: boolean, gestureHandling?: string, onDriverLocationUpdate?: (coords: [number, number]) => void }} props
+ * @param {{ paradas: Array<{id, endereco, coords?, ordem?, entregue?}>, height?: number | string, motoristaCoords?: [number, number] | null, showLocateButton?: boolean, expandedMap?: boolean, gestureHandling?: string, onDriverLocationUpdate?: (coords: [number, number]) => void }} props
  */
 export default function DeliveryMap({
   paradas,
   height = 260,
   motoristaCoords = null,
   showLocateButton = false,
+  expandedMap = false,
   gestureHandling = "cooperative",
   onDriverLocationUpdate,
 }) {
@@ -351,28 +367,48 @@ export default function DeliveryMap({
           disabled={locating}
           aria-label="Minha localização"
           title="Minha localização"
-          style={{
-            position: "absolute",
-            bottom: 28,
-            right: 12,
-            zIndex: 10,
-            width: 44,
-            height: 44,
-            borderRadius: "50%",
-            border: "1.5px solid #E2E8F0",
-            background: locating ? "#FEF3C7" : "#fff",
-            boxShadow: "0 2px 10px rgba(0,0,0,0.22)",
-            cursor: locating ? "wait" : "pointer",
-            fontSize: 22,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            lineHeight: 1,
-            color: locating ? "#D97706" : "#1E3A8A",
-            fontWeight: 700,
-          }}
+          style={
+            expandedMap
+              ? {
+                  position: "absolute",
+                  bottom: 96,
+                  right: 10,
+                  zIndex: 10,
+                  width: 40,
+                  height: 40,
+                  borderRadius: "50%",
+                  border: "none",
+                  background: locating ? "#F1F3F4" : "#fff",
+                  boxShadow: "0 1px 4px rgba(0,0,0,0.3)",
+                  cursor: locating ? "wait" : "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  padding: 0,
+                }
+              : {
+                  position: "absolute",
+                  bottom: 28,
+                  right: 12,
+                  zIndex: 10,
+                  width: 44,
+                  height: 44,
+                  borderRadius: "50%",
+                  border: "1.5px solid #E2E8F0",
+                  background: locating ? "#FEF3C7" : "#fff",
+                  boxShadow: "0 2px 10px rgba(0,0,0,0.22)",
+                  cursor: locating ? "wait" : "pointer",
+                  fontSize: 22,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  lineHeight: 1,
+                  color: locating ? "#D97706" : "#1E3A8A",
+                  fontWeight: 700,
+                }
+          }
         >
-          ⊕
+          {expandedMap ? <GoogleLocationIcon /> : "⊕"}
         </button>
       )}
       {hint && status !== "loading" && (
