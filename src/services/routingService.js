@@ -7,6 +7,7 @@ import {
 } from "./apiConfig.js";
 import {
   fetchGooglePlacePredictions,
+  SAO_PAULO_BOUNDS,
   resolvePlaceSuggestion,
 } from "./googlePlacesService.js";
 import {
@@ -37,7 +38,7 @@ export {
 /** Valor estimado por eixo por praça de pedágio (R$). */
 export const TOLL_PER_AXLE = 3.2;
 
-// V171 — calculadoras: Google Directions + pedágio em R$; V170 — prompt Gemini anti-alucinação
+// V172 — autocomplete SP + Maps com GPS; V171 — calculadoras; V170 — prompt Gemini
 const ROMANEIO_PROMPT =
   "Analise esta imagem de documento de entrega (romaneio ou etiqueta). REGRAS ABSOLUTAS — violar qualquer uma é erro grave:\n\n" +
   "VALIDAÇÃO LITERAL (obrigatória antes de cada linha de saída):\n" +
@@ -292,7 +293,49 @@ export async function resolveManualAddress(rawText) {
  * V163 — Autocomplete via Google Places (country=SEARCH_COUNTRIES).
  * @param {string} query — texto já normalizado
  */
-async function searchAddressesGoogle(query) {
+/** Origem da rota indica endereço de São Paulo (texto ou coordenadas). */
+export function isSaoPauloOrigin(label, coords) {
+  if (label) {
+    const norm = String(label)
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "");
+    if (
+      norm.includes("sao paulo") ||
+      /,\s*sp\b/.test(norm) ||
+      /-\s*sp\b/.test(norm)
+    ) {
+      return true;
+    }
+  }
+  if (coords?.length >= 2) {
+    const [lng, lat] = coords;
+    return (
+      lat >= SAO_PAULO_BOUNDS.south &&
+      lat <= SAO_PAULO_BOUNDS.north &&
+      lng >= SAO_PAULO_BOUNDS.west &&
+      lng <= SAO_PAULO_BOUNDS.east
+    );
+  }
+  return false;
+}
+
+/** Viés de busca para paradas/destino quando a origem é de SP. */
+export function buildCalculatorStopSearchBias(originLabel, originCoords) {
+  const bias = {};
+  if (originCoords?.length >= 2) {
+    bias.proximityLngLat = originCoords;
+  }
+  if (isSaoPauloOrigin(originLabel, originCoords)) {
+    bias.bounds = SAO_PAULO_BOUNDS;
+    if (!bias.proximityLngLat) {
+      bias.proximityLngLat = [-46.6333, -23.5505];
+    }
+  }
+  return bias;
+}
+
+async function searchAddressesGoogle(query, searchOpts = {}) {
   warmGeocodeProximity();
 
   if (!API_KEYS.googleMaps) {
@@ -304,7 +347,12 @@ async function searchAddressesGoogle(query) {
   }
 
   try {
-    const suggestions = await fetchGooglePlacePredictions(query, cachedGeocodeProximity);
+    const proximityLngLat =
+      searchOpts.proximityLngLat ?? cachedGeocodeProximity;
+    const suggestions = await fetchGooglePlacePredictions(query, {
+      proximityLngLat,
+      bounds: searchOpts.bounds ?? null,
+    });
     return { ok: true, suggestions };
   } catch (err) {
     return {
@@ -318,7 +366,7 @@ async function searchAddressesGoogle(query) {
 /**
  * Autocomplete de endereços (Brasil) — Google Places Autocomplete API.
  * @param {string} text
- * @param {{ skipNormalize?: boolean }} [opts]
+ * @param {{ skipNormalize?: boolean, proximityLngLat?: [number, number], bounds?: object }} [opts]
  * @returns {{ ok: true, suggestions: Array<{label, placeId?, coords?}> } | { ok: false, error: string, suggestions: [] }}
  */
 export async function searchAddresses(text, opts = {}) {
@@ -328,7 +376,41 @@ export async function searchAddresses(text, opts = {}) {
     return { ok: true, suggestions: [] };
   }
 
-  return searchAddressesGoogle(query);
+  const { skipNormalize: _sn, ...searchBias } = opts;
+  return searchAddressesGoogle(query, searchBias);
+}
+
+/**
+ * V172 — Abre Google Maps com origem = GPS atual e paradas da rota.
+ * @param {Array<{ v?: string, endereco?: string }>} stops
+ */
+export async function openGoogleMapsDirections(stops) {
+  const addresses = (stops || [])
+    .map((s) => String(s?.v || s?.endereco || "").trim())
+    .filter(Boolean);
+  if (!addresses.length) return;
+
+  const pos = await getDriverGeolocation({ preferFresh: true });
+  const params = new URLSearchParams({ api: "1" });
+  const destination = addresses[addresses.length - 1];
+  params.set("destination", destination);
+
+  if (pos) {
+    params.set("origin", `${pos.lat},${pos.lng}`);
+    if (addresses.length > 1) {
+      params.set("waypoints", addresses.slice(0, -1).join("|"));
+    }
+  } else if (addresses.length === 1) {
+    params.delete("destination");
+    params.set("destination", destination);
+  } else {
+    params.set("origin", addresses[0]);
+    if (addresses.length > 2) {
+      params.set("waypoints", addresses.slice(1, -1).join("|"));
+    }
+  }
+
+  window.open(`https://www.google.com/maps/dir/?${params.toString()}`, "_blank");
 }
 
 /**

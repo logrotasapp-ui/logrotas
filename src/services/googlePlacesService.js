@@ -1,8 +1,8 @@
 /**
- * V163 — Google Places Autocomplete (substitui Mapbox só no autocomplete de endereços).
+ * V172 — Google Places Autocomplete (country=br + bounds SP nas calculadoras).
  */
 
-import { API_KEYS, SEARCH_COUNTRIES } from "./apiConfig.js";
+import { API_KEYS } from "./apiConfig.js";
 import { waitForGoogleMaps } from "./googleMapsLoader.js";
 
 let placesDetailsService = null;
@@ -26,13 +26,24 @@ function ensurePlacesDetailsService() {
   }
 }
 
+/** Bounds aproximados da Grande São Paulo (viés de autocomplete). */
+export const SAO_PAULO_BOUNDS = {
+  south: -23.82,
+  west: -46.92,
+  north: -23.35,
+  east: -46.36,
+};
+
 /**
  * @param {string} query
- * @param {[number, number] | null} proximityLngLat [lng, lat]
+ * @param {{ proximityLngLat?: [number, number] | null, bounds?: { south: number, west: number, north: number, east: number } | null }} [options]
  * @returns {Promise<Array<{ label: string, placeId: string, coords: null }>>}
  */
-export async function fetchGooglePlacePredictions(query, proximityLngLat = null) {
+export async function fetchGooglePlacePredictions(query, options = {}) {
   if (!API_KEYS.googleMaps) return [];
+
+  const proximityLngLat = options.proximityLngLat ?? null;
+  const bounds = options.bounds ?? null;
 
   await waitForGooglePlaces();
   const autocomplete = new window.google.maps.places.AutocompleteService();
@@ -40,14 +51,25 @@ export async function fetchGooglePlacePredictions(query, proximityLngLat = null)
   /** @type {google.maps.places.AutocompletionRequest} */
   const request = {
     input: query,
-    componentRestrictions: { country: SEARCH_COUNTRIES },
+    componentRestrictions: { country: "br" },
     language: "pt-BR",
   };
 
-  if (proximityLngLat) {
-    const [lng, lat] = proximityLngLat;
+  if (bounds) {
+    request.bounds = new window.google.maps.LatLngBounds(
+      new window.google.maps.LatLng(bounds.south, bounds.west),
+      new window.google.maps.LatLng(bounds.north, bounds.east)
+    );
+  }
+
+  const biasLngLat =
+    proximityLngLat ||
+    (bounds ? [-46.6333, -23.5505] : null);
+
+  if (biasLngLat) {
+    const [lng, lat] = biasLngLat;
     request.location = new window.google.maps.LatLng(lat, lng);
-    request.radius = 50000;
+    request.radius = bounds ? 80000 : 50000;
   }
 
   return new Promise((resolve) => {

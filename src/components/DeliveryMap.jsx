@@ -3,6 +3,7 @@ import { MarkerClusterer } from "@googlemaps/markerclusterer";
 import { API_KEYS } from "../services/apiConfig.js";
 import { buildDeliveryMapFeatures } from "../services/mapDisplayService.js";
 import { waitForGoogleMaps } from "../services/googleMapsLoader.js";
+import { getDriverGeolocation } from "../services/routingService.js";
 
 const DEFAULT_CENTER = { lat: -23.5505, lng: -46.6333 };
 
@@ -74,10 +75,16 @@ function createDriverMarker(lng, lat) {
 }
 
 /**
- * V166 — Mapa Google Maps com marcador do motorista, clusters e paradas numeradas.
- * @param {{ paradas: Array<{id, endereco, coords?, ordem?}>, height?: number | string, motoristaCoords?: [number, number] | null }} props
+ * V172 — Mapa Google Maps + botão flutuante “Minha localização”.
+ * @param {{ paradas: Array<{id, endereco, coords?, ordem?}>, height?: number | string, motoristaCoords?: [number, number] | null, showLocateButton?: boolean, onDriverLocationUpdate?: (coords: [number, number]) => void }} props
  */
-export default function DeliveryMap({ paradas, height = 260, motoristaCoords = null }) {
+export default function DeliveryMap({
+  paradas,
+  height = 260,
+  motoristaCoords = null,
+  showLocateButton = false,
+  onDriverLocationUpdate,
+}) {
   const containerRef = useRef(null);
   const mapRef = useRef(null);
   const clustererRef = useRef(null);
@@ -87,6 +94,12 @@ export default function DeliveryMap({ paradas, height = 260, motoristaCoords = n
   const [mapReady, setMapReady] = useState(false);
   const [status, setStatus] = useState("idle");
   const [hint, setHint] = useState("");
+  const [locating, setLocating] = useState(false);
+  const driverCoordsRef = useRef(motoristaCoords);
+
+  useEffect(() => {
+    driverCoordsRef.current = motoristaCoords;
+  }, [motoristaCoords]);
 
   const clearMarkers = useCallback(() => {
     markersRef.current.forEach((m) => m.setMap(null));
@@ -106,6 +119,30 @@ export default function DeliveryMap({ paradas, height = 260, motoristaCoords = n
     driverMarkerRef.current = createDriverMarker(lng, lat);
     driverMarkerRef.current.setMap(map);
   }, []);
+
+  const handleLocateMe = useCallback(async () => {
+    const map = mapRef.current;
+    if (!map || locating) return;
+
+    setLocating(true);
+    try {
+      let coords = driverCoordsRef.current;
+      const fresh = await getDriverGeolocation({ preferFresh: true });
+      if (fresh) {
+        coords = [fresh.lng, fresh.lat];
+        driverCoordsRef.current = coords;
+        onDriverLocationUpdate?.(coords);
+      }
+      if (!coords || coords.length < 2) return;
+
+      const [lng, lat] = coords;
+      updateDriverMarker(map, coords);
+      map.setCenter({ lat, lng });
+      map.setZoom(15);
+    } finally {
+      setLocating(false);
+    }
+  }, [locating, onDriverLocationUpdate, updateDriverMarker]);
 
   const applyParadas = useCallback(
     async (map, list, driverCoords) => {
@@ -282,6 +319,35 @@ export default function DeliveryMap({ paradas, height = 260, motoristaCoords = n
         >
           {hint}
         </div>
+      )}
+      {showLocateButton && status !== "no-token" && (
+        <button
+          type="button"
+          onClick={handleLocateMe}
+          disabled={locating}
+          aria-label="Minha localização"
+          title="Minha localização"
+          style={{
+            position: "absolute",
+            bottom: 12,
+            right: 12,
+            zIndex: 10,
+            width: 44,
+            height: 44,
+            borderRadius: "50%",
+            border: "1.5px solid #E2E8F0",
+            background: locating ? "#FEF3C7" : "#fff",
+            boxShadow: "0 2px 10px rgba(0,0,0,0.22)",
+            cursor: locating ? "wait" : "pointer",
+            fontSize: 20,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            lineHeight: 1,
+          }}
+        >
+          📍
+        </button>
       )}
       {hint && status !== "loading" && (
         <p
