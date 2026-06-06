@@ -8,6 +8,7 @@ import {
   warmGeocodeProximity,
   getDriverGeolocation,
   fetchRouteTotalDistanceKm,
+  resolveCalculatorStopsCoords,
   geocodeRomaneioExtractedAddresses,
   optimizeDeliveryRoute,
   buildParadasFromAddresses,
@@ -1378,7 +1379,7 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade})=>{
         <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:14}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
             <span style={{color:C.navy,fontWeight:700,fontSize:13}}>
-              {paradas.length} parada(s) {resultado?"— rota otimizada ✅":""}
+              {paradas.length} endereço{paradas.length!==1?"s":""} · {paradas.length} pacote{paradas.length!==1?"s":""} {resultado?"— rota otimizada ✅":""}
             </span>
             <div style={{display:"flex",alignItems:"center",gap:8}}>
               {!isPro&&(
@@ -1532,23 +1533,17 @@ const TripCalcModal=({onClose,vehicles})=>{
   useEffect(()=>{
     const cached=readOfflineCache(OFFLINE_KEYS.viagem);
     const temDados=cached&&(
-      cached.stops?.some(s=>String(s?.v||"").trim())||
-      String(cached.distancia||"").trim()||
       String(cached.consumo||"").trim()||
       String(cached.combustivel||"").trim()||
-      String(cached.pedagio||"").trim()
+      String(cached.pedagio||"").trim()||
+      cached.vehicleId
     );
     if(temDados){
-      if(Array.isArray(cached.stops)&&cached.stops.length>=2)setStops(cached.stops);
-      if(cached.distancia!=null)setDistancia(String(cached.distancia));
       if(cached.vehicleId)setVehicleId(cached.vehicleId);
       if(cached.carretinha!=null)setCarretinha(cached.carretinha);
       if(cached.consumo!=null)setConsumo(String(cached.consumo));
       if(cached.combustivel!=null)setCombustivel(String(cached.combustivel));
       if(cached.pedagio!=null)setPedagio(String(cached.pedagio));
-      if(cached.roundTrip!=null)setRoundTrip(cached.roundTrip);
-      const maxId=Math.max(...(cached.stops||[]).map(s=>s.id||0),10);
-      nid.current=maxId+1;
       setOfflineRestored(true);
       setTimeout(()=>setOfflineRestored(false),3500);
     }
@@ -1558,16 +1553,15 @@ const TripCalcModal=({onClose,vehicles})=>{
   useEffect(()=>{
     if(!offlineHydrated)return;
     const temDados=
-      stops.some(s=>String(s?.v||"").trim())||
-      String(distancia||"").trim()||
       String(consumo||"").trim()||
       String(combustivel||"").trim()||
-      String(pedagio||"").trim();
+      String(pedagio||"").trim()||
+      vehicleId!=="carro";
     if(!temDados)return;
     writeOfflineCache(OFFLINE_KEYS.viagem,{
-      stops,distancia,vehicleId,carretinha,consumo,combustivel,pedagio,roundTrip,
+      vehicleId,carretinha,consumo,combustivel,pedagio,
     });
-  },[offlineHydrated,stops,distancia,vehicleId,carretinha,consumo,combustivel,pedagio,roundTrip]);
+  },[offlineHydrated,vehicleId,carretinha,consumo,combustivel,pedagio]);
 
   // V171 — soma origem→paradas→destino via Google Directions (KM editável)
   const buscarDistAuto=async(stopsAtuais)=>{
@@ -1858,32 +1852,20 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
   useEffect(()=>{
     const cached=readOfflineCache(OFFLINE_KEYS.frete);
     const temDados=cached&&(
-      cached.stops?.some(s=>String(s?.v||"").trim())||
-      cached.dists?.some(d=>String(d||"").trim())||
       String(cached.fuelPrice||"").trim()||
       String(cached.consumo||"").trim()||
       String(cached.pedagioTotal||"").trim()||
-      String(cached.freight||"").trim()
+      String(cached.cargo||"").trim()||
+      cached.vehicleId
     );
     if(temDados){
-      if(Array.isArray(cached.stops)&&cached.stops.length>=2)setStops(cached.stops);
       if(cached.vehicleId)setVehicleId(cached.vehicleId);
       if(cached.fuelPrice!=null)setFuelPrice(String(cached.fuelPrice));
       if(cached.consumo!=null)setConsumo(String(cached.consumo));
-      if(cached.arlaPrice!=null)setArlaPrice(String(cached.arlaPrice));
-      if(cached.arlaConsumption!=null)setArlaConsumption(String(cached.arlaConsumption));
       if(cached.pedagioTotal!=null)setPedagioTotal(String(cached.pedagioTotal));
       if(cached.trailer)setTrailer(cached.trailer);
       if(cached.trailerAxleMap)setTrailerAxleMap(cached.trailerAxleMap);
-      if(cached.roundTrip!=null)setRoundTrip(cached.roundTrip);
-      if(cached.metaLocal!=null)setMetaLocal(String(cached.metaLocal));
-      if(cached.freight!=null)setFreight(String(cached.freight));
-      if(cached.metaLucro!=null)setMetaLucro(String(cached.metaLucro));
-      if(Array.isArray(cached.dists))setDists(cached.dists);
       if(cached.cargo!=null)setCargo(String(cached.cargo));
-      if(cached.observacao!=null)setObservacao(String(cached.observacao));
-      const maxId=Math.max(...(cached.stops||[]).map(s=>s.id||0),3);
-      nid.current=maxId+1;
       setOfflineRestored(true);
       setTimeout(()=>setOfflineRestored(false),3500);
     }
@@ -1893,30 +1875,50 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
   useEffect(()=>{
     if(!offlineHydrated)return;
     const temDados=
-      stops.some(s=>String(s?.v||"").trim())||
-      dists.some(d=>String(d||"").trim())||
       String(fuelPrice||"").trim()||
       String(consumo||"").trim()||
       String(pedagioTotal||"").trim()||
-      String(freight||"").trim();
+      String(cargo||"").trim()||
+      vehicleId!=="carro"||trailer!=="none";
     if(!temDados)return;
     writeOfflineCache(OFFLINE_KEYS.frete,{
-      stops,vehicleId,fuelPrice,consumo,arlaPrice,arlaConsumption,pedagioTotal,
-      trailer,trailerAxleMap,roundTrip,metaLocal,freight,metaLucro,dists,cargo,observacao,
+      vehicleId,fuelPrice,consumo,pedagioTotal,trailer,trailerAxleMap,cargo,
     });
-  },[offlineHydrated,stops,vehicleId,fuelPrice,consumo,arlaPrice,arlaConsumption,pedagioTotal,trailer,trailerAxleMap,roundTrip,metaLocal,freight,metaLucro,dists,cargo,observacao]);
+  },[offlineHydrated,vehicleId,fuelPrice,consumo,pedagioTotal,trailer,trailerAxleMap,cargo]);
 
   // V171 — KM por trecho via Google Directions driving
   const buscarDistAuto=async(stopsAtuais)=>{
-    const coordsList=stopsAtuais.map(s=>s.coords);
+    const preenchidos=stopsAtuais.filter(s=>String(s?.v||"").trim());
+    if(preenchidos.length<2)return;
     setBuscandoDist(true);
-    const out=await fetchRouteTotalDistanceKm(coordsList);
-    setBuscandoDist(false);
-    if(!out.ok)return;
-    const segments=(out.segmentKm||[]).map(km=>(km!=null?String(km):""));
-    while(segments.length<stopsAtuais.length-1)segments.push("");
-    setDists(segments.slice(0,stopsAtuais.length-1));
+    try{
+      const resolvidos=await resolveCalculatorStopsCoords(stopsAtuais);
+      const coordsList=resolvidos.map(s=>s.coords);
+      const out=await fetchRouteTotalDistanceKm(coordsList);
+      if(!out.ok)return;
+      const segments=(out.segmentKm||[]).map(km=>(km!=null?String(km):""));
+      while(segments.length<stopsAtuais.length-1)segments.push("");
+      setDists(segments.slice(0,stopsAtuais.length-1));
+      setStops(prev=>prev.map((s,i)=>{
+        const next=resolvidos[i]?.coords??s.coords;
+        const cur=s.coords;
+        if(cur&&next&&cur[0]===next[0]&&cur[1]===next[1])return s;
+        if(!cur&&!next)return s;
+        return{...s,coords:next};
+      }));
+    }finally{
+      setBuscandoDist(false);
+    }
   };
+
+  const stopsEnderecoKey=stops.map(s=>`${s.id}:${String(s.v||"").trim()}`).join("|");
+  useEffect(()=>{
+    if(!offlineHydrated)return;
+    const preenchidos=stops.filter(s=>String(s?.v||"").trim());
+    if(preenchidos.length<2)return;
+    const t=setTimeout(()=>buscarDistAuto(stops),900);
+    return()=>clearTimeout(t);
+  },[stopsEnderecoKey,offlineHydrated]);
 
   const veh=vehicles.find(v=>v.id===vehicleId)||vehicles[0];
   const isElec=veh.electric;

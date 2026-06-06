@@ -543,6 +543,36 @@ export async function fetchDrivingDistanceKm(originCoords, destCoords) {
 }
 
 /**
+ * Geocodifica paradas da calculadora que têm texto mas ainda não têm coords.
+ * @param {Array<{ v?: string, coords?: number[] | null }>} stops
+ */
+export async function resolveCalculatorStopsCoords(stops) {
+  warmGeocodeProximity();
+  const bias = cachedGeocodeProximity;
+  const out = [];
+
+  for (const stop of stops || []) {
+    if (stop?.coords?.length >= 2) {
+      out.push({ ...stop, coords: stop.coords });
+      continue;
+    }
+    const addr = String(stop?.v || "").trim();
+    if (!addr) {
+      out.push({ ...stop, coords: null });
+      continue;
+    }
+    const g = await geocodeAddressGoogle(addr, { biasLngLat: bias });
+    if (g) {
+      out.push({ ...stop, coords: [g.lng, g.lat] });
+    } else {
+      out.push({ ...stop, coords: null });
+    }
+  }
+
+  return out;
+}
+
+/**
  * V171 — Soma distâncias driving (Google Directions) de trechos consecutivos com coordenadas.
  * @param {Array<[number, number] | null>} coordsList [lng,lat] por parada, na ordem da rota
  * @returns {{ ok: true, distanceKm: number, segmentKm: number[] } | { ok: false, error?: string, segmentKm: [] }}
