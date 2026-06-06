@@ -442,8 +442,46 @@ export async function openGoogleMapsDirections(stops) {
   window.open(`https://www.google.com/maps/dir/?${params.toString()}`, "_blank");
 }
 
+/** Paradas com endereço preenchido (calculadoras / entregas). */
+export function filterNavigationStops(stops) {
+  return (stops || []).filter((s) => String(s?.v || s?.endereco || "").trim());
+}
+
+async function resolveStopLatLng(stop) {
+  if (stop?.coords?.length >= 2) {
+    return { lat: stop.coords[1], lng: stop.coords[0] };
+  }
+  const addr = String(stop?.v || stop?.endereco || "").trim();
+  if (!addr) return null;
+  const g = await geocodeAddressForDisplay(addr);
+  if (g?.lat != null && g?.lng != null) {
+    return { lat: g.lat, lng: g.lng };
+  }
+  return null;
+}
+
 /**
- * V173 — Waze: mesma sequência de paradas que o Google Maps (live-map directions).
+ * Waze deep link parada a parada (calculadoras Viagem/Frete).
+ * @returns {Promise<boolean>}
+ */
+export async function openWazeStopDeepLink(stop) {
+  const pos = await resolveStopLatLng(stop);
+  if (!pos) return false;
+
+  const { lat, lng } = pos;
+  const deep = `waze://ul?ll=${lat},${lng}&navigate=yes`;
+  const fallback = `https://waze.com/ul?ll=${lat},${lng}&navigate=yes`;
+
+  window.location.href = deep;
+  setTimeout(() => {
+    window.open(fallback, "_blank");
+  }, 700);
+
+  return true;
+}
+
+/**
+ * V173 — Waze: mesma sequência de paradas que o Google Maps (Otimizar Entregas).
  * @param {Array<{ v?: string, endereco?: string }>} stops
  */
 export async function openWazeDirections(stops) {

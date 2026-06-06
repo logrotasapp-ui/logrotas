@@ -15,6 +15,8 @@ import {
   buildCalculatorStopSearchBias,
   openGoogleMapsDirections,
   openWazeDirections,
+  openWazeStopDeepLink,
+  filterNavigationStops,
 } from "./src/services/routingService.js";
 import { calculateTripCosts } from "./src/services/tripCalcService.js";
 import ScannerModule from "./src/components/ScannerModule.js";
@@ -277,8 +279,25 @@ const WAZE_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAFAAAABQCAIAAAABc
 
 const GMAPS_LOGO="data:image/jpeg;base64,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";
 
+// Navegação Waze parada a parada (Viagem / Frete)
+function useWazeSequentialNav(stops){
+  const navStops=filterNavigationStops(stops);
+  const[paradaIdx,setParadaIdx]=useState(0);
+  const stopsKey=navStops.map(s=>s.v||s.endereco).join("|");
+  useEffect(()=>{setParadaIdx(0);},[stopsKey]);
+  const wazeLabel=navStops.length
+    ?`Waze · Parada ${paradaIdx+1} de ${navStops.length}`
+    :"Abrir no Waze";
+  const abrirProximaParada=async()=>{
+    if(!navStops.length)return;
+    const ok=await openWazeStopDeepLink(navStops[paradaIdx]);
+    if(ok)setParadaIdx(i=>(i+1)%navStops.length);
+  };
+  return{wazeLabel,abrirProximaParada,temParadas:navStops.length>0};
+}
+
 // Componente reutilizável dos botões de navegação — V155
-const BotoesNavegacao=({onWaze,onMaps})=>(
+const BotoesNavegacao=({onWaze,onMaps,wazeLabel="Abrir no Waze"})=>(
   <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
     {/* Botão Waze */}
     <button onClick={onWaze}
@@ -286,7 +305,7 @@ const BotoesNavegacao=({onWaze,onMaps})=>(
       <div style={{width:56,height:56,borderRadius:16,overflow:"hidden",display:"flex",alignItems:"center",justifyContent:"center",boxShadow:"0 2px 8px #00000020"}}>
         <img src={WAZE_LOGO} alt="Waze" style={{width:56,height:56,objectFit:"cover",display:"block"}}/>
       </div>
-      <span style={{fontSize:14,letterSpacing:0.3,color:"#1E293B"}}>Abrir no Waze</span>
+      <span style={{fontSize:13,letterSpacing:0.2,color:"#1E293B",textAlign:"center",lineHeight:1.3,padding:"0 4px"}}>{wazeLabel}</span>
     </button>
 
     {/* Botão Google Maps */}
@@ -313,6 +332,18 @@ const ModalHeader=({title,sub,icon:Icon,iconColor,onClose})=>(
     <button onClick={onClose} style={{background:C.subtle,border:`1px solid ${C.border}`,borderRadius:9,padding:7,cursor:"pointer",color:C.muted,display:"flex"}}><XIcon size={15}/></button>
   </div>
 );
+const ConfirmDialog=({message,onConfirm,onCancel,confirmLabel="Confirmar"})=>(
+  <div style={{position:"fixed",inset:0,background:"#1E3A8A55",zIndex:600,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+    <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:20,width:"100%",maxWidth:340,padding:26,textAlign:"center",boxShadow:"0 20px 60px #00000022"}}>
+      <div style={{color:C.navy,fontWeight:800,fontSize:16,fontFamily:"'Sora',sans-serif",marginBottom:22,lineHeight:1.5}}>{message}</div>
+      <div style={{display:"flex",gap:10}}>
+        <button onClick={onCancel} style={{flex:1,padding:"11px 0",background:C.subtle,border:`1px solid ${C.border}`,borderRadius:11,color:C.text2,fontWeight:600,fontSize:14,cursor:"pointer"}}>Cancelar</button>
+        <button onClick={onConfirm} style={{flex:1,padding:"11px 0",background:C.red,border:"none",borderRadius:11,color:"#fff",fontWeight:800,fontSize:14,cursor:"pointer"}}>{confirmLabel}</button>
+      </div>
+    </div>
+  </div>
+);
+
 const DeleteConfirm=({message,onConfirm,onCancel})=>(
   <div style={{position:"fixed",inset:0,background:"#1E3A8A44",zIndex:500,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
     <div style={{background:C.surface,border:`1px solid ${C.red}33`,borderRadius:20,width:"100%",maxWidth:340,padding:26,textAlign:"center",boxShadow:"0 20px 60px #00000022"}}>
@@ -1047,6 +1078,8 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade})=>{
   const[resultado,setResultado]=useState(null);
   const[mapaExpandido,setMapaExpandido]=useState(false);
   const[posicaoMotorista,setPosicaoMotorista]=useState(null);
+  const[paradaRemover,setParadaRemover]=useState(null);
+  const[confirmLimpar,setConfirmLimpar]=useState(false);
 
   const isPro=plan==="pro";
   const LIMITE=isPro?Infinity:10;
@@ -1187,8 +1220,8 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade})=>{
           />
         </div>
         <button onClick={adicionarManual} disabled={atingiuLimite||adicionandoManual}
-          style={{background:atingiuLimite||adicionandoManual?"#94A3B8":"#22C55E",border:"none",borderRadius:11,padding:"0 16px",cursor:atingiuLimite||adicionandoManual?"not-allowed":"pointer",color:"#fff",fontWeight:700,fontSize:13,display:"flex",alignItems:"center",gap:5,minWidth:72}}>
-          <PlusIcon size={15}/> {adicionandoManual?"…":"Add"}
+          style={{background:atingiuLimite||adicionandoManual?"#94A3B8":"#22C55E",border:"none",borderRadius:12,padding:"0 20px",cursor:atingiuLimite||adicionandoManual?"not-allowed":"pointer",color:"#fff",fontWeight:800,fontSize:15,display:"flex",alignItems:"center",justifyContent:"center",gap:7,minWidth:96,minHeight:48,boxShadow:atingiuLimite||adicionandoManual?"none":"0 4px 14px #22C55E44",flexShrink:0}}>
+          <PlusIcon size={18}/> {adicionandoManual?"…":"Add"}
         </button>
       </div>
 
@@ -1325,7 +1358,7 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade})=>{
                   {paradas.length}/10 {isPro?"":"(free)"}
                 </span>
               )}
-              <button onClick={()=>{setParadas([]);setResultado(null);}}
+              <button onClick={()=>setConfirmLimpar(true)}
                 style={{background:C.redLight,border:"none",borderRadius:8,padding:"4px 10px",cursor:"pointer",color:C.red,fontSize:11,fontWeight:600}}>
                 Limpar tudo
               </button>
@@ -1343,7 +1376,7 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade})=>{
                   <span style={{color:"#fff",fontWeight:800,fontSize:11}}>{i+1}</span>
                 </div>
                 <span style={{flex:1,color:C.text,fontSize:13}}>{p.endereco}</span>
-                <button onClick={()=>removerParada(p.id)}
+                <button onClick={()=>setParadaRemover(p.id)}
                   style={{background:C.redLight,border:"none",borderRadius:7,padding:5,cursor:"pointer",color:C.red,display:"flex",flexShrink:0}}>
                   <Trash2Icon size={13}/>
                 </button>
@@ -1416,6 +1449,23 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade})=>{
           </button>
         </div>
       )}
+
+      {paradaRemover!=null&&(
+        <ConfirmDialog
+          message="Remover esta parada da rota?"
+          confirmLabel="Remover"
+          onCancel={()=>setParadaRemover(null)}
+          onConfirm={()=>{removerParada(paradaRemover);setParadaRemover(null);}}
+        />
+      )}
+      {confirmLimpar&&(
+        <ConfirmDialog
+          message={`Tem certeza? Todas as ${paradas.length} paradas serão apagadas.`}
+          confirmLabel="Limpar tudo"
+          onCancel={()=>setConfirmLimpar(false)}
+          onConfirm={()=>{setParadas([]);setResultado(null);setConfirmLimpar(false);}}
+        />
+      )}
     </ModalWrap>
   );
 };
@@ -1462,6 +1512,7 @@ const TripCalcModal=({onClose,vehicles})=>{
   };
 
   const paradaSearchBias=()=>buildCalculatorStopSearchBias(stops[0]?.v,stops[0]?.coords);
+  const{wazeLabel,abrirProximaParada,temParadas}=useWazeSequentialNav(stops);
 
   const calcular=()=>{
     const out=calculateTripCosts({
@@ -1680,6 +1731,13 @@ const TripCalcModal=({onClose,vehicles})=>{
                 </div>
               </div>
             )}
+            {temParadas&&(
+              <BotoesNavegacao
+                onWaze={abrirProximaParada}
+                onMaps={()=>openGoogleMapsDirections(stops)}
+                wazeLabel={wazeLabel}
+              />
+            )}
           </div>
         )}
       </div>
@@ -1752,6 +1810,8 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
   const kmTotalExibicao=dists.some(d=>d&&String(d).trim()!=="")
     ?(Number.isInteger(kmTotalSoma)?String(kmTotalSoma):kmTotalSoma.toFixed(1))
     :"";
+
+  const{wazeLabel,abrirProximaParada,temParadas}=useWazeSequentialNav(stops);
 
   const calcular=()=>{
     const out=calculateRouteCosts({
@@ -2091,10 +2151,11 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
               )}
 
               {/* Botões navegação — Waze e Google Maps (V149) */}
-              {result&&(
+              {result&&temParadas&&(
                 <BotoesNavegacao
-                  onWaze={()=>openWazeDirections(stops)}
+                  onWaze={abrirProximaParada}
                   onMaps={()=>openGoogleMapsDirections(stops)}
+                  wazeLabel={wazeLabel}
                 />
               )}
 
