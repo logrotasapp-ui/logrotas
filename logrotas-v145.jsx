@@ -21,6 +21,8 @@ import {
 import { calculateTripCosts } from "./src/services/tripCalcService.js";
 import ScannerModule from "./src/components/ScannerModule.js";
 import DeliveryMap from "./src/components/DeliveryMap.js";
+import { countParadasPorEndereco, enderecoKey } from "./src/services/mapDisplayService.js";
+import { OFFLINE_KEYS, readOfflineCache, writeOfflineCache } from "./src/services/offlineStorage.js";
 import {
   CheckIcon, XIcon, ZapIcon, UsersIcon, StarIcon,
   ArrowRightIcon, ArrowLeftIcon, CrownIcon, LockIcon, PhoneIcon,
@@ -37,7 +39,13 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="V173";
+const APP_VERSION="V174";
+
+const OfflineRestoredBanner=({show})=>show?(
+  <div style={{background:"#F0F9FF",border:"1px solid #BAE6FD",borderRadius:8,padding:"6px 12px",marginBottom:10,fontSize:11,color:"#0369A1",fontWeight:600,textAlign:"center"}}>
+    📶 Dados restaurados
+  </div>
+):null;
 
 // Monta o link de indicação do usuário
 // Ex: https://logrotas.vercel.app?ref=11987354715
@@ -1080,6 +1088,8 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade})=>{
   const[posicaoMotorista,setPosicaoMotorista]=useState(null);
   const[paradaRemover,setParadaRemover]=useState(null);
   const[confirmLimpar,setConfirmLimpar]=useState(false);
+  const[offlineHydrated,setOfflineHydrated]=useState(false);
+  const[offlineRestored,setOfflineRestored]=useState(false);
 
   const isPro=plan==="pro";
   const LIMITE=isPro?Infinity:10;
@@ -1093,7 +1103,24 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade})=>{
     });
   },[]);
 
-  // ALTERADO V159 — geocoding Mapbox com proximity (GPS + cadeia) só p/ endereços do Gemini
+  useEffect(()=>{
+    const cached=readOfflineCache(OFFLINE_KEYS.otimizar);
+    if(cached?.paradas?.length){
+      setParadas(cached.paradas);
+      setOfflineRestored(true);
+      setTimeout(()=>setOfflineRestored(false),3500);
+    }
+    setOfflineHydrated(true);
+  },[]);
+
+  useEffect(()=>{
+    if(!offlineHydrated)return;
+    writeOfflineCache(OFFLINE_KEYS.otimizar,{paradas});
+  },[offlineHydrated,paradas]);
+
+  const pacotesPorEndereco=countParadasPorEndereco(paradas);
+
+  // Geocoding Google com proximity (GPS + cadeia) p/ endereços do Gemini
   // V169 — paradas com confianca ok|warn; feedback para FAIL
   const handleScannerSuccess=async(novasParadas,meta)=>{
     setErroFoto("");
@@ -1174,6 +1201,7 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade})=>{
     <ModalWrap maxW={500}>
       {/* Header */}
       <ModalHeader title="📦 Otimizar Entregas" sub="Rota perfeita para múltiplas paradas" icon={RouteIcon} iconColor="#22C55E" onClose={onClose}/>
+      <OfflineRestoredBanner show={offlineRestored}/>
 
       <ScannerModule
         disabled={atingiuLimite||processandoFoto}
@@ -1375,7 +1403,14 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade})=>{
                 <div style={{width:24,height:24,borderRadius:"50%",background:p.confianca==="warn"?"#F59E0B":resultado?"#22C55E":"#3B82F6",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
                   <span style={{color:"#fff",fontWeight:800,fontSize:11}}>{i+1}</span>
                 </div>
-                <span style={{flex:1,color:C.text,fontSize:13}}>{p.endereco}</span>
+                <span style={{flex:1,color:C.text,fontSize:13,display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+                  {p.endereco}
+                  {(pacotesPorEndereco[enderecoKey(p.endereco)]||0)>=2&&(
+                    <span style={{color:"#166534",fontSize:11,fontWeight:700,whiteSpace:"nowrap"}}>
+                      📦 {pacotesPorEndereco[enderecoKey(p.endereco)]} pacotes
+                    </span>
+                  )}
+                </span>
                 <button onClick={()=>setParadaRemover(p.id)}
                   style={{background:C.redLight,border:"none",borderRadius:7,padding:5,cursor:"pointer",color:C.red,display:"flex",flexShrink:0}}>
                   <Trash2Icon size={13}/>
@@ -1489,8 +1524,50 @@ const TripCalcModal=({onClose,vehicles})=>{
   const[roundTrip,setRoundTrip]=useState(false);
   const[result,setResult]=useState(null);
   const[erro,setErro]=useState("");
+  const[offlineHydrated,setOfflineHydrated]=useState(false);
+  const[offlineRestored,setOfflineRestored]=useState(false);
 
   useEffect(()=>{ warmGeocodeProximity(); }, []);
+
+  useEffect(()=>{
+    const cached=readOfflineCache(OFFLINE_KEYS.viagem);
+    const temDados=cached&&(
+      cached.stops?.some(s=>String(s?.v||"").trim())||
+      String(cached.distancia||"").trim()||
+      String(cached.consumo||"").trim()||
+      String(cached.combustivel||"").trim()||
+      String(cached.pedagio||"").trim()
+    );
+    if(temDados){
+      if(Array.isArray(cached.stops)&&cached.stops.length>=2)setStops(cached.stops);
+      if(cached.distancia!=null)setDistancia(String(cached.distancia));
+      if(cached.vehicleId)setVehicleId(cached.vehicleId);
+      if(cached.carretinha!=null)setCarretinha(cached.carretinha);
+      if(cached.consumo!=null)setConsumo(String(cached.consumo));
+      if(cached.combustivel!=null)setCombustivel(String(cached.combustivel));
+      if(cached.pedagio!=null)setPedagio(String(cached.pedagio));
+      if(cached.roundTrip!=null)setRoundTrip(cached.roundTrip);
+      const maxId=Math.max(...(cached.stops||[]).map(s=>s.id||0),10);
+      nid.current=maxId+1;
+      setOfflineRestored(true);
+      setTimeout(()=>setOfflineRestored(false),3500);
+    }
+    setOfflineHydrated(true);
+  },[]);
+
+  useEffect(()=>{
+    if(!offlineHydrated)return;
+    const temDados=
+      stops.some(s=>String(s?.v||"").trim())||
+      String(distancia||"").trim()||
+      String(consumo||"").trim()||
+      String(combustivel||"").trim()||
+      String(pedagio||"").trim();
+    if(!temDados)return;
+    writeOfflineCache(OFFLINE_KEYS.viagem,{
+      stops,distancia,vehicleId,carretinha,consumo,combustivel,pedagio,roundTrip,
+    });
+  },[offlineHydrated,stops,distancia,vehicleId,carretinha,consumo,combustivel,pedagio,roundTrip]);
 
   // V171 — soma origem→paradas→destino via Google Directions (KM editável)
   const buscarDistAuto=async(stopsAtuais)=>{
@@ -1538,6 +1615,7 @@ const TripCalcModal=({onClose,vehicles})=>{
         </div>
         <button onClick={onClose} style={{background:C.subtle,border:`1px solid ${C.border}`,borderRadius:10,padding:8,cursor:"pointer",color:C.muted,display:"flex"}}><XIcon size={15}/></button>
       </div>
+      <OfflineRestoredBanner show={offlineRestored}/>
 
       <div style={{display:"flex",flexDirection:"column",gap:14}}>
 
@@ -1771,8 +1849,62 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
   const[showStatusModal,setShowStatusModal]=useState(false);
   const[pendingSave,setPendingSave]=useState(null);
   const nid=useRef(3);
+  const[offlineHydrated,setOfflineHydrated]=useState(false);
+  const[offlineRestored,setOfflineRestored]=useState(false);
+  const skipVehicleReset=useRef(true);
 
   useEffect(()=>{ warmGeocodeProximity(); }, []);
+
+  useEffect(()=>{
+    const cached=readOfflineCache(OFFLINE_KEYS.frete);
+    const temDados=cached&&(
+      cached.stops?.some(s=>String(s?.v||"").trim())||
+      cached.dists?.some(d=>String(d||"").trim())||
+      String(cached.fuelPrice||"").trim()||
+      String(cached.consumo||"").trim()||
+      String(cached.pedagioTotal||"").trim()||
+      String(cached.freight||"").trim()
+    );
+    if(temDados){
+      if(Array.isArray(cached.stops)&&cached.stops.length>=2)setStops(cached.stops);
+      if(cached.vehicleId)setVehicleId(cached.vehicleId);
+      if(cached.fuelPrice!=null)setFuelPrice(String(cached.fuelPrice));
+      if(cached.consumo!=null)setConsumo(String(cached.consumo));
+      if(cached.arlaPrice!=null)setArlaPrice(String(cached.arlaPrice));
+      if(cached.arlaConsumption!=null)setArlaConsumption(String(cached.arlaConsumption));
+      if(cached.pedagioTotal!=null)setPedagioTotal(String(cached.pedagioTotal));
+      if(cached.trailer)setTrailer(cached.trailer);
+      if(cached.trailerAxleMap)setTrailerAxleMap(cached.trailerAxleMap);
+      if(cached.roundTrip!=null)setRoundTrip(cached.roundTrip);
+      if(cached.metaLocal!=null)setMetaLocal(String(cached.metaLocal));
+      if(cached.freight!=null)setFreight(String(cached.freight));
+      if(cached.metaLucro!=null)setMetaLucro(String(cached.metaLucro));
+      if(Array.isArray(cached.dists))setDists(cached.dists);
+      if(cached.cargo!=null)setCargo(String(cached.cargo));
+      if(cached.observacao!=null)setObservacao(String(cached.observacao));
+      const maxId=Math.max(...(cached.stops||[]).map(s=>s.id||0),3);
+      nid.current=maxId+1;
+      setOfflineRestored(true);
+      setTimeout(()=>setOfflineRestored(false),3500);
+    }
+    setOfflineHydrated(true);
+  },[]);
+
+  useEffect(()=>{
+    if(!offlineHydrated)return;
+    const temDados=
+      stops.some(s=>String(s?.v||"").trim())||
+      dists.some(d=>String(d||"").trim())||
+      String(fuelPrice||"").trim()||
+      String(consumo||"").trim()||
+      String(pedagioTotal||"").trim()||
+      String(freight||"").trim();
+    if(!temDados)return;
+    writeOfflineCache(OFFLINE_KEYS.frete,{
+      stops,vehicleId,fuelPrice,consumo,arlaPrice,arlaConsumption,pedagioTotal,
+      trailer,trailerAxleMap,roundTrip,metaLocal,freight,metaLucro,dists,cargo,observacao,
+    });
+  },[offlineHydrated,stops,vehicleId,fuelPrice,consumo,arlaPrice,arlaConsumption,pedagioTotal,trailer,trailerAxleMap,roundTrip,metaLocal,freight,metaLucro,dists,cargo,observacao]);
 
   // V171 — KM por trecho via Google Directions driving
   const buscarDistAuto=async(stopsAtuais)=>{
@@ -1794,6 +1926,10 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
   const totalAxles=veh.axles+trailerExtra;
 
   useEffect(()=>{
+    if(skipVehicleReset.current){
+      skipVehicleReset.current=false;
+      return;
+    }
     if(isElec)setFuelPrice(String(veh.kwh||1.85));
     else setFuelPrice("");
     setTrailer("none");
@@ -1853,6 +1989,7 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
         </div>
         <button onClick={onClose} style={{background:C.subtle,border:`1px solid ${C.border}`,borderRadius:10,padding:8,cursor:"pointer",color:C.muted,display:"flex"}}><XIcon size={15}/></button>
       </div>
+      <OfflineRestoredBanner show={offlineRestored}/>
 
       <div style={{display:"flex",flexDirection:"column",gap:14}}>
 

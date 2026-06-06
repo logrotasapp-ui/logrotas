@@ -15,6 +15,7 @@ import {
   fetchGoogleDrivingDistanceKm,
   reorderStopsByGoogleWaypointOrder,
 } from "./googleDirectionsService.js";
+import { geocodeAddressGoogle } from "./googleGeocodingService.js";
 
 export { resolvePlaceSuggestion } from "./googlePlacesService.js";
 import { fileToImageBlob } from "./fileToImage.js";
@@ -71,7 +72,7 @@ const ROMANEIO_PROMPT =
 const CONNECTION_ERROR =
   "Erro de conexão. Verifique sua internet e tente novamente.";
 
-/** @type {[number, number] | null} [lng, lat] — viés de proximidade Mapbox */
+/** @type {[number, number] | null} [lng, lat] — viés de proximidade (GPS) */
 let cachedGeocodeProximity = null;
 let geocodeProximityRequested = false;
 
@@ -137,21 +138,6 @@ export function getDriverGeolocation(options = {}) {
       }
     );
   });
-}
-
-function mapboxGeocodeSearchParams() {
-  const params = new URLSearchParams({
-    access_token: API_KEYS.mapbox,
-    limit: "6",
-    country: SEARCH_COUNTRIES, // ALTERADO V159
-    language: "pt",
-    autocomplete: "true",
-    types: "address,place,locality,neighborhood,postcode",
-  });
-  if (cachedGeocodeProximity) {
-    params.set("proximity", `${cachedGeocodeProximity[0]},${cachedGeocodeProximity[1]}`);
-  }
-  return params;
 }
 
 function resolveProximityForRomaneio() {
@@ -453,7 +439,10 @@ async function resolveStopLatLng(stop) {
   }
   const addr = String(stop?.v || stop?.endereco || "").trim();
   if (!addr) return null;
-  const g = await geocodeAddressForDisplay(addr);
+  warmGeocodeProximity();
+  const g = await geocodeAddressGoogle(addr, {
+    biasLngLat: cachedGeocodeProximity,
+  });
   if (g?.lat != null && g?.lng != null) {
     return { lat: g.lat, lng: g.lng };
   }
@@ -512,7 +501,7 @@ export async function openWazeDirections(stops) {
 }
 
 /**
- * V171 — Distância driving origem → destino (Google Directions; fallback Mapbox/ORS).
+ * V171 — Distância driving origem → destino (Google Directions; fallback ORS).
  * @param {[number, number]} originCoords [lng, lat]
  * @param {[number, number]} destCoords [lng, lat]
  */
@@ -524,20 +513,6 @@ export async function fetchDrivingDistanceKm(originCoords, destCoords) {
   if (API_KEYS.googleMaps) {
     const google = await fetchGoogleDrivingDistanceKm(originCoords, destCoords);
     if (google.ok && google.distanceKm != null) return google;
-  }
-
-  if (API_KEYS.mapbox) {
-    const path = `${originCoords[0]},${originCoords[1]};${destCoords[0]},${destCoords[1]}`;
-    const url =
-      `${API_ENDPOINTS.mapboxDirections}/${path}` +
-      `?access_token=${API_KEYS.mapbox}&overview=false`;
-    const mb = await fetchJson(url);
-    if (!mb.networkError && mb.ok) {
-      const meters = mb.data?.routes?.[0]?.distance;
-      if (meters != null) {
-        return { ok: true, distanceKm: Math.round(meters / 1000) };
-      }
-    }
   }
 
   if (!API_KEYS.ors) {
@@ -603,64 +578,41 @@ export async function fetchRouteTotalDistanceKm(coordsList) {
   return { ok: true, distanceKm: total, segmentKm };
 }
 
-// ── Mapbox ───────────────────────────────────────────────────────────────────
+// ── Google Geocoding ─────────────────────────────────────────────────────────
 
-/** Geocodifica um endereço para exibição no mapa (não usado na otimização). */
+/** Geocodifica um endereço para exibição no mapa. */
 export async function geocodeAddressForDisplay(endereco) {
-  return geocodeMapboxAddress(endereco);
-}
-
-async function geocodeMapboxAddress(endereco) {
-  const query = encodeURIComponent(`${endereco}, Brasil`);
-  const url =
-    `${API_ENDPOINTS.mapboxGeocoding}/${query}.json` +
-    `?access_token=${API_KEYS.mapbox}&limit=1&country=${SEARCH_COUNTRIES}&language=pt`; // ALTERADO V159
-
-  const res = await fetchJson(url);
-  if (!res.ok) return null;
-
-  const feat = res.data?.features?.[0];
-  if (!feat) return null;
-
-  return { lng: feat.center[0], lat: feat.center[1] };
+  warmGeocodeProximity();
+  const g = await geocodeAddressGoogle(endereco, {
+    biasLngLat: cachedGeocodeProximity,
+  });
+  if (!g) return null;
+  return { lng: g.lng, lat: g.lat };
 }
 
 /**
- * V159 — Geocoding só para endereços extraídos pelo Gemini (romaneio).
+ * Geocoding de endereços extraídos pelo Gemini (romaneio).
  * Proximity: GPS do motorista → último endereço geocodificado com sucesso.
  */
 export async function geocodeRomaneioExtractedAddress(endereco) {
-  if (!API_KEYS.mapbox || !endereco?.trim()) {
+  if (!API_KEYS.googleMaps || !endereco?.trim()) {
     return { ok: false, endereco: null, coords: null };
   }
 
   warmGeocodeProximity();
   const proximity = resolveProximityForRomaneio();
-  const params = new URLSearchParams({
-    access_token: API_KEYS.mapbox,
-    limit: "1",
-    country: SEARCH_COUNTRIES,
-    language: "pt",
-  });
-  if (proximity) {
-    params.set("proximity", `${proximity[0]},${proximity[1]}`);
-  }
+  const g = await geocodeAddressGoogle(endereco, { biasLngLat: proximity });
 
-  const query = encodeURIComponent(String(endereco).trim());
-  const url = `${API_ENDPOINTS.mapboxGeocoding}/${query}.json?${params}`;
-  const res = await fetchJson(url);
-
-  if (!res.ok || !res.data?.features?.[0]) {
+  if (!g) {
     return { ok: false, endereco: null, coords: null };
   }
 
-  const feat = res.data.features[0];
-  const coords = feat.center;
+  const coords = [g.lng, g.lat];
   lastRomaneioGeocodeProximity = coords;
 
   return {
     ok: true,
-    endereco: feat.place_name,
+    endereco: g.formattedAddress || endereco,
     coords,
   };
 }
@@ -680,7 +632,7 @@ export async function geocodeRomaneioExtractedAddresses(paradas) {
   return out;
 }
 
-/** Usa coords já geocodificadas na parada; senão geocode Mapbox (otimização). */
+/** Usa coords já geocodificadas na parada; senão Google Geocoding (otimização). */
 async function resolveParadaCoordForOptimization(parada) {
   const c = parada?.coords;
   if (Array.isArray(c) && c.length >= 2) {
@@ -689,7 +641,9 @@ async function resolveParadaCoordForOptimization(parada) {
   if (c && typeof c.lng === "number" && typeof c.lat === "number") {
     return { lng: c.lng, lat: c.lat };
   }
-  return geocodeMapboxAddress(parada.endereco);
+  warmGeocodeProximity();
+  const proximity = resolveProximityForRomaneio();
+  return geocodeAddressGoogle(parada.endereco, { biasLngLat: proximity });
 }
 
 // ── Romaneio: Gemini Vision (Gemini 2.5 Flash Lite) ────────────────────────────

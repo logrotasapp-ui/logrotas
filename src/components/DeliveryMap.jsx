@@ -90,6 +90,7 @@ export default function DeliveryMap({
   const clustererRef = useRef(null);
   const markersRef = useRef([]);
   const driverMarkerRef = useRef(null);
+  const infoWindowRef = useRef(null);
   const applyRequestIdRef = useRef(0);
   const [mapReady, setMapReady] = useState(false);
   const [status, setStatus] = useState("idle");
@@ -172,7 +173,23 @@ export default function DeliveryMap({
 
         const markers = features.map((f) => {
           const [lng, lat] = f.geometry.coordinates;
-          return createNumberedMarker(lng, lat, f.properties.order);
+          const { packageCount, orders } = f.properties;
+          const marker = createNumberedMarker(lng, lat, f.properties.order);
+          marker.addListener("click", () => {
+            if (!infoWindowRef.current) {
+              infoWindowRef.current = new window.google.maps.InfoWindow();
+            }
+            const pacoteLabel =
+              packageCount === 1 ? "1 pacote" : `${packageCount} pacotes`;
+            infoWindowRef.current.setContent(
+              `<div style="font-family:system-ui,sans-serif;padding:2px 4px;line-height:1.45">
+                <div style="font-weight:700;font-size:14px;margin-bottom:4px">📦 ${pacoteLabel}</div>
+                <div style="font-size:13px;color:#334155">Paradas: ${orders.join(", ")}</div>
+              </div>`
+            );
+            infoWindowRef.current.open({ anchor: marker, map });
+          });
+          return marker;
         });
 
         markersRef.current = markers;

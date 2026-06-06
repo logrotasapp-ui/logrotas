@@ -1,6 +1,6 @@
 /**
  * Extrai e limpa endereços a partir de texto OCR (romaneio).
- * Funções puras — usadas por routingService antes do Mapbox.
+ * Funções puras — usadas por routingService antes do geocoding.
  */
 
 const SKIP_LINE =

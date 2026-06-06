@@ -5,7 +5,6 @@
 
 const ENV_VAR_NAMES = {
   ors: "VITE_ORS_KEY",
-  mapbox: "VITE_MAPBOX_TOKEN",
   gemini: "VITE_GEMINI_KEY",
   googleMaps: "VITE_GOOGLE_MAPS_KEY",
 };
@@ -29,12 +28,11 @@ function readEnv(envName) {
   return String(raw).trim();
 }
 
-/** País(es) em buscas de endereço — expandir p/ LATAM: ex. "br" ou múltiplos no Google */
+/** País(es) em buscas de endereço */
 export const SEARCH_COUNTRIES = "br";
 
 export const API_KEYS = {
   ors: readEnv(ENV_VAR_NAMES.ors),
-  mapbox: readEnv(ENV_VAR_NAMES.mapbox),
   gemini: readEnv(ENV_VAR_NAMES.gemini),
   googleMaps: readEnv(ENV_VAR_NAMES.googleMaps),
 };
@@ -42,9 +40,6 @@ export const API_KEYS = {
 export const API_ENDPOINTS = {
   orsGeocode: "https://api.openrouteservice.org/geocode/autocomplete",
   orsDirections: "https://api.openrouteservice.org/v2/directions/driving-hgv",
-  mapboxGeocoding: "https://api.mapbox.com/geocoding/v5/mapbox.places",
-  mapboxDirections: "https://api.mapbox.com/directions/v5/mapbox/driving",
-  mapboxOptimization: "https://api.mapbox.com/optimized-trips/v1/mapbox/driving",
   geminiGenerate:
     "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent",
 };
@@ -58,7 +53,7 @@ export const GEMINI_HEADERS = {
   json: { "Content-Type": "application/json" },
 };
 
-/** Indica se todas as chaves obrigatórias estão configuradas. */
+/** Indica se as chaves principais estão configuradas. */
 export function hasRequiredApiKeys() {
-  return Boolean(API_KEYS.ors && API_KEYS.mapbox && API_KEYS.gemini);
+  return Boolean(API_KEYS.googleMaps && API_KEYS.gemini);
 }

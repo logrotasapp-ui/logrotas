@@ -1,22 +1,39 @@
 /**
- * V165 — Dados do mapa de entregas (ordem = índice da lista / campo ordem após otimização).
+ * Dados do mapa de entregas — agrupa paradas no mesmo ponto.
  */
 
 import { geocodeAddressForDisplay } from "./routingService.js";
 
+function resolveCoords(parada) {
+  const c = parada?.coords;
+  if (!c) return null;
+  if (Array.isArray(c) && c.length >= 2) {
+    return [Number(c[0]), Number(c[1])];
+  }
+  if (typeof c.lng === "number" && typeof c.lat === "number") {
+    return [c.lng, c.lat];
+  }
+  return null;
+}
+
+function locationKey(lng, lat) {
+  return `${lng.toFixed(5)},${lat.toFixed(5)}`;
+}
+
 /**
- * @param {Array<{ id?: number, endereco?: string, coords?: number[] | { lng: number, lat: number } }>} paradas
+ * @param {Array<{ id?: number, endereco?: string, coords?: number[], ordem?: number }>} paradas
  * @returns {Promise<import("geojson").Feature[]>}
  */
 export async function buildDeliveryMapFeatures(paradas) {
-  const features = [];
+  const points = [];
 
   for (let i = 0; i < (paradas || []).length; i++) {
     const p = paradas[i];
-    const coords = resolveCoords(p);
+    const order = p.ordem ?? i + 1;
     let lng;
     let lat;
 
+    const coords = resolveCoords(p);
     if (coords) {
       [lng, lat] = coords;
     } else if (p?.endereco) {
@@ -28,35 +45,55 @@ export async function buildDeliveryMapFeatures(paradas) {
       continue;
     }
 
-    features.push({
+    points.push({ lng, lat, order, id: p.id ?? i });
+  }
+
+  const groups = new Map();
+  for (const pt of points) {
+    const key = locationKey(pt.lng, pt.lat);
+    if (!groups.has(key)) {
+      groups.set(key, { lng: pt.lng, lat: pt.lat, orders: [] });
+    }
+    groups.get(key).orders.push(pt.order);
+  }
+
+  return Array.from(groups.values()).map((g) => {
+    const orders = [...g.orders].sort((a, b) => a - b);
+    const packageCount = orders.length;
+    return {
       type: "Feature",
       properties: {
-        id: p.id ?? i,
-        order: p.ordem ?? i + 1,
-        label: p.endereco || `Entrega ${i + 1}`,
+        packageCount,
+        orders,
+        order: orders[0],
       },
       geometry: {
         type: "Point",
-        coordinates: [lng, lat],
+        coordinates: [g.lng, g.lat],
       },
-    });
-  }
-
-  return features;
+    };
+  });
 }
 
-/**
- * @param {{ coords?: number[] | { lng: number, lat: number } }} parada
- * @returns {[number, number] | null} [lng, lat]
- */
-function resolveCoords(parada) {
-  const c = parada?.coords;
-  if (!c) return null;
-  if (Array.isArray(c) && c.length >= 2) {
-    return [Number(c[0]), Number(c[1])];
+/** Conta entregas por endereço normalizado (lista de paradas). */
+export function countParadasPorEndereco(paradas) {
+  const counts = {};
+  for (const p of paradas || []) {
+    const key = String(p?.endereco || "")
+      .trim()
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "");
+    if (!key) continue;
+    counts[key] = (counts[key] || 0) + 1;
   }
-  if (typeof c.lng === "number" && typeof c.lat === "number") {
-    return [c.lng, c.lat];
-  }
-  return null;
+  return counts;
+}
+
+export function enderecoKey(endereco) {
+  return String(endereco || "")
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
 }
