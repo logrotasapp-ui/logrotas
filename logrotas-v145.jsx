@@ -1433,7 +1433,7 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade})=>{
               </button>
               {!p.entregue&&resultado&&(
                 <button type="button" onClick={()=>marcarEntregue(p.id)}
-                  style={{width:"100%",padding:"10px 14px",background:"#EBF3FF",border:"none",borderRadius:10,cursor:"pointer",color:"#1A56DB",fontWeight:700,fontSize:13,display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
+                  style={{width:"100%",padding:"10px 14px",background:"#EBF3FF",border:"1.5px solid #1A56DB",borderRadius:10,cursor:"pointer",color:"#1A56DB",fontWeight:700,fontSize:13,display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
                   ✅ Confirmar entrega
                 </button>
               )}

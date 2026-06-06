@@ -369,7 +369,7 @@ export default function DeliveryMap({
           title="Minha localização"
           style={{
             position: "absolute",
-            bottom: expandedMap ? 96 : 64,
+            bottom: expandedMap ? 96 : 120,
             right: 10,
             zIndex: 10,
             width: 40,
