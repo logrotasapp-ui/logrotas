@@ -336,7 +336,7 @@ const Field=({label,value,onChange,placeholder,prefix,suffix,type="text",hint,re
       {label&&<label style={{color:C.text2,fontSize:14,fontWeight:700,letterSpacing:0.4}}>{label}</label>}
       <div style={{display:"flex",alignItems:"center",background:readOnly?C.subtle:focused?C.surface:C.subtle,border:`1.5px solid ${readOnly?C.border:focused?C.orange:C.border}`,borderRadius:10,overflow:"hidden",transition:"border .15s"}}>
         {prefix&&<span style={{padding:"0 10px",color:C.muted,fontSize:12,flexShrink:0,borderRight:`1px solid ${C.border}`,background:"#fff",alignSelf:"stretch",display:"flex",alignItems:"center"}}>{prefix}</span>}
-        <input type={type} inputMode={isNumeric?"decimal":undefined} value={value} onChange={e=>!readOnly&&onChange(e.target.value)} onFocus={()=>!readOnly&&setFocused(true)} onBlur={()=>setFocused(false)} placeholder={placeholder}
+        <input type={type} inputMode={isNumeric||type==="number"?"decimal":undefined} value={value} onChange={e=>!readOnly&&onChange(e.target.value)} onFocus={()=>!readOnly&&setFocused(true)} onBlur={()=>setFocused(false)} placeholder={placeholder}
           readOnly={readOnly}
           style={{flex:1,background:"transparent",border:"none",outline:"none",color:readOnly?C.muted:C.text,padding:"10px 12px",fontSize:14,minWidth:0,cursor:readOnly?"default":"text"}}/>
         {suffix&&<span style={{padding:"0 10px",color:C.muted,fontSize:12,flexShrink:0,borderLeft:`1px solid ${C.border}`,background:"#fff",alignSelf:"stretch",display:"flex",alignItems:"center"}}>{suffix}</span>}
@@ -1748,6 +1748,11 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
   const[showWpp,setShowWpp]=useState(false);
   const paradaSearchBias=()=>buildCalculatorStopSearchBias(stops[0]?.v,stops[0]?.coords);
 
+  const kmTotalSoma=dists.reduce((s,d)=>s+(parseFloat(d)||0),0);
+  const kmTotalExibicao=dists.some(d=>d&&String(d).trim()!=="")
+    ?(Number.isInteger(kmTotalSoma)?String(kmTotalSoma):kmTotalSoma.toFixed(1))
+    :"";
+
   const calcular=()=>{
     const out=calculateRouteCosts({
       segmentDistances:dists,
@@ -1868,10 +1873,10 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
           <div style={{display:"flex",flexDirection:"column",gap:8}}>
             {Array.from({length:stops.length-1}).map((_,i)=>(
               <div key={i} style={{display:"flex",alignItems:"center",gap:8}}>
-                <div style={{color:C.muted,fontSize:12,flexShrink:0,minWidth:65}}>{stops.length===2?"KM Total":`Trecho ${i+1}`}:</div>
+                <div style={{color:C.muted,fontSize:12,flexShrink:0,minWidth:65}}>{`Trecho ${i+1}`}:</div>
                 <div style={{display:"flex",alignItems:"center",background:"#fff",border:`1.5px solid ${buscandoDist?C.orange:C.border}`,borderRadius:10,overflow:"hidden",flex:1,transition:"border-color .3s"}}>
                   <input value={dists[i]||""} onChange={e=>setDists(d=>{const n=[...d];n[i]=e.target.value;return n;})}
-                    placeholder={buscandoDist?"Calculando...":"0"} type="number"
+                    placeholder={buscandoDist?"Calculando...":"0"} type="number" inputMode="decimal"
                     style={{flex:1,background:"transparent",border:"none",outline:"none",color:C.text,padding:"9px 12px",fontSize:14,fontWeight:700}}/>
                   <span style={{padding:"0 10px",color:buscandoDist?C.orange:C.muted,fontSize:12,borderLeft:`1px solid ${C.border}`,background:C.subtle,alignSelf:"stretch",display:"flex",alignItems:"center"}}>
                     {buscandoDist?"🔍":"km"}
@@ -1879,6 +1884,16 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
                 </div>
               </div>
             ))}
+            {stops.length>1&&(
+              <div style={{display:"flex",alignItems:"center",gap:8}}>
+                <div style={{color:C.navy,fontSize:12,fontWeight:700,flexShrink:0,minWidth:65}}>KM Total:</div>
+                <div style={{display:"flex",alignItems:"center",background:C.subtle,border:`1.5px solid ${C.navy}33`,borderRadius:10,overflow:"hidden",flex:1}}>
+                  <input value={kmTotalExibicao} readOnly tabIndex={-1} placeholder="0"
+                    style={{flex:1,background:"transparent",border:"none",outline:"none",color:C.navy,padding:"9px 12px",fontSize:14,fontWeight:800,cursor:"default"}}/>
+                  <span style={{padding:"0 10px",color:C.navy,fontSize:12,fontWeight:700,borderLeft:`1px solid ${C.border}`,background:"#EEF4FF",alignSelf:"stretch",display:"flex",alignItems:"center"}}>km</span>
+                </div>
+              </div>
+            )}
             {buscandoDist&&(
               <div style={{background:C.orangeLight,border:`1px solid ${C.orange}33`,borderRadius:9,padding:"8px 12px",display:"flex",alignItems:"center",gap:7}}>
                 <span style={{fontSize:14}}>🛣️</span>
@@ -1958,7 +1973,7 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
             {isElec
               ?<Field label="⚡ Energia (R$/kWh)" value={fuelPrice} onChange={setFuelPrice} placeholder="1.85" prefix="R$"/>
               :<Field label="⛽ Combustível (R$/L)" value={fuelPrice} onChange={setFuelPrice} placeholder="Ex: 6.49" prefix="R$"/>}
-            <Field label={isElec?"Consumo (kWh/100km)":"Consumo (km/L)"} value={consumo} onChange={setConsumo} placeholder={isElec?"Ex: 0.20":"Ex: 12"}/>
+            <Field label={isElec?"Consumo (kWh/100km)":"Consumo (km/L)"} value={consumo} onChange={setConsumo} placeholder={isElec?"Ex: 0.20":"Ex: 12"} type={isElec?"text":"number"}/>
             {isTruck&&<>
               <Field label="🟦 ARLA 32 (R$/L) — coloque 0 se não usar" value={arlaPrice} onChange={setArlaPrice} placeholder="Ex: 4.50" prefix="R$"/>
               <Field label="🟦 Consumo ARLA 32 (L/100km)" value={arlaConsumption} onChange={setArlaConsumption} placeholder="3.5" suffix="L/100km" hint="Padrão: 3.5 L por 100km"/>
