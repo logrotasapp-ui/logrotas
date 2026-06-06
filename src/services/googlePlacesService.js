@@ -1,5 +1,5 @@
 /**
- * V172 — Google Places Autocomplete (country=br + bounds SP nas calculadoras).
+ * V173 — Google Places Autocomplete (country=br + strict bounds SP nas calculadoras).
  */
 
 import { API_KEYS } from "./apiConfig.js";
@@ -60,6 +60,7 @@ export async function fetchGooglePlacePredictions(query, options = {}) {
       new window.google.maps.LatLng(bounds.south, bounds.west),
       new window.google.maps.LatLng(bounds.north, bounds.east)
     );
+    request.strictBounds = true;
   }
 
   const biasLngLat =

@@ -38,7 +38,7 @@ export {
 /** Valor estimado por eixo por praça de pedágio (R$). */
 export const TOLL_PER_AXLE = 3.2;
 
-// V172 — autocomplete SP + Maps com GPS; V171 — calculadoras; V170 — prompt Gemini
+// V173 — autocomplete SP reforçado + Waze/Maps waypoints; V172 — GPS origem Maps
 const ROMANEIO_PROMPT =
   "Analise esta imagem de documento de entrega (romaneio ou etiqueta). REGRAS ABSOLUTAS — violar qualquer uma é erro grave:\n\n" +
   "VALIDAÇÃO LITERAL (obrigatória antes de cada linha de saída):\n" +
@@ -335,6 +335,23 @@ export function buildCalculatorStopSearchBias(originLabel, originCoords) {
   return bias;
 }
 
+function querySuggestsSaoPaulo(text) {
+  const norm = String(text || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+  return (
+    norm.includes("sao paulo") ||
+    /,\s*sp\b/.test(norm) ||
+    /-\s*sp\b/.test(norm)
+  );
+}
+
+function augmentQueryForSpBounds(query, bounds) {
+  if (!bounds || querySuggestsSaoPaulo(query)) return query;
+  return `${query}, São Paulo, SP`;
+}
+
 async function searchAddressesGoogle(query, searchOpts = {}) {
   warmGeocodeProximity();
 
@@ -347,11 +364,14 @@ async function searchAddressesGoogle(query, searchOpts = {}) {
   }
 
   try {
-    const proximityLngLat =
-      searchOpts.proximityLngLat ?? cachedGeocodeProximity;
-    const suggestions = await fetchGooglePlacePredictions(query, {
+    const bounds = searchOpts.bounds ?? null;
+    const proximityLngLat = bounds
+      ? searchOpts.proximityLngLat ?? [-46.6333, -23.5505]
+      : searchOpts.proximityLngLat ?? cachedGeocodeProximity;
+    const queryForApi = augmentQueryForSpBounds(query, bounds);
+    const suggestions = await fetchGooglePlacePredictions(queryForApi, {
       proximityLngLat,
-      bounds: searchOpts.bounds ?? null,
+      bounds,
     });
     return { ok: true, suggestions };
   } catch (err) {
@@ -380,17 +400,27 @@ export async function searchAddresses(text, opts = {}) {
   return searchAddressesGoogle(query, searchBias);
 }
 
+function extractRouteAddresses(stops) {
+  return (stops || [])
+    .map((s) => String(s?.v || s?.endereco || "").trim())
+    .filter(Boolean);
+}
+
+/** Plano de navegação compartilhado (Google Maps + Waze). */
+async function buildRouteNavigationPlan(stops) {
+  const addresses = extractRouteAddresses(stops);
+  const pos = await getDriverGeolocation({ preferFresh: true });
+  return { addresses, pos };
+}
+
 /**
- * V172 — Abre Google Maps com origem = GPS atual e paradas da rota.
+ * V173 — Google Maps: origem GPS + waypoints em sequência.
  * @param {Array<{ v?: string, endereco?: string }>} stops
  */
 export async function openGoogleMapsDirections(stops) {
-  const addresses = (stops || [])
-    .map((s) => String(s?.v || s?.endereco || "").trim())
-    .filter(Boolean);
+  const { addresses, pos } = await buildRouteNavigationPlan(stops);
   if (!addresses.length) return;
 
-  const pos = await getDriverGeolocation({ preferFresh: true });
   const params = new URLSearchParams({ api: "1" });
   const destination = addresses[addresses.length - 1];
   params.set("destination", destination);
@@ -401,7 +431,6 @@ export async function openGoogleMapsDirections(stops) {
       params.set("waypoints", addresses.slice(0, -1).join("|"));
     }
   } else if (addresses.length === 1) {
-    params.delete("destination");
     params.set("destination", destination);
   } else {
     params.set("origin", addresses[0]);
@@ -411,6 +440,37 @@ export async function openGoogleMapsDirections(stops) {
   }
 
   window.open(`https://www.google.com/maps/dir/?${params.toString()}`, "_blank");
+}
+
+/**
+ * V173 — Waze: mesma sequência de paradas que o Google Maps (live-map directions).
+ * @param {Array<{ v?: string, endereco?: string }>} stops
+ */
+export async function openWazeDirections(stops) {
+  const { addresses, pos } = await buildRouteNavigationPlan(stops);
+  if (!addresses.length) return;
+
+  const destination = addresses[addresses.length - 1];
+
+  if (addresses.length === 1) {
+    window.open(
+      `https://waze.com/ul?q=${encodeURIComponent(destination)}&navigate=yes`,
+      "_blank"
+    );
+    return;
+  }
+
+  const params = new URLSearchParams({ navigate: "yes", to: destination });
+
+  if (pos) {
+    params.set("from", `${pos.lat},${pos.lng}`);
+    addresses.slice(0, -1).forEach((addr) => params.append("via", addr));
+  } else {
+    params.set("from", addresses[0]);
+    addresses.slice(1, -1).forEach((addr) => params.append("via", addr));
+  }
+
+  window.open(`https://www.waze.com/live-map/directions?${params.toString()}`, "_blank");
 }
 
 /**
