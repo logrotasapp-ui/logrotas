@@ -367,48 +367,25 @@ export default function DeliveryMap({
           disabled={locating}
           aria-label="Minha localização"
           title="Minha localização"
-          style={
-            expandedMap
-              ? {
-                  position: "absolute",
-                  bottom: 96,
-                  right: 10,
-                  zIndex: 10,
-                  width: 40,
-                  height: 40,
-                  borderRadius: "50%",
-                  border: "none",
-                  background: locating ? "#F1F3F4" : "#fff",
-                  boxShadow: "0 1px 4px rgba(0,0,0,0.3)",
-                  cursor: locating ? "wait" : "pointer",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  padding: 0,
-                }
-              : {
-                  position: "absolute",
-                  bottom: 28,
-                  right: 12,
-                  zIndex: 10,
-                  width: 44,
-                  height: 44,
-                  borderRadius: "50%",
-                  border: "1.5px solid #E2E8F0",
-                  background: locating ? "#FEF3C7" : "#fff",
-                  boxShadow: "0 2px 10px rgba(0,0,0,0.22)",
-                  cursor: locating ? "wait" : "pointer",
-                  fontSize: 22,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  lineHeight: 1,
-                  color: locating ? "#D97706" : "#1E3A8A",
-                  fontWeight: 700,
-                }
-          }
+          style={{
+            position: "absolute",
+            bottom: expandedMap ? 96 : 64,
+            right: 10,
+            zIndex: 10,
+            width: 40,
+            height: 40,
+            borderRadius: "50%",
+            border: "none",
+            background: locating ? "#F1F3F4" : "#fff",
+            boxShadow: "0 1px 4px rgba(0,0,0,0.3)",
+            cursor: locating ? "wait" : "pointer",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 0,
+          }}
         >
-          {expandedMap ? <GoogleLocationIcon /> : "⊕"}
+          <GoogleLocationIcon />
         </button>
       )}
       {hint && status !== "loading" && (

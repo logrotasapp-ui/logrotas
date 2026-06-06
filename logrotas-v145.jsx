@@ -1410,8 +1410,8 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade})=>{
           {paradas.map((p,i)=>(
             <div key={p.id} style={{
               display:"flex",flexDirection:"column",gap:8,
-              background:p.entregue?"#F1F5F9":p.confianca==="warn"?"#FFFBEB":resultado?"#F0FDF4":C.subtle,
-              border:`1.5px solid ${p.entregue?"#E2E8F0":p.confianca==="warn"?"#FDE68A":resultado?"#86EFAC":C.border}`,
+              background:p.entregue?"#F1F5F9":p.confianca==="warn"?"#FFFBEB":C.subtle,
+              border:`1.5px solid ${p.entregue?"#E2E8F0":p.confianca==="warn"?"#FDE68A":C.border}`,
               borderRadius:11,padding:"10px 13px",transition:"all .3s",position:"relative",
             }}>
               <div style={{display:"flex",alignItems:"flex-start",gap:10,paddingRight:36}}>
