@@ -1250,6 +1250,7 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade})=>{
             onSelect={s=>{if(!atingiuLimite){setNovoEndereco(s.label);setErroManual("");}}}
             placeholder={atingiuLimite?"Limite de paradas atingido":"Ex.: Rua das Flores, 100 - Centro"}
             dotColor="#22C55E"
+            enableVoice
             disabled={atingiuLimite||adicionandoManual}
           />
         </div>
@@ -1420,7 +1421,7 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade})=>{
                   <div style={{color:p.entregue?"#94A3B8":C.text,fontSize:13,textDecoration:p.entregue?"line-through":"none",lineHeight:1.4}}>
                     {p.endereco}
                   </div>
-                  {!p.entregue&&(
+                  {!p.entregue&&!resultado&&(
                     <span style={{display:"inline-block",marginTop:4,color:"#166534",fontSize:11,fontWeight:700}}>📦 1 pacote</span>
                   )}
                 </div>
@@ -1429,10 +1430,10 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade})=>{
                 style={{position:"absolute",top:10,right:10,background:C.redLight,border:"none",borderRadius:7,padding:5,cursor:"pointer",color:C.red,display:"flex",flexShrink:0}}>
                 <Trash2Icon size={13}/>
               </button>
-              {!p.entregue&&(
+              {!p.entregue&&resultado&&(
                 <button type="button" onClick={()=>marcarEntregue(p.id)}
-                  style={{width:"100%",padding:"10px 14px",background:"#F0FDF4",border:"1.5px solid #86EFAC",borderRadius:10,cursor:"pointer",color:"#166534",fontWeight:700,fontSize:13,display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
-                  ✅ Entregue
+                  style={{width:"100%",padding:"10px 14px",background:"#FF8C42",border:"none",borderRadius:10,cursor:"pointer",color:"#fff",fontWeight:700,fontSize:13,display:"flex",alignItems:"center",justifyContent:"center",gap:6,boxShadow:"0 2px 8px #FF8C4244"}}>
+                  ✅ Confirmar entrega
                 </button>
               )}
               {p.confianca==="warn"&&!p.entregue&&(

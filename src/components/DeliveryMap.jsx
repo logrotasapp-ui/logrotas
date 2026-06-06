@@ -183,9 +183,8 @@ export default function DeliveryMap({
             const pacoteLabel =
               packageCount === 1 ? "1 pacote" : `${packageCount} pacotes`;
             infoWindowRef.current.setContent(
-              `<div style="font-family:system-ui,sans-serif;padding:2px 4px;line-height:1.45">
-                <div style="font-weight:700;font-size:14px;margin-bottom:4px">📦 ${pacoteLabel}</div>
-                <div style="font-size:13px;color:#334155">Paradas: ${orders.join(", ")}</div>
+              `<div style="font-family:system-ui,sans-serif;padding:2px 4px;line-height:1.45;font-weight:700;font-size:14px">
+                📦 ${pacoteLabel} · Paradas: ${orders.join(", ")}
               </div>`
             );
             infoWindowRef.current.open({ anchor: marker, map });
@@ -354,7 +353,7 @@ export default function DeliveryMap({
           title="Minha localização"
           style={{
             position: "absolute",
-            bottom: 12,
+            bottom: 28,
             right: 12,
             zIndex: 10,
             width: 44,
@@ -364,14 +363,16 @@ export default function DeliveryMap({
             background: locating ? "#FEF3C7" : "#fff",
             boxShadow: "0 2px 10px rgba(0,0,0,0.22)",
             cursor: locating ? "wait" : "pointer",
-            fontSize: 20,
+            fontSize: 22,
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
             lineHeight: 1,
+            color: locating ? "#D97706" : "#1E3A8A",
+            fontWeight: 700,
           }}
         >
-          📍
+          ⊕
         </button>
       )}
       {hint && status !== "loading" && (

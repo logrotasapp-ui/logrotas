@@ -1,5 +1,5 @@
 /**
- * Dados do mapa de entregas — um marcador por parada.
+ * Dados do mapa de entregas — um marcador por parada, popup agrupa por coordenada.
  */
 
 import { geocodeAddressForDisplay } from "./routingService.js";
@@ -16,12 +16,16 @@ function resolveCoords(parada) {
   return null;
 }
 
+function locationKey(lng, lat) {
+  return `${lng.toFixed(5)},${lat.toFixed(5)}`;
+}
+
 /**
  * @param {Array<{ id?: number, endereco?: string, coords?: number[], ordem?: number, entregue?: boolean }>} paradas
  * @returns {Promise<import("geojson").Feature[]>}
  */
 export async function buildDeliveryMapFeatures(paradas) {
-  const features = [];
+  const points = [];
 
   for (let i = 0; i < (paradas || []).length; i++) {
     const p = paradas[i];
@@ -41,20 +45,42 @@ export async function buildDeliveryMapFeatures(paradas) {
       continue;
     }
 
-    features.push({
-      type: "Feature",
-      properties: {
-        packageCount: 1,
-        orders: [order],
-        order,
-        entregue: !!p.entregue,
-      },
-      geometry: {
-        type: "Point",
-        coordinates: [lng, lat],
-      },
+    points.push({
+      lng,
+      lat,
+      order,
+      entregue: !!p.entregue,
     });
   }
 
-  return features;
+  const groups = new Map();
+  for (const pt of points) {
+    const key = locationKey(pt.lng, pt.lat);
+    if (!groups.has(key)) {
+      groups.set(key, { orders: [] });
+    }
+    groups.get(key).orders.push(pt.order);
+  }
+
+  for (const g of groups.values()) {
+    g.orders.sort((a, b) => a - b);
+    g.packageCount = g.orders.length;
+  }
+
+  return points.map((pt) => {
+    const group = groups.get(locationKey(pt.lng, pt.lat));
+    return {
+      type: "Feature",
+      properties: {
+        packageCount: group.packageCount,
+        orders: group.orders,
+        order: pt.order,
+        entregue: pt.entregue,
+      },
+      geometry: {
+        type: "Point",
+        coordinates: [pt.lng, pt.lat],
+      },
+    };
+  });
 }
