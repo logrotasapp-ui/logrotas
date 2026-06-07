@@ -3,7 +3,8 @@
   "version": "1.0.0",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "npm run generate-icons && vite build",
+    "generate-icons": "node scripts/generate-pwa-icons.mjs",
     "preview": "vite preview",
     "test:romaneio": "node scripts/simulate-romaneio-parser.mjs"
   },
@@ -16,6 +17,7 @@
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.0.0",
+    "sharp": "^0.33.5",
     "vite": "^4.4.0"
   }
 }
