@@ -1242,8 +1242,8 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade})=>{
           ⚠️ {erroManual}
         </div>
       )}
-      <div style={{display:"flex",gap:8,marginBottom:atingiuLimite?8:14,alignItems:"flex-start"}}>
-        <div style={{flex:1}} onKeyDown={e=>e.key==="Enter"&&!adicionandoManual&&!atingiuLimite&&adicionarManual()}>
+      <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:atingiuLimite?8:14}}>
+        <div onKeyDown={e=>e.key==="Enter"&&!adicionandoManual&&!atingiuLimite&&adicionarManual()}>
           <AddressInput
             value={novoEndereco}
             onChange={v=>{if(!atingiuLimite){setNovoEndereco(v);setErroManual("");}}}
@@ -1255,7 +1255,7 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade})=>{
           />
         </div>
         <button onClick={adicionarManual} disabled={atingiuLimite||adicionandoManual}
-          style={{background:atingiuLimite||adicionandoManual?"#94A3B8":"#22C55E",border:"none",borderRadius:12,padding:"0 20px",cursor:atingiuLimite||adicionandoManual?"not-allowed":"pointer",color:"#fff",fontWeight:800,fontSize:15,display:"flex",alignItems:"center",justifyContent:"center",gap:7,minWidth:96,minHeight:48,boxShadow:atingiuLimite||adicionandoManual?"none":"0 4px 14px #22C55E44",flexShrink:0}}>
+          style={{width:"100%",background:atingiuLimite||adicionandoManual?"#94A3B8":"#22C55E",border:"none",borderRadius:12,padding:"12px 20px",cursor:atingiuLimite||adicionandoManual?"not-allowed":"pointer",color:"#fff",fontWeight:800,fontSize:15,display:"flex",alignItems:"center",justifyContent:"center",gap:7,minHeight:48,boxShadow:atingiuLimite||adicionandoManual?"none":"0 4px 14px #22C55E44"}}>
           <PlusIcon size={18}/> {adicionandoManual?"…":"Add"}
         </button>
       </div>
@@ -1849,6 +1849,8 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
   const[roundTrip,setRoundTrip]=useState(false);
   const[metaLocal,setMetaLocal]=useState(valorKmPadrao||"");
   const[freight,setFreight]=useState("");
+  const[valorMinSaida,setValorMinSaida]=useState("");
+  const[kmInclusosMin,setKmInclusosMin]=useState("");
   const[metaLucro,setMetaLucro]=useState("25");
   const[dists,setDists]=useState([""]);
   const[result,setResult]=useState(null);
@@ -2204,6 +2206,8 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
           <div style={{display:"flex",flexDirection:"column",gap:10}}>
             <Field label="Meu valor por km (R$)" value={metaLocal} onChange={v=>setMetaLocal(v)} placeholder="3.50" prefix="R$" suffix="/km"/>
             <Field label="Adicional fixo — opcional (R$)" value={freight} onChange={setFreight} placeholder="Ex: 50.00" prefix="R$" hint="Taxa extra por carga especial, espera, etc."/>
+            <Field label="Valor mínimo de saída (R$)" value={valorMinSaida} onChange={setValorMinSaida} placeholder="Ex: 150.00" prefix="R$" hint="Opcional — frete mínimo para viagens curtas."/>
+            <Field label="KM inclusos no mínimo" value={kmInclusosMin} onChange={setKmInclusosMin} placeholder="Ex: 40" suffix="km" hint="Opcional — km cobertos pelo valor mínimo de saída."/>
             <Field label="Meta de lucro mínima (%)" value={metaLucro} onChange={setMetaLucro} placeholder="Ex: 25" suffix="%" hint="Veja se o frete bate sua meta de lucro."/>
           </div>
         </div>
@@ -2223,7 +2227,8 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
 
         {/* ── RESULTADO ── */}
         {result&&(()=>{
-          const {freteSug,lucroFinal,ok}=calculateFreteQuote(result,{valorPorKm:metaLocal,adicionalFixo:freight});
+          const quote=calculateFreteQuote(result,{valorPorKm:metaLocal,adicionalFixo:freight,valorMinimoSaida:valorMinSaida,kmInclusosMinimo:kmInclusosMin});
+          const {freteSug,lucroFinal,ok,usedMinimum,kmExcedente}=quote;
           const profitMeta=calculateProfitMeta({lucroFinal,freteSug,metaLucroPercent:metaLucro});
           return(
             <div style={{display:"flex",flexDirection:"column",gap:10}}>
@@ -2259,7 +2264,12 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
                     R$ {freteSug.toFixed(2)}
                   </span>
                   <span style={{color:C.muted,fontSize:12}}>
-                    {result.tot} km × R$ {(parseFloat(metaLocal)||0).toFixed(2)}/km{parseFloat(freight)>0?` + R$ ${(parseFloat(freight)||0).toFixed(2)} adicional`:""}
+                    {usedMinimum
+                      ?(result.tot<=(parseFloat(kmInclusosMin)||0)
+                        ?`Mínimo R$ ${(parseFloat(valorMinSaida)||0).toFixed(2)} (${parseFloat(kmInclusosMin)||0} km inclusos)`
+                        :`R$ ${(parseFloat(valorMinSaida)||0).toFixed(2)} + ${kmExcedente} km × R$ ${(parseFloat(metaLocal)||0).toFixed(2)}/km`)
+                      :`${result.tot} km × R$ ${(parseFloat(metaLocal)||0).toFixed(2)}/km`}
+                    {parseFloat(freight)>0?` + R$ ${(parseFloat(freight)||0).toFixed(2)} adicional`:""}
                   </span>
                   {/* Lucro — informação secundária */}
                   <div style={{marginTop:6,width:"100%",background:ok?"#F0FDF4":"#FFF5F5",border:`1px solid ${ok?"#BBF7D0":"#FCA5A5"}`,borderRadius:10,padding:"10px 14px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>

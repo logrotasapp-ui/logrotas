@@ -1030,14 +1030,42 @@ export function calculateRouteCosts(input) {
   };
 }
 
-export function calculateFreteQuote(routeResult, { valorPorKm, adicionalFixo }) {
+export function calculateFreteQuote(
+  routeResult,
+  { valorPorKm, adicionalFixo, valorMinimoSaida, kmInclusosMinimo }
+) {
   const vkm = parseFloat(valorPorKm) || 0;
   const adic = parseFloat(adicionalFixo) || 0;
-  const freteSug =
-    routeResult.tot > 0 && vkm > 0 ? routeResult.tot * vkm + adic : 0;
+  const kmTotal = routeResult.tot || 0;
+  const minVal = parseFloat(valorMinimoSaida);
+  const kmInclusos = parseFloat(kmInclusosMinimo);
+  const useMinimum = minVal > 0 && kmInclusos > 0 && kmTotal > 0;
+
+  let freteSug = 0;
+  let kmExcedente = 0;
+
+  if (useMinimum) {
+    if (kmTotal <= kmInclusos) {
+      freteSug = minVal + adic;
+    } else {
+      kmExcedente = kmTotal - kmInclusos;
+      freteSug = minVal + kmExcedente * vkm + adic;
+    }
+  } else if (kmTotal > 0 && vkm > 0) {
+    freteSug = kmTotal * vkm + adic;
+  }
+
   const lucroFinal = freteSug > 0 ? freteSug - routeResult.total : 0;
   const ok = lucroFinal > 0;
-  return { freteSug, lucroFinal, ok, vkm, adic };
+  return {
+    freteSug,
+    lucroFinal,
+    ok,
+    vkm,
+    adic,
+    usedMinimum: useMinimum,
+    kmExcedente,
+  };
 }
 
 export function calculateProfitMeta({ lucroFinal, freteSug, metaLucroPercent }) {
