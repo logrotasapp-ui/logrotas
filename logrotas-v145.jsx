@@ -160,13 +160,13 @@ const AddressInput=({value,onChange,onSelect,placeholder,dotColor,disabled,enabl
   };
 
   return(
-    <div style={{position:"relative",flex:1,zIndex:aberto?10002:"auto"}}>
+    <div style={{position:"relative",flex:1,minWidth:0,zIndex:aberto?10002:"auto"}}>
       <div style={{display:"flex",alignItems:"center",background:disabled?C.subtle:"#fff",border:`1.5px solid ${C.border}`,borderRadius:10,boxShadow:"0 1px 3px #1E3A8A08",transition:"border-color .15s",opacity:disabled?0.7:1}}
         onFocusCapture={e=>{if(!disabled)e.currentTarget.style.borderColor=C.orange;}}
         onBlurCapture={e=>e.currentTarget.style.borderColor=C.border}>
         <div style={{width:10,height:10,borderRadius:"50%",background:cor,border:"2px solid #fff",boxShadow:`0 0 0 1.5px ${cor}`,flexShrink:0,marginLeft:12}}/>
         <input value={value} onChange={e=>handleChange(e.target.value)} placeholder={placeholder} disabled={disabled}
-          style={{flex:1,background:"transparent",border:"none",outline:"none",color:disabled?C.muted:C.text,padding:"10px 8px 10px 12px",fontSize:14,cursor:disabled?"not-allowed":"text"}}
+          style={{flex:1,minWidth:0,background:"transparent",border:"none",outline:"none",color:disabled?C.muted:C.text,padding:"10px 8px 10px 12px",fontSize:14,cursor:disabled?"not-allowed":"text"}}
           onFocus={()=>{if(!disabled&&sugestoes.length>0)setAberto(true);}}
           onBlur={()=>setTimeout(()=>setAberto(false),200)}/>
         {enableVoice&&speechOk&&(
@@ -327,8 +327,8 @@ const BotoesNavegacao=({onWaze,onMaps,wazeLabel="Abrir no Waze"})=>(
   </div>
 );
 const ModalWrap=({children,maxW=480})=>(
-  <div style={{position:"fixed",inset:0,background:"#1E3A8A33",zIndex:300,display:"flex",alignItems:"flex-start",justifyContent:"center",padding:"12px",overflowY:"auto"}}>
-    <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:20,width:"100%",maxWidth:maxW,padding:24,marginTop:10,boxShadow:"0 20px 60px #1E3A8A18"}}>{children}</div>
+  <div style={{position:"fixed",inset:0,background:"#1E3A8A33",zIndex:300,display:"flex",alignItems:"flex-start",justifyContent:"center",padding:"12px",overflowY:"auto",overflowX:"hidden",maxWidth:"100vw",boxSizing:"border-box"}}>
+    <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:20,width:"100%",maxWidth:maxW,padding:24,marginTop:10,boxShadow:"0 20px 60px #1E3A8A18",overflowX:"hidden",boxSizing:"border-box"}}>{children}</div>
   </div>
 );
 const ModalHeader=({title,sub,icon:Icon,iconColor,onClose})=>(
@@ -2019,16 +2019,16 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
       </div>
       <OfflineRestoredBanner show={offlineRestored}/>
 
-      <div style={{display:"flex",flexDirection:"column",gap:14}}>
+      <div style={{display:"flex",flexDirection:"column",gap:14,overflowX:"hidden",maxWidth:"100%",minWidth:0}}>
 
         {/* ── BLOCO 1: ROTA ── */}
-        <div style={{background:C.subtle,borderRadius:16,padding:"16px 16px 12px",overflow:"visible"}}>
+        <div style={{background:C.subtle,borderRadius:16,padding:"16px 16px 12px",overflow:"hidden",maxWidth:"100%"}}>
           <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:12}}>
             <div style={{width:28,height:28,borderRadius:8,background:C.navy,display:"flex",alignItems:"center",justifyContent:"center"}}><RouteIcon size={13} color="#fff"/></div>
             <span style={{color:C.navy,fontWeight:800,fontSize:14,fontFamily:"'Sora',sans-serif"}}>Rota</span>
           </div>
           {/* Stops — AddressInput com autocomplete */}
-          <div style={{display:"flex",flexDirection:"column",gap:7,marginBottom:10,overflow:"visible"}}>
+          <div style={{display:"flex",flexDirection:"column",gap:7,marginBottom:10,overflow:"visible",maxWidth:"100%",minWidth:0}}>
             {/* Origem */}
             <AddressInput
               value={stops[0]?.v||""}
@@ -2047,7 +2047,7 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
 
             {/* Paradas intermediárias */}
             {stops.slice(1,-1).map((stop,i)=>(
-              <div key={stop.id} style={{display:"flex",alignItems:"center",gap:8}}>
+              <div key={stop.id} style={{display:"flex",alignItems:"center",gap:8,minWidth:0,maxWidth:"100%"}}>
                 <AddressInput
                   value={stop.v}
                   onChange={v=>setStops(s=>s.map(x=>x.id===stop.id?{...x,v,coords:null}:x))}
@@ -2097,12 +2097,12 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
           {/* Distância — com indicador de busca automática */}
           <div style={{display:"flex",flexDirection:"column",gap:8}}>
             {Array.from({length:stops.length-1}).map((_,i)=>(
-              <div key={i} style={{display:"flex",alignItems:"center",gap:8}}>
-                <div style={{color:C.muted,fontSize:12,flexShrink:0,minWidth:65}}>{`Trecho ${i+1}`}:</div>
-                <div style={{display:"flex",alignItems:"center",background:"#fff",border:`1.5px solid ${buscandoDist?C.orange:C.border}`,borderRadius:10,overflow:"hidden",flex:1,transition:"border-color .3s"}}>
+              <div key={i} style={{display:"flex",alignItems:"center",gap:8,minWidth:0,maxWidth:"100%"}}>
+                <div style={{color:C.muted,fontSize:12,flexShrink:0,minWidth:56}}>{`Trecho ${i+1}`}:</div>
+                <div style={{display:"flex",alignItems:"center",background:"#fff",border:`1.5px solid ${buscandoDist?C.orange:C.border}`,borderRadius:10,overflow:"hidden",flex:1,minWidth:0,transition:"border-color .3s"}}>
                   <input value={dists[i]||""} onChange={e=>setDists(d=>{const n=[...d];n[i]=e.target.value;return n;})}
                     placeholder={buscandoDist?"Calculando...":"0"} type="number" inputMode="decimal"
-                    style={{flex:1,background:"transparent",border:"none",outline:"none",color:C.text,padding:"9px 12px",fontSize:14,fontWeight:700}}/>
+                    style={{flex:1,minWidth:0,background:"transparent",border:"none",outline:"none",color:C.text,padding:"9px 12px",fontSize:14,fontWeight:700}}/>
                   <span style={{padding:"0 10px",color:buscandoDist?C.orange:C.muted,fontSize:12,borderLeft:`1px solid ${C.border}`,background:C.subtle,alignSelf:"stretch",display:"flex",alignItems:"center"}}>
                     {buscandoDist?"🔍":"km"}
                   </span>
@@ -2110,11 +2110,11 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
               </div>
             ))}
             {stops.length>1&&(
-              <div style={{display:"flex",alignItems:"center",gap:8}}>
-                <div style={{color:C.navy,fontSize:12,fontWeight:700,flexShrink:0,minWidth:65}}>KM Total:</div>
-                <div style={{display:"flex",alignItems:"center",background:C.subtle,border:`1.5px solid ${C.navy}33`,borderRadius:10,overflow:"hidden",flex:1}}>
+              <div style={{display:"flex",alignItems:"center",gap:8,minWidth:0,maxWidth:"100%"}}>
+                <div style={{color:C.navy,fontSize:12,fontWeight:700,flexShrink:0,minWidth:56}}>KM Total:</div>
+                <div style={{display:"flex",alignItems:"center",background:C.subtle,border:`1.5px solid ${C.navy}33`,borderRadius:10,overflow:"hidden",flex:1,minWidth:0}}>
                   <input value={kmTotalExibicao} readOnly tabIndex={-1} placeholder="0"
-                    style={{flex:1,background:"transparent",border:"none",outline:"none",color:C.navy,padding:"9px 12px",fontSize:14,fontWeight:800,cursor:"default"}}/>
+                    style={{flex:1,minWidth:0,background:"transparent",border:"none",outline:"none",color:C.navy,padding:"9px 12px",fontSize:14,fontWeight:800,cursor:"default"}}/>
                   <span style={{padding:"0 10px",color:C.navy,fontSize:12,fontWeight:700,borderLeft:`1px solid ${C.border}`,background:"#EEF4FF",alignSelf:"stretch",display:"flex",alignItems:"center"}}>km</span>
                 </div>
               </div>
@@ -2126,9 +2126,9 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
               </div>
             )}
             {!buscandoDist&&dists[0]&&parseFloat(dists[0])>0&&stops[0]?.coords&&stops[stops.length-1]?.coords&&(
-              <div style={{background:C.greenLight,border:`1px solid ${C.green}33`,borderRadius:9,padding:"8px 12px",display:"flex",alignItems:"center",gap:7}}>
-                <span style={{fontSize:14}}>✅</span>
-                <span style={{color:C.green,fontSize:12,fontWeight:600}}>Distância calculada pela rota real (Google Maps)</span>
+              <div style={{background:C.greenLight,border:`1px solid ${C.green}33`,borderRadius:9,padding:"8px 12px",display:"flex",alignItems:"center",gap:7,maxWidth:"100%"}}>
+                <span style={{fontSize:14,flexShrink:0}}>✅</span>
+                <span style={{color:C.green,fontSize:12,fontWeight:600,lineHeight:1.35,wordBreak:"break-word"}}>Distância calculada pela rota real (Google Maps)</span>
               </div>
             )}
           </div>
@@ -2169,10 +2169,10 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
           {showTrailer&&(
             <div>
               <div style={{color:C.text2,fontSize:14,fontWeight:700,letterSpacing:0.4,marginBottom:8}}>Reboque / Carretinha</div>
-              <div style={{display:"flex",gap:7}}>
+              <div style={{display:"flex",gap:7,minWidth:0,maxWidth:"100%"}}>
                 {TRAILER_OPTS.map(t=>(
                   <button key={t.id} onClick={()=>setTrailer(t.id)}
-                    style={{flex:1,background:trailer===t.id?C.navyLight:"#fff",border:`2px solid ${trailer===t.id?C.navy:C.border}`,borderRadius:11,padding:"9px 6px",cursor:"pointer",textAlign:"center",transition:"all .15s"}}>
+                    style={{flex:1,minWidth:0,background:trailer===t.id?C.navyLight:"#fff",border:`2px solid ${trailer===t.id?C.navy:C.border}`,borderRadius:11,padding:"9px 6px",cursor:"pointer",textAlign:"center",transition:"all .15s"}}>
                     <div style={{fontSize:18,marginBottom:3}}>{t.emoji}</div>
                     <div style={{color:trailer===t.id?C.navy:C.text,fontWeight:600,fontSize:11}}>{t.label}</div>
                     <div style={{color:C.muted,fontSize:9,marginTop:1}}>{t.desc}</div>
@@ -2241,7 +2241,7 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
           const {freteSug,lucroFinal,ok,usedMinimum,kmExcedente}=quote;
           const profitMeta=calculateProfitMeta({lucroFinal,freteSug,metaLucroPercent:metaLucro});
           return(
-            <div style={{display:"flex",flexDirection:"column",gap:10}}>
+            <div style={{display:"flex",flexDirection:"column",gap:10,overflowX:"hidden",maxWidth:"100%",minWidth:0}}>
               {/* Veredicto — suave */}
               <div style={{background:ok?"#F0FDF4":"#FFF5F5",border:`1.5px solid ${ok?"#86EFAC":"#FCA5A5"}`,borderRadius:14,padding:"14px 16px",display:"flex",alignItems:"center",gap:12}}>
                 <div style={{fontSize:26}}>{ok?"✅":"❌"}</div>
@@ -2268,12 +2268,12 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
 
               {/* Valor do frete em destaque — o que cobrar do cliente */}
               {freteSug>0&&(
-                <div style={{background:`linear-gradient(135deg,${C.navy}08,${C.navy}04)`,border:`2px solid ${C.navy}22`,borderRadius:14,padding:"18px 16px",display:"flex",flexDirection:"column",alignItems:"center",gap:6,textAlign:"center"}}>
+                <div style={{background:`linear-gradient(135deg,${C.navy}08,${C.navy}04)`,border:`2px solid ${C.navy}22`,borderRadius:14,padding:"18px 16px",display:"flex",flexDirection:"column",alignItems:"center",gap:6,textAlign:"center",maxWidth:"100%",overflowX:"hidden",boxSizing:"border-box"}}>
                   <span style={{color:C.navy,fontSize:14,fontWeight:700,letterSpacing:1,textTransform:"uppercase"}}>💰 VALOR A COBRAR DO CLIENTE</span>
-                  <span style={{color:C.navy,fontWeight:900,fontSize:40,fontFamily:"'Sora',sans-serif",lineHeight:1}}>
+                  <span style={{color:C.navy,fontWeight:900,fontSize:40,fontFamily:"'Sora',sans-serif",lineHeight:1,maxWidth:"100%",wordBreak:"break-word"}}>
                     R$ {freteSug.toFixed(2)}
                   </span>
-                  <span style={{color:C.muted,fontSize:12}}>
+                  <span style={{color:C.muted,fontSize:12,wordBreak:"break-word",lineHeight:1.4}}>
                     {usedMinimum
                       ?(result.tot<=(parseFloat(kmInclusosMin)||0)
                         ?`Mínimo R$ ${(parseFloat(valorMinSaida)||0).toFixed(2)} (${parseFloat(kmInclusosMin)||0} km inclusos)`
@@ -4341,6 +4341,18 @@ export default function App(){
   // Tela de carregamento por 2 segundos
   useEffect(()=>{const t=setTimeout(()=>setScreen("login"),4000);return()=>clearTimeout(t);},[]);
 
+  useEffect(()=>{
+    if(screen!=="loading")return;
+    const prevBody=document.body.style.overflow;
+    const prevHtml=document.documentElement.style.overflow;
+    document.body.style.overflow="hidden";
+    document.documentElement.style.overflow="hidden";
+    return()=>{
+      document.body.style.overflow=prevBody;
+      document.documentElement.style.overflow=prevHtml;
+    };
+  },[screen]);
+
   const FRASES=["Calcule melhor, lucre mais.","Sua rota, seu controle.","Gestão inteligente na estrada.","Cada km conta no seu bolso."];
   const frase=FRASES[Math.floor(Math.random()*FRASES.length)];
 
@@ -4383,7 +4395,7 @@ export default function App(){
   ];
 
   if(screen==="loading"){return(
-    <div style={{minHeight:"100vh",width:"100%",position:"relative",overflow:"hidden",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"flex-end",paddingBottom:120}}>
+    <div style={{position:"fixed",inset:0,width:"100%",height:"100%",maxHeight:"100dvh",overflow:"hidden",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"flex-end",paddingBottom:"calc(env(safe-area-inset-bottom, 0px) + 168px)",boxSizing:"border-box"}}>
       <link href="https://fonts.googleapis.com/css2?family=Sora:wght@700;800;900&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet"/>
       {/* Imagem de fundo cobrindo tela inteira */}
       <img src={SPLASH_B64} alt="LogRotas" style={{position:"absolute",inset:0,width:"100%",height:"100%",objectFit:"cover",objectPosition:"center"}}/>
