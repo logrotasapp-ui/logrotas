@@ -329,8 +329,8 @@ export default function ScannerModule({
                 width: "100%",
                 padding: "14px",
                 background: disabled ? C.border : "#fff",
-                border: `2px solid ${disabled ? C.border : C.navy}`,
-                color: disabled ? C.muted : C.navy,
+                border: `2px solid ${disabled ? C.border : accentColor}`,
+                color: disabled ? C.muted : accentColor,
                 fontWeight: 800,
                 fontSize: 14,
                 display: "flex",
@@ -414,27 +414,18 @@ export default function ScannerModule({
             >
               Capturar
             </button>
-            <div style={{ display: "flex", gap: 8 }}>
-              <button
-                type="button"
-                onClick={resetToMenu}
-                style={{ ...cancelBtnStyle, flex: 1 }}
-              >
-                Voltar
-              </button>
-              <button
-                type="button"
-                onClick={handleFullCancel}
-                style={{
-                  ...cancelBtnStyle,
-                  flex: 1,
-                  color: C.red,
-                  borderColor: "#FCA5A5",
-                }}
-              >
-                Cancelar
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={handleFullCancel}
+              style={{
+                ...cancelBtnStyle,
+                width: "100%",
+                color: C.red,
+                borderColor: "#FCA5A5",
+              }}
+            >
+              Cancelar
+            </button>
           </div>
         </div>
       )}
@@ -471,7 +462,7 @@ export default function ScannerModule({
               <div style={{ fontSize: 40, marginBottom: 8 }}>📄</div>
               <div
                 style={{
-                  color: C.navy,
+                  color: accentColor,
                   fontWeight: 700,
                   fontSize: 14,
                   wordBreak: "break-word",

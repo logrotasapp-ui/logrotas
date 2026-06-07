@@ -1070,8 +1070,8 @@ const CalcSelector=({onFrete,onViagem,onOtimizar,onClose})=>(
 );
 
 // ── OTIMIZAR ENTREGAS (V166 — origem GPS do motorista na otimização) ───────────
-const OTIMIZAR_AZUL="#1E3A8A";
-const OTIMIZAR_AZUL_MID="#2952C8";
+const OTIMIZAR_AZUL="#3B82F6";
+const OTIMIZAR_AZUL_MID="#2563EB";
 
 const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade})=>{
   const[paradas,setParadas]=useState([]);
@@ -1517,7 +1517,7 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade})=>{
       {confirmNovaOtimizacao&&(
         <ConfirmDialog
           message="Tem certeza? Isso vai apagar todos os endereços e começar do zero."
-          confirmLabel="Sim, nova otimização"
+          confirmLabel="Sim"
           onCancel={()=>setConfirmNovaOtimizacao(false)}
           onConfirm={()=>{setResultado(null);setParadas([]);setConfirmNovaOtimizacao(false);}}
         />
