@@ -393,32 +393,23 @@ function extractRouteAddresses(stops) {
 }
 
 /** Plano de navegação compartilhado (Google Maps + Waze). */
-async function buildRouteNavigationPlan(stops) {
-  const addresses = extractRouteAddresses(stops);
-  const pos = await getDriverGeolocation({ preferFresh: true });
-  return { addresses, pos };
+function buildRouteNavigationPlan(stops) {
+  return { addresses: extractRouteAddresses(stops) };
 }
 
 /**
- * V173 — Google Maps: origem GPS + waypoints em sequência.
+ * Google Maps: origem = 1º endereço digitado + waypoints em sequência.
  * @param {Array<{ v?: string, endereco?: string }>} stops
  */
 export async function openGoogleMapsDirections(stops) {
-  const { addresses, pos } = await buildRouteNavigationPlan(stops);
+  const { addresses } = buildRouteNavigationPlan(stops);
   if (!addresses.length) return;
 
   const params = new URLSearchParams({ api: "1" });
   const destination = addresses[addresses.length - 1];
   params.set("destination", destination);
 
-  if (pos) {
-    params.set("origin", `${pos.lat},${pos.lng}`);
-    if (addresses.length > 1) {
-      params.set("waypoints", addresses.slice(0, -1).join("|"));
-    }
-  } else if (addresses.length === 1) {
-    params.set("destination", destination);
-  } else {
+  if (addresses.length >= 2) {
     params.set("origin", addresses[0]);
     if (addresses.length > 2) {
       params.set("waypoints", addresses.slice(1, -1).join("|"));
@@ -470,11 +461,11 @@ export async function openWazeStopDeepLink(stop) {
 }
 
 /**
- * V173 — Waze: mesma sequência de paradas que o Google Maps (Otimizar Entregas).
+ * Waze: mesma sequência de paradas que o Google Maps (Otimizar Entregas).
  * @param {Array<{ v?: string, endereco?: string }>} stops
  */
 export async function openWazeDirections(stops) {
-  const { addresses, pos } = await buildRouteNavigationPlan(stops);
+  const { addresses } = buildRouteNavigationPlan(stops);
   if (!addresses.length) return;
 
   const destination = addresses[addresses.length - 1];
@@ -488,14 +479,8 @@ export async function openWazeDirections(stops) {
   }
 
   const params = new URLSearchParams({ navigate: "yes", to: destination });
-
-  if (pos) {
-    params.set("from", `${pos.lat},${pos.lng}`);
-    addresses.slice(0, -1).forEach((addr) => params.append("via", addr));
-  } else {
-    params.set("from", addresses[0]);
-    addresses.slice(1, -1).forEach((addr) => params.append("via", addr));
-  }
+  params.set("from", addresses[0]);
+  addresses.slice(1, -1).forEach((addr) => params.append("via", addr));
 
   window.open(`https://www.waze.com/live-map/directions?${params.toString()}`, "_blank");
 }

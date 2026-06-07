@@ -31,6 +31,10 @@ export default function ScannerModule({
   onError,
   onProcessingChange,
   onCancel,
+  accentColor = "#22C55E",
+  accentDark = "#16A34A",
+  accentLight = "#F0FDF4",
+  accentBorder = "#86EFAC",
 }) {
   const [step, setStep] = useState("menu");
   const [processing, setProcessing] = useState(false);
@@ -300,7 +304,7 @@ export default function ScannerModule({
                 padding: "14px",
                 background: disabled
                   ? "#94A3B8"
-                  : "linear-gradient(135deg,#22C55E,#16A34A)",
+                  : `linear-gradient(135deg,${accentColor},${accentDark})`,
                 border: "none",
                 color: "#fff",
                 fontWeight: 800,
@@ -309,7 +313,7 @@ export default function ScannerModule({
                 alignItems: "center",
                 justifyContent: "center",
                 gap: 9,
-                boxShadow: disabled ? "none" : "0 4px 20px #22C55E44",
+                boxShadow: disabled ? "none" : `0 4px 20px ${accentColor}44`,
               }}
             >
               <span style={{ fontSize: 18 }}>📷</span>
@@ -367,7 +371,7 @@ export default function ScannerModule({
           style={{
             borderRadius: 14,
             overflow: "hidden",
-            border: `2px solid ${C.green}`,
+            border: `2px solid ${accentColor}`,
             background: "#000",
             marginLeft: -4,
             marginRight: -4,
@@ -388,7 +392,7 @@ export default function ScannerModule({
           <div
             style={{
               padding: 10,
-              background: "#F0FDF4",
+              background: accentLight,
               display: "flex",
               flexDirection: "column",
               gap: 8,
@@ -401,7 +405,7 @@ export default function ScannerModule({
                 ...btnBase,
                 width: "100%",
                 padding: "14px",
-                background: C.green,
+                background: accentColor,
                 border: "none",
                 color: "#fff",
                 fontWeight: 800,
@@ -440,7 +444,7 @@ export default function ScannerModule({
           style={{
             borderRadius: 14,
             overflow: "hidden",
-            border: `2px solid ${C.green}`,
+            border: `2px solid ${accentColor}`,
             background: "#fff",
           }}
         >
@@ -483,7 +487,7 @@ export default function ScannerModule({
           <div
             style={{
               padding: 10,
-              background: "#F0FDF4",
+              background: accentLight,
               display: "flex",
               flexDirection: "column",
               gap: 8,
@@ -497,36 +501,27 @@ export default function ScannerModule({
                 ...btnBase,
                 width: "100%",
                 padding: "14px",
-                background: !pendingBlob || disabled ? "#94A3B8" : C.green,
+                background: !pendingBlob || disabled ? "#94A3B8" : accentColor,
                 border: "none",
                 color: "#fff",
                 fontWeight: 800,
                 fontSize: 15,
               }}
             >
-              Confirmar e ler
+              Confirmar
             </button>
-            <div style={{ display: "flex", gap: 8 }}>
-              <button
-                type="button"
-                onClick={resetToMenu}
-                style={{ ...cancelBtnStyle, flex: 1 }}
-              >
-                Voltar
-              </button>
-              <button
-                type="button"
-                onClick={handleFullCancel}
-                style={{
-                  ...cancelBtnStyle,
-                  flex: 1,
-                  color: C.red,
-                  borderColor: "#FCA5A5",
-                }}
-              >
-                Cancelar
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={handleFullCancel}
+              style={{
+                ...cancelBtnStyle,
+                width: "100%",
+                color: C.red,
+                borderColor: "#FCA5A5",
+              }}
+            >
+              Cancelar
+            </button>
           </div>
         </div>
       )}
@@ -534,8 +529,8 @@ export default function ScannerModule({
       {processing && (
         <div
           style={{
-            background: "#F0FDF4",
-            border: "1.5px solid #86EFAC",
+            background: accentLight,
+            border: `1.5px solid ${accentBorder}`,
             borderRadius: 12,
             padding: "14px 16px",
           }}
@@ -548,27 +543,28 @@ export default function ScannerModule({
               marginBottom: 8,
             }}
           >
-            <span style={{ color: "#166534", fontWeight: 700, fontSize: 13 }}>
+            <span style={{ color: accentColor, fontWeight: 700, fontSize: 13 }}>
               {statusText || "Processando…"}
             </span>
-            <span style={{ color: "#15803D", fontWeight: 800, fontSize: 12 }}>
+            <span style={{ color: accentDark, fontWeight: 800, fontSize: 12 }}>
               {progress}%
             </span>
           </div>
           <div
             style={{
-              background: "#DCFCE7",
+              background: `${accentLight}`,
               borderRadius: 99,
               height: 8,
               overflow: "hidden",
               marginBottom: 10,
+              border: `1px solid ${accentBorder}`,
             }}
           >
             <div
               style={{
                 width: `${Math.min(100, progress)}%`,
                 height: "100%",
-                background: "linear-gradient(90deg,#22C55E,#16A34A)",
+                background: `linear-gradient(90deg,${accentColor},${accentDark})`,
                 borderRadius: 99,
                 transition: "width 0.2s ease",
               }}

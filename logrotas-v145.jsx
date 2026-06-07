@@ -21,6 +21,7 @@ import {
 } from "./src/services/routingService.js";
 import { calculateTripCosts } from "./src/services/tripCalcService.js";
 import ScannerModule from "./src/components/ScannerModule.js";
+import { playWhooshSound } from "./src/utils/whooshSound.js";
 import DeliveryMap from "./src/components/DeliveryMap.js";
 import { OFFLINE_KEYS, readOfflineCache, writeOfflineCache } from "./src/services/offlineStorage.js";
 import {
@@ -1045,9 +1046,6 @@ const CalcSelector=({onFrete,onViagem,onOtimizar,onClose})=>(
 
       {/* Otimizar Entregas — V147 */}
       <button onClick={onOtimizar} style={{background:"linear-gradient(135deg,#F0FDF4,#DCFCE7)",border:"1.5px solid #86EFAC",borderRadius:18,padding:"18px 16px",cursor:"pointer",textAlign:"left",boxShadow:"0 2px 8px #22C55E0E",position:"relative",overflow:"hidden"}}>
-        <div style={{position:"absolute",top:10,right:12,background:"#22C55E",borderRadius:20,padding:"2px 8px"}}>
-          <span style={{color:"#fff",fontSize:10,fontWeight:700}}>NOVO ✨</span>
-        </div>
         <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:12}}>
           <div style={{width:44,height:44,borderRadius:12,background:"linear-gradient(135deg,#22C55E,#16A34A)",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,boxShadow:"0 3px 10px #22C55E33"}}>
             <span style={{fontSize:22}}>📦</span>
@@ -1072,6 +1070,8 @@ const CalcSelector=({onFrete,onViagem,onOtimizar,onClose})=>(
 );
 
 // ── OTIMIZAR ENTREGAS (V166 — origem GPS do motorista na otimização) ───────────
+const OTIMIZAR_AZUL="#1E3A8A";
+const OTIMIZAR_AZUL_MID="#2952C8";
 
 const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade})=>{
   const[paradas,setParadas]=useState([]);
@@ -1088,6 +1088,7 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade})=>{
   const[posicaoMotorista,setPosicaoMotorista]=useState(null);
   const[paradaRemover,setParadaRemover]=useState(null);
   const[confirmLimpar,setConfirmLimpar]=useState(false);
+  const[confirmNovaOtimizacao,setConfirmNovaOtimizacao]=useState(false);
   const[offlineHydrated,setOfflineHydrated]=useState(false);
   const[offlineRestored,setOfflineRestored]=useState(false);
 
@@ -1186,6 +1187,7 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade})=>{
   // V166 — geocoding → GPS como origin → todas paradas como waypoints otimizáveis
   const handleOtimizarRota=async()=>{
     if(paradas.length<2)return;
+    playWhooshSound();
     setOtimizando(true);
     setErroOtimizar("");
     setResultado(null);
@@ -1206,7 +1208,7 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade})=>{
   return(
     <ModalWrap maxW={500}>
       {/* Header */}
-      <ModalHeader title="📦 Otimizar Entregas" sub="Rota perfeita para múltiplas paradas" icon={RouteIcon} iconColor="#22C55E" onClose={onClose}/>
+      <ModalHeader title="📦 Otimizar Entregas" sub="Rota perfeita para múltiplas paradas" icon={RouteIcon} iconColor={OTIMIZAR_AZUL} onClose={onClose}/>
       <OfflineRestoredBanner show={offlineRestored}/>
 
       <ScannerModule
@@ -1215,6 +1217,10 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade})=>{
         onSuccess={handleScannerSuccess}
         onError={setErroFoto}
         onProcessingChange={setProcessandoFoto}
+        accentColor={OTIMIZAR_AZUL}
+        accentDark={OTIMIZAR_AZUL_MID}
+        accentLight="#EEF4FF"
+        accentBorder="#BFDBFE"
       />
 
       {/* Erro foto */}
@@ -1243,13 +1249,13 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade})=>{
             onChange={v=>{if(!atingiuLimite){setNovoEndereco(v);setErroManual("");}}}
             onSelect={s=>{if(!atingiuLimite){setNovoEndereco(s.label);setErroManual("");}}}
             placeholder={atingiuLimite?"Limite de paradas atingido":"Ex.: Rua das Flores, 100 - Centro"}
-            dotColor="#22C55E"
+            dotColor={OTIMIZAR_AZUL}
             enableVoice
             disabled={atingiuLimite||adicionandoManual}
           />
         </div>
         <button onClick={adicionarManual} disabled={atingiuLimite||adicionandoManual}
-          style={{width:"100%",background:atingiuLimite||adicionandoManual?"#94A3B8":"#22C55E",border:"none",borderRadius:12,padding:"12px 20px",cursor:atingiuLimite||adicionandoManual?"not-allowed":"pointer",color:"#fff",fontWeight:800,fontSize:15,display:"flex",alignItems:"center",justifyContent:"center",gap:7,minHeight:48,boxShadow:atingiuLimite||adicionandoManual?"none":"0 4px 14px #22C55E44"}}>
+          style={{width:"100%",background:atingiuLimite||adicionandoManual?"#94A3B8":OTIMIZAR_AZUL,border:"none",borderRadius:12,padding:"12px 20px",cursor:atingiuLimite||adicionandoManual?"not-allowed":"pointer",color:"#fff",fontWeight:800,fontSize:15,display:"flex",alignItems:"center",justifyContent:"center",gap:7,minHeight:48,boxShadow:atingiuLimite||adicionandoManual?"none":`0 4px 14px ${OTIMIZAR_AZUL}44`}}>
           <PlusIcon size={18}/> {adicionandoManual?"…":"Add"}
         </button>
       </div>
@@ -1378,7 +1384,7 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade})=>{
       )}
 
       {todasEntregues&&(
-        <div style={{background:"linear-gradient(135deg,#22C55E,#16A34A)",borderRadius:12,padding:"12px 16px",marginBottom:14,textAlign:"center",boxShadow:"0 4px 14px #22C55E44"}}>
+        <div style={{background:`linear-gradient(135deg,${OTIMIZAR_AZUL},${OTIMIZAR_AZUL_MID})`,borderRadius:12,padding:"12px 16px",marginBottom:14,textAlign:"center",boxShadow:`0 4px 14px ${OTIMIZAR_AZUL}44`}}>
           <span style={{color:"#fff",fontWeight:800,fontSize:14}}>🎉 Todas as entregas concluídas!</span>
         </div>
       )}
@@ -1417,7 +1423,7 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade})=>{
                     {p.endereco}
                   </div>
                   {!p.entregue&&!resultado&&(
-                    <span style={{display:"inline-block",marginTop:4,color:"#166534",fontSize:11,fontWeight:700}}>📦 1 pacote</span>
+                    <span style={{display:"inline-block",marginTop:4,color:OTIMIZAR_AZUL,fontSize:11,fontWeight:700}}>📦 1 pacote</span>
                   )}
                 </div>
               </div>
@@ -1451,7 +1457,7 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade})=>{
       {/* Botão otimizar */}
       {paradas.length>=2&&!resultado&&(
         <button onClick={handleOtimizarRota}
-          style={{width:"100%",padding:"15px",background:otimizando?"#94A3B8":"linear-gradient(135deg,#22C55E,#16A34A)",border:"none",borderRadius:14,cursor:otimizando?"not-allowed":"pointer",color:"#fff",fontWeight:800,fontSize:15,fontFamily:"'Sora',sans-serif",display:"flex",alignItems:"center",justifyContent:"center",gap:9,boxShadow:"0 4px 20px #22C55E44",marginBottom:14}}>
+          style={{width:"100%",padding:"15px",background:otimizando?"#94A3B8":`linear-gradient(135deg,${OTIMIZAR_AZUL},${OTIMIZAR_AZUL_MID})`,border:"none",borderRadius:14,cursor:otimizando?"not-allowed":"pointer",color:"#fff",fontWeight:800,fontSize:15,fontFamily:"'Sora',sans-serif",display:"flex",alignItems:"center",justifyContent:"center",gap:9,boxShadow:`0 4px 20px ${OTIMIZAR_AZUL}44`,marginBottom:14}}>
           {otimizando
             ?<><span style={{fontSize:16}}>⏳</span> Calculando rota perfeita...</>
             :<><ZapIcon size={18}/> Otimizar Rota Perfeita</>}
@@ -1462,7 +1468,7 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade})=>{
       {resultado&&(
         <div style={{display:"flex",flexDirection:"column",gap:10,marginBottom:14}}>
           {/* Banner economia */}
-          <div style={{background:"linear-gradient(135deg,#22C55E,#16A34A)",borderRadius:16,padding:"18px 20px",textAlign:"center",boxShadow:"0 4px 16px #22C55E44"}}>
+          <div style={{background:`linear-gradient(135deg,${OTIMIZAR_AZUL},${OTIMIZAR_AZUL_MID})`,borderRadius:16,padding:"18px 20px",textAlign:"center",boxShadow:`0 4px 16px ${OTIMIZAR_AZUL}44`}}>
             <div style={{fontSize:32,marginBottom:6}}>🎉</div>
             <div style={{color:"#fff",fontWeight:900,fontSize:18,fontFamily:"'Sora',sans-serif",marginBottom:4}}>
               Você economizou {resultado.economiaKm} km!
@@ -1479,8 +1485,8 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade})=>{
               {emoji:"📍",label:"Distância otimizada",valor:`${resultado.kmOtimizado.toFixed(1)} km`},
               {emoji:"⏱️",label:"Tempo estimado",valor:`~${resultado.tempoEstimado} min`},
               {emoji:"⛽",label:"Custo combustível",valor:`R$ ${resultado.custoTotal}`},
-              {emoji:"✂️",label:"Distância economizada",valor:`${resultado.economiaKm} km`,cor:"#22C55E"},
-              {emoji:"💰",label:"Economia em R$",valor:`R$ ${resultado.economiaCusto}`,cor:"#22C55E"},
+              {emoji:"✂️",label:"Distância economizada",valor:`${resultado.economiaKm} km`,cor:OTIMIZAR_AZUL},
+              {emoji:"💰",label:"Economia em R$",valor:`R$ ${resultado.economiaCusto}`,cor:OTIMIZAR_AZUL},
             ].map((r,i)=>(
               <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",borderBottom:i<4?`1px solid ${C.border}`:"none",paddingBottom:i<4?8:0}}>
                 <span style={{color:C.text2,fontSize:13}}>{r.emoji} {r.label}</span>
@@ -1493,7 +1499,7 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade})=>{
           <BotoesNavegacao onWaze={handleNavegarWaze} onMaps={handleNavegarGoogleMaps}/>
 
           {/* Refazer */}
-          <button onClick={()=>{setResultado(null);setParadas([]);}}
+          <button onClick={()=>setConfirmNovaOtimizacao(true)}
             style={{width:"100%",padding:"12px",background:C.subtle,border:`1.5px solid ${C.border}`,borderRadius:12,cursor:"pointer",color:C.text2,fontWeight:600,fontSize:13}}>
             🔄 Nova otimização
           </button>
@@ -1506,6 +1512,14 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade})=>{
           confirmLabel="Remover"
           onCancel={()=>setParadaRemover(null)}
           onConfirm={()=>{removerParada(paradaRemover);setParadaRemover(null);}}
+        />
+      )}
+      {confirmNovaOtimizacao&&(
+        <ConfirmDialog
+          message="Tem certeza? Isso vai apagar todos os endereços e começar do zero."
+          confirmLabel="Sim, nova otimização"
+          onCancel={()=>setConfirmNovaOtimizacao(false)}
+          onConfirm={()=>{setResultado(null);setParadas([]);setConfirmNovaOtimizacao(false);}}
         />
       )}
       {confirmLimpar&&(
