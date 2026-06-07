@@ -4389,39 +4389,21 @@ export default function App(){
   ];
 
   if(screen==="loading"){return(
-    <div style={{
-      position:"fixed",inset:0,
-      width:"100%",height:"100dvh",minHeight:"100vh",
-      overflow:"hidden",
-      display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",
-      gap:12,
-      padding:"max(16px, env(safe-area-inset-top)) 24px max(20px, env(safe-area-inset-bottom))",
-      boxSizing:"border-box",
-      background:"linear-gradient(160deg,#1E3A8A 0%,#2952C8 100%)",
-      fontFamily:"'DM Sans',sans-serif",
-    }}>
+    <div style={{minHeight:"100vh",width:"100%",position:"relative",overflow:"hidden",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"flex-end",paddingBottom:60}}>
       <link href="https://fonts.googleapis.com/css2?family=Sora:wght@700;800;900&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet"/>
-      <div style={{
-        width:148,height:148,borderRadius:28,
-        background:"#fff",
-        display:"flex",alignItems:"center",justifyContent:"center",
-        flexShrink:0,padding:18,boxSizing:"border-box",
-        boxShadow:"0 8px 32px rgba(0,0,0,0.18)",
-      }}>
-        <img src={LOGO_B64} alt="LogRotas" style={{width:"100%",height:"100%",objectFit:"contain"}}/>
+      {/* Imagem de fundo cobrindo tela inteira */}
+      <img src={SPLASH_B64} alt="LogRotas" style={{position:"absolute",inset:0,width:"100%",height:"100%",objectFit:"cover",objectPosition:"center"}}/>
+      {/* Overlay escuro suave no rodapé para os textos ficarem legíveis */}
+      <div style={{position:"absolute",bottom:0,left:0,right:0,height:"45%",background:"linear-gradient(to top, rgba(15,30,70,0.85) 0%, transparent 100%)"}}/>
+      {/* Conteúdo sobre a imagem */}
+      <div style={{position:"relative",zIndex:2,textAlign:"center",display:"flex",flexDirection:"column",alignItems:"center",gap:10}}>
+        <div style={{display:"flex",gap:6,marginTop:8}}>
+          {[0,1,2].map(i=>(
+            <div key={i} style={{width:7,height:7,borderRadius:"50%",background:i===0?"#fff":"#ffffff66",animation:`pulse${i} 1.2s ${i*0.4}s infinite`}}/>
+          ))}
+        </div>
       </div>
-      <div style={{display:"flex",alignItems:"baseline",flexShrink:0,marginTop:4}}>
-        <span style={{fontFamily:"'Sora',sans-serif",fontWeight:900,fontSize:34,color:"#fff",lineHeight:1}}>Log</span>
-        <span style={{fontFamily:"'Sora',sans-serif",fontWeight:900,fontSize:34,color:C.orange,lineHeight:1}}>Rotas</span>
-      </div>
-      <p style={{color:"#BFDBFE",fontSize:15,margin:0,textAlign:"center",lineHeight:1.4,flexShrink:0}}>Sua rota, seu controle.</p>
-      <p style={{color:"#94A3B8",fontSize:11,margin:0,letterSpacing:2.5,fontWeight:600,flexShrink:0}}>ROTAS INTELIGENTES</p>
-      <div style={{display:"flex",gap:7,marginTop:10,flexShrink:0}}>
-        {[0,1,2].map(i=>(
-          <div key={i} style={{width:8,height:8,borderRadius:"50%",background:i===0?"#fff":"#ffffff66",animation:`splashDot${i} 1.2s ${i*0.4}s infinite`}}/>
-        ))}
-      </div>
-      <style>{`@keyframes splashDot0{0%,100%{opacity:1}50%{opacity:0.3}}@keyframes splashDot1{0%,100%{opacity:0.3}50%{opacity:1}}@keyframes splashDot2{0%,100%{opacity:0.5}50%{opacity:0.1}}`}</style>
+      <style>{`@keyframes pulse0{0%,100%{opacity:1}50%{opacity:0.3}}@keyframes pulse1{0%,100%{opacity:0.3}50%{opacity:1}}@keyframes pulse2{0%,100%{opacity:0.5}50%{opacity:0.1}}`}</style>
     </div>
   );}
 

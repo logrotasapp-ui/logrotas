@@ -1,6 +1,6 @@
 /**
  * Gera icon-192.png e icon-512.png a partir do LOGO_B64 em logrotas-v145.jsx.
- * Logo centralizado com padding (~70% da área) sobre fundo #1E3A8A.
+ * Logo centralizado com padding (~70% da área) sobre fundo branco #ffffff.
  */
 import { readFileSync } from "fs";
 import { join, dirname } from "path";
@@ -12,7 +12,7 @@ const root = join(__dirname, "..");
 const jsxPath = join(root, "logrotas-v145.jsx");
 const publicDir = join(root, "public");
 
-const BRAND_BG = { r: 30, g: 58, b: 138, alpha: 1 }; // #1E3A8A
+const ICON_BG = { r: 255, g: 255, b: 255, alpha: 1 }; // #ffffff
 const LOGO_SCALE = 0.7;
 
 const jsx = readFileSync(jsxPath, "utf8");
@@ -44,7 +44,7 @@ async function writeIcon(size, filename) {
       width: size,
       height: size,
       channels: 4,
-      background: BRAND_BG,
+      background: ICON_BG,
     },
   })
     .composite([{ input: logo, top: offset, left: offset }])
