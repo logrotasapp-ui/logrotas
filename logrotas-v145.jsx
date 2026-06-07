@@ -1874,6 +1874,11 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
       String(cached.fuelPrice||"").trim()||
       String(cached.consumo||"").trim()||
       String(cached.cargo||"").trim()||
+      String(cached.metaLocal||"").trim()||
+      String(cached.freight||"").trim()||
+      String(cached.valorMinSaida||"").trim()||
+      String(cached.kmInclusosMin||"").trim()||
+      String(cached.metaLucro||"").trim()||
       cached.vehicleId
     );
     if(temDados){
@@ -1883,6 +1888,11 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
       if(cached.trailer)setTrailer(cached.trailer);
       if(cached.trailerAxleMap)setTrailerAxleMap(cached.trailerAxleMap);
       if(cached.cargo!=null)setCargo(String(cached.cargo));
+      if(cached.metaLocal!=null)setMetaLocal(String(cached.metaLocal));
+      if(cached.freight!=null)setFreight(String(cached.freight));
+      if(cached.valorMinSaida!=null)setValorMinSaida(String(cached.valorMinSaida));
+      if(cached.kmInclusosMin!=null)setKmInclusosMin(String(cached.kmInclusosMin));
+      if(cached.metaLucro!=null)setMetaLucro(String(cached.metaLucro));
       setOfflineRestored(true);
       setTimeout(()=>setOfflineRestored(false),3500);
     }
@@ -1895,12 +1905,18 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
       String(fuelPrice||"").trim()||
       String(consumo||"").trim()||
       String(cargo||"").trim()||
+      String(metaLocal||"").trim()||
+      String(freight||"").trim()||
+      String(valorMinSaida||"").trim()||
+      String(kmInclusosMin||"").trim()||
+      String(metaLucro||"").trim()||
       vehicleId!=="carro"||trailer!=="none";
     if(!temDados)return;
     writeOfflineCache(OFFLINE_KEYS.frete,{
       vehicleId,fuelPrice,consumo,trailer,trailerAxleMap,cargo,
+      metaLocal,freight,valorMinSaida,kmInclusosMin,metaLucro,
     });
-  },[offlineHydrated,vehicleId,fuelPrice,consumo,trailer,trailerAxleMap,cargo]);
+  },[offlineHydrated,vehicleId,fuelPrice,consumo,trailer,trailerAxleMap,cargo,metaLocal,freight,valorMinSaida,kmInclusosMin,metaLucro]);
 
   // V171 — KM por trecho via Google Directions driving
   const buscarDistAuto=async(stopsAtuais)=>{
