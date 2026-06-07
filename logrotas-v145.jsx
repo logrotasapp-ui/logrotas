@@ -4394,7 +4394,7 @@ export default function App(){
       width:"100%",height:"100dvh",minHeight:"100vh",
       overflow:"hidden",
       display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",
-      gap:14,
+      gap:12,
       padding:"max(16px, env(safe-area-inset-top)) 24px max(20px, env(safe-area-inset-bottom))",
       boxSizing:"border-box",
       background:"linear-gradient(160deg,#1E3A8A 0%,#2952C8 100%)",
@@ -4402,19 +4402,21 @@ export default function App(){
     }}>
       <link href="https://fonts.googleapis.com/css2?family=Sora:wght@700;800;900&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet"/>
       <div style={{
-        width:88,height:88,borderRadius:"50%",
-        border:"2px solid rgba(255,106,0,0.45)",
-        background:"rgba(42,74,181,0.55)",
-        display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,
+        width:148,height:148,borderRadius:28,
+        background:"#fff",
+        display:"flex",alignItems:"center",justifyContent:"center",
+        flexShrink:0,padding:18,boxSizing:"border-box",
+        boxShadow:"0 8px 32px rgba(0,0,0,0.18)",
       }}>
-        <img src={LOGO_B64} alt="" style={{width:68,height:68,objectFit:"contain"}}/>
+        <img src={LOGO_B64} alt="LogRotas" style={{width:"100%",height:"100%",objectFit:"contain"}}/>
       </div>
-      <div style={{display:"flex",alignItems:"baseline",flexShrink:0}}>
-        <span style={{fontFamily:"'Sora',sans-serif",fontWeight:900,fontSize:32,color:"#fff",lineHeight:1}}>Log</span>
-        <span style={{fontFamily:"'Sora',sans-serif",fontWeight:900,fontSize:32,color:C.orange,lineHeight:1}}>Rotas</span>
+      <div style={{display:"flex",alignItems:"baseline",flexShrink:0,marginTop:4}}>
+        <span style={{fontFamily:"'Sora',sans-serif",fontWeight:900,fontSize:34,color:"#fff",lineHeight:1}}>Log</span>
+        <span style={{fontFamily:"'Sora',sans-serif",fontWeight:900,fontSize:34,color:C.orange,lineHeight:1}}>Rotas</span>
       </div>
-      <p style={{color:"#93C5FD",fontSize:14,margin:0,textAlign:"center",lineHeight:1.45,maxWidth:280,flexShrink:0}}>{frase}</p>
-      <div style={{display:"flex",gap:7,marginTop:8,flexShrink:0}}>
+      <p style={{color:"#BFDBFE",fontSize:15,margin:0,textAlign:"center",lineHeight:1.4,flexShrink:0}}>Sua rota, seu controle.</p>
+      <p style={{color:"#94A3B8",fontSize:11,margin:0,letterSpacing:2.5,fontWeight:600,flexShrink:0}}>ROTAS INTELIGENTES</p>
+      <div style={{display:"flex",gap:7,marginTop:10,flexShrink:0}}>
         {[0,1,2].map(i=>(
           <div key={i} style={{width:8,height:8,borderRadius:"50%",background:i===0?"#fff":"#ffffff66",animation:`splashDot${i} 1.2s ${i*0.4}s infinite`}}/>
         ))}
