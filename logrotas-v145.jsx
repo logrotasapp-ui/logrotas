@@ -2535,8 +2535,8 @@ const Dashboard=({onNav,setShowCalc,setCalcMode,historicoFretes,manutencoes,docs
       {semDados?(
         <div style={{display:"flex",flexDirection:"column",gap:12}}>
           <div style={{background:"linear-gradient(135deg,#1E3A8A08,#FF6A0006)",border:"1.5px solid #FF6A0022",borderRadius:18,padding:"22px 20px",textAlign:"center"}}>
-            <div style={{fontSize:44,marginBottom:12}}>🚛</div>
-            <div style={{color:C.navy,fontWeight:800,fontSize:18,fontFamily:"'Sora',sans-serif",marginBottom:6}}>Bem-vindo ao LogRotas! 🚛</div>
+            <div style={{fontSize:44,marginBottom:12}}>👋</div>
+            <div style={{color:C.navy,fontWeight:800,fontSize:18,fontFamily:"'Sora',sans-serif",marginBottom:6}}>Bem-vindo ao LogRotas!</div>
             <div style={{color:C.text2,fontSize:14,lineHeight:1.6}}>Calcule fretes, otimize suas entregas e gerencie suas rotas com precisão. Tudo que o motorista autônomo precisa em um só lugar.</div>
           </div>
           <div style={{display:"flex",flexDirection:"column",gap:8}}>
