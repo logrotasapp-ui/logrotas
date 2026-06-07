@@ -2535,17 +2535,18 @@ const Dashboard=({onNav,setShowCalc,setCalcMode,historicoFretes,manutencoes,docs
       {semDados?(
         <div style={{display:"flex",flexDirection:"column",gap:12}}>
           <div style={{background:"linear-gradient(135deg,#1E3A8A08,#FF6A0006)",border:"1.5px solid #FF6A0022",borderRadius:18,padding:"22px 20px",textAlign:"center"}}>
-            <div style={{fontSize:44,marginBottom:12}}>👋</div>
-            <div style={{color:C.navy,fontWeight:800,fontSize:18,fontFamily:"'Sora',sans-serif",marginBottom:6}}>Bem-vindo ao LogRotas!</div>
-            <div style={{color:C.text2,fontSize:14,lineHeight:1.6}}>Comece calculando sua primeira rota. É rápido e vai te mostrar exatamente quanto lucrar em cada viagem.</div>
+            <div style={{fontSize:44,marginBottom:12}}>🚛</div>
+            <div style={{color:C.navy,fontWeight:800,fontSize:18,fontFamily:"'Sora',sans-serif",marginBottom:6}}>Bem-vindo ao LogRotas! 🚛</div>
+            <div style={{color:C.text2,fontSize:14,lineHeight:1.6}}>Calcule fretes, otimize suas entregas e gerencie suas rotas com precisão. Tudo que o motorista autônomo precisa em um só lugar.</div>
           </div>
           <div style={{display:"flex",flexDirection:"column",gap:8}}>
             <div style={{color:C.muted,fontSize:14,fontWeight:700,letterSpacing:0.5,textTransform:"uppercase"}}>Como funciona</div>
             {[
-              {n:"1",emoji:"🧮",t:"Calcule uma rota real",d:"Informe origem, destino e veículo"},
-              {n:"2",emoji:"💰",t:"Veja seu lucro estimado",d:"O app calcula combustível e pedágio"},
-              {n:"3",emoji:"💾",t:"Salve no histórico",d:"Acompanhe todos os seus fretes"},
-              {n:"4",emoji:"📊",t:"Controle no Financeiro",d:"Veja sua evolução mês a mês"},
+              {n:"1",emoji:"🗺️",t:"Calcule sua rota",d:"Frete ou viagem com KM real via Google Maps"},
+              {n:"2",emoji:"📦",t:"Otimize suas entregas",d:"Leia romaneios e organize paradas automaticamente"},
+              {n:"3",emoji:"💰",t:"Veja seu lucro",d:"Combustível, pedágio e margem calculados na hora"},
+              {n:"4",emoji:"✅",t:"Confirme as entregas",d:"Acompanhe cada parada e registre as entregas"},
+              {n:"5",emoji:"💾",t:"Salve no histórico",d:"Controle todos seus fretes e viagens"},
             ].map((s,i)=>(
               <div key={i} style={{display:"flex",alignItems:"center",gap:12,background:"#fff",borderRadius:13,padding:"12px 14px",boxShadow:"0 1px 4px #1E3A8A08",border:`1px solid ${C.border}`}}>
                 <div style={{width:32,height:32,borderRadius:"50%",background:C.orange,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
