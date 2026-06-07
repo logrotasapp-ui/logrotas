@@ -37,6 +37,9 @@ export default function ScannerModule({
   const [progress, setProgress] = useState(0);
   const [statusText, setStatusText] = useState("");
   const [cameraError, setCameraError] = useState("");
+  const [pendingBlob, setPendingBlob] = useState(null);
+  const [previewUrl, setPreviewUrl] = useState(null);
+  const [pendingName, setPendingName] = useState("");
 
   const videoRef = useRef(null);
   const streamRef = useRef(null);
@@ -62,11 +65,33 @@ export default function ScannerModule({
     }
   }, []);
 
+  const clearPendingPreview = useCallback(() => {
+    setPreviewUrl((url) => {
+      if (url) URL.revokeObjectURL(url);
+      return null;
+    });
+    setPendingBlob(null);
+    setPendingName("");
+  }, []);
+
   const resetToMenu = useCallback(() => {
     stopCamera();
+    clearPendingPreview();
     setStep("menu");
     setCameraError("");
-  }, [stopCamera]);
+  }, [stopCamera, clearPendingPreview]);
+
+  const stageForPreview = useCallback((blob, name = "romaneio.jpg") => {
+    setPreviewUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return blob.type?.startsWith("image/")
+        ? URL.createObjectURL(blob)
+        : null;
+    });
+    setPendingBlob(blob);
+    setPendingName(name);
+    setStep("preview");
+  }, []);
 
   const handleFullCancel = useCallback(() => {
     abortRef.current.aborted = true;
@@ -81,8 +106,9 @@ export default function ScannerModule({
     return () => {
       abortRef.current.aborted = true;
       stopCamera();
+      clearPendingPreview();
     };
-  }, [stopCamera]);
+  }, [stopCamera, clearPendingPreview]);
 
   const processImageBlob = useCallback(
     async (blob) => {
@@ -219,14 +245,19 @@ export default function ScannerModule({
       );
     });
 
-    await processImageBlob(blob);
+    stageForPreview(blob, "captura.jpg");
+  };
+
+  const confirmPreview = async () => {
+    if (!pendingBlob || disabled || processing) return;
+    await processImageBlob(pendingBlob);
   };
 
   const handleFileChange = (e) => {
     const file = e.target.files?.[0];
     e.target.value = "";
     if (!file) return;
-    processImageBlob(file);
+    stageForPreview(file, file.name || "arquivo");
   };
 
   const cancelBtnStyle = {
@@ -377,7 +408,103 @@ export default function ScannerModule({
                 fontSize: 15,
               }}
             >
-              Capturar e ler endereços
+              Capturar
+            </button>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button
+                type="button"
+                onClick={resetToMenu}
+                style={{ ...cancelBtnStyle, flex: 1 }}
+              >
+                Voltar
+              </button>
+              <button
+                type="button"
+                onClick={handleFullCancel}
+                style={{
+                  ...cancelBtnStyle,
+                  flex: 1,
+                  color: C.red,
+                  borderColor: "#FCA5A5",
+                }}
+              >
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {step === "preview" && !processing && (
+        <div
+          style={{
+            borderRadius: 14,
+            overflow: "hidden",
+            border: `2px solid ${C.green}`,
+            background: "#fff",
+          }}
+        >
+          {previewUrl ? (
+            <img
+              src={previewUrl}
+              alt="Prévia do romaneio"
+              style={{
+                width: "100%",
+                display: "block",
+                maxHeight: "min(65vh, 420px)",
+                objectFit: "contain",
+                background: "#000",
+              }}
+            />
+          ) : (
+            <div
+              style={{
+                padding: "36px 20px",
+                textAlign: "center",
+                background: "#F8FAFC",
+              }}
+            >
+              <div style={{ fontSize: 40, marginBottom: 8 }}>📄</div>
+              <div
+                style={{
+                  color: C.navy,
+                  fontWeight: 700,
+                  fontSize: 14,
+                  wordBreak: "break-word",
+                }}
+              >
+                {pendingName || "PDF selecionado"}
+              </div>
+              <div style={{ color: C.muted, fontSize: 12, marginTop: 6 }}>
+                A 1ª página será lida na confirmação
+              </div>
+            </div>
+          )}
+          <div
+            style={{
+              padding: 10,
+              background: "#F0FDF4",
+              display: "flex",
+              flexDirection: "column",
+              gap: 8,
+            }}
+          >
+            <button
+              type="button"
+              onClick={confirmPreview}
+              disabled={!pendingBlob || disabled}
+              style={{
+                ...btnBase,
+                width: "100%",
+                padding: "14px",
+                background: !pendingBlob || disabled ? "#94A3B8" : C.green,
+                border: "none",
+                color: "#fff",
+                fontWeight: 800,
+                fontSize: 15,
+              }}
+            >
+              Confirmar e ler
             </button>
             <div style={{ display: "flex", gap: 8 }}>
               <button

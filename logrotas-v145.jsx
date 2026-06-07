@@ -1698,11 +1698,6 @@ const TripCalcModal=({onClose,vehicles})=>{
               style={{flex:1,background:"transparent",border:"none",outline:"none",color:C.text,padding:"10px 12px",fontSize:14,fontWeight:700}}/>
             <span style={{padding:"0 10px",color:buscandoDist?"#3B82F6":C.muted,fontSize:12,borderLeft:`1px solid ${C.border}`,background:C.subtle}}>{buscandoDist?"🔍":"km"}</span>
           </div>
-          {!buscandoDist&&distancia&&parseFloat(distancia)>0&&stops[0]?.coords&&stops[stops.length-1]?.coords&&(
-            <div style={{background:C.greenLight,border:`1px solid ${C.green}33`,borderRadius:9,padding:"8px 12px",fontSize:12,color:C.green,fontWeight:600}}>
-              ✅ Distância calculada pela rota real (Google Maps)
-            </div>
-          )}
 
           <Field label="🏁 Pedágio total (R$)" value={pedagio} onChange={setPedagio} placeholder="Ex: 45.00" prefix="R$" hint="Valor estimado na ida; dobra automaticamente se marcar ida e volta."/>
 
@@ -2012,8 +2007,8 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
       {/* Header */}
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
         <div>
-          <div style={{color:C.text,fontWeight:800,fontSize:17,fontFamily:"'Sora',sans-serif"}}>Calcular Rota</div>
-          <div style={{color:C.muted,fontSize:12,marginTop:2}}>Pedágio em R$ · ARLA · WhatsApp</div>
+          <div style={{color:C.text,fontWeight:800,fontSize:17,fontFamily:"'Sora',sans-serif"}}>Calculadora de Frete</div>
+          <div style={{color:C.muted,fontSize:12,marginTop:2}}>Calcule custo, combustível e lucro da viagem</div>
         </div>
         <button onClick={onClose} style={{background:C.subtle,border:`1px solid ${C.border}`,borderRadius:10,padding:8,cursor:"pointer",color:C.muted,display:"flex"}}><XIcon size={15}/></button>
       </div>
@@ -2096,7 +2091,7 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
 
           {/* Distância — com indicador de busca automática */}
           <div style={{display:"flex",flexDirection:"column",gap:8}}>
-            {Array.from({length:stops.length-1}).map((_,i)=>(
+            {stops.length>2&&Array.from({length:stops.length-1}).map((_,i)=>(
               <div key={i} style={{display:"flex",alignItems:"center",gap:8,minWidth:0,maxWidth:"100%"}}>
                 <div style={{color:C.muted,fontSize:12,flexShrink:0,minWidth:56}}>{`Trecho ${i+1}`}:</div>
                 <div style={{display:"flex",alignItems:"center",background:"#fff",border:`1.5px solid ${buscandoDist?C.orange:C.border}`,borderRadius:10,overflow:"hidden",flex:1,minWidth:0,transition:"border-color .3s"}}>
@@ -2123,12 +2118,6 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
               <div style={{background:C.orangeLight,border:`1px solid ${C.orange}33`,borderRadius:9,padding:"8px 12px",display:"flex",alignItems:"center",gap:7}}>
                 <span style={{fontSize:14}}>🛣️</span>
                 <span style={{color:C.orange,fontSize:12,fontWeight:600}}>Calculando a distância real da rota...</span>
-              </div>
-            )}
-            {!buscandoDist&&dists[0]&&parseFloat(dists[0])>0&&stops[0]?.coords&&stops[stops.length-1]?.coords&&(
-              <div style={{background:C.greenLight,border:`1px solid ${C.green}33`,borderRadius:9,padding:"8px 12px",display:"flex",alignItems:"center",gap:7,maxWidth:"100%"}}>
-                <span style={{fontSize:14,flexShrink:0}}>✅</span>
-                <span style={{color:C.green,fontSize:12,fontWeight:600,lineHeight:1.35,wordBreak:"break-word"}}>Distância calculada pela rota real (Google Maps)</span>
               </div>
             )}
           </div>
