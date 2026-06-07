@@ -67,6 +67,28 @@ function GoogleLocationIcon() {
   );
 }
 
+function buildDeliveryPopupHtml(packageCount, orders) {
+  const pacoteLabel =
+    packageCount === 1 ? "1 pacote" : `${packageCount} pacotes`;
+  const paradas = [...orders].sort((a, b) => a - b).join(", ");
+  return `<div style="font-family:system-ui,sans-serif;padding:2px 4px;line-height:1.3;text-align:center">
+    <div style="font-weight:700;font-size:12px">📦 ${pacoteLabel}</div>
+    <div style="font-size:11px;color:#475569;font-weight:500;margin-top:2px">Paradas: ${paradas}</div>
+  </div>`;
+}
+
+function aggregateClusterDeliveryData(markers) {
+  let packageCount = 0;
+  const orders = [];
+  for (const m of markers || []) {
+    const d = m.__deliveryData;
+    if (!d) continue;
+    packageCount += d.packageCount || 0;
+    orders.push(...(d.orders || []));
+  }
+  return { packageCount, orders };
+}
+
 function createDriverMarker(lng, lat) {
   return new window.google.maps.Marker({
     position: { lat, lng },
@@ -192,16 +214,15 @@ export default function DeliveryMap({
           const [lng, lat] = f.geometry.coordinates;
           const { packageCount, orders, entregue } = f.properties;
           const marker = createNumberedMarker(lng, lat, f.properties.order, entregue);
+          marker.__deliveryData = { packageCount, orders };
           marker.addListener("click", () => {
             if (!infoWindowRef.current) {
-              infoWindowRef.current = new window.google.maps.InfoWindow();
+              infoWindowRef.current = new window.google.maps.InfoWindow({
+                maxWidth: 160,
+              });
             }
-            const pacoteLabel =
-              packageCount === 1 ? "1 pacote" : `${packageCount} pacotes`;
             infoWindowRef.current.setContent(
-              `<div style="font-family:system-ui,sans-serif;padding:2px 4px;line-height:1.45;font-weight:700;font-size:14px">
-                📦 ${pacoteLabel} · Paradas: ${orders.join(", ")}
-              </div>`
+              buildDeliveryPopupHtml(packageCount, orders)
             );
             infoWindowRef.current.open({ anchor: marker, map });
           });
@@ -214,6 +235,20 @@ export default function DeliveryMap({
           markers,
           renderer: new DeliveryClusterRenderer(),
           onClusterClick: (_, cluster, gmap) => {
+            const { packageCount, orders } = aggregateClusterDeliveryData(
+              cluster.markers
+            );
+            if (packageCount > 0 && cluster.marker) {
+              if (!infoWindowRef.current) {
+                infoWindowRef.current = new window.google.maps.InfoWindow({
+                  maxWidth: 160,
+                });
+              }
+              infoWindowRef.current.setContent(
+                buildDeliveryPopupHtml(packageCount, orders)
+              );
+              infoWindowRef.current.open({ anchor: cluster.marker, map: gmap });
+            }
             gmap.fitBounds(cluster.bounds);
           },
         });

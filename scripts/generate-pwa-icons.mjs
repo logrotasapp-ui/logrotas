@@ -1,5 +1,6 @@
 /**
  * Gera icon-192.png e icon-512.png a partir do LOGO_B64 em logrotas-v145.jsx.
+ * Ícones quadrados (cantos retos — sem border-radius); o SO aplica arredondamento.
  * Logo centralizado com padding (~70% da área) sobre fundo #ECEEF0.
  */
 import { readFileSync } from "fs";

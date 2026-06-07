@@ -1217,12 +1217,6 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade})=>{
         onProcessingChange={setProcessandoFoto}
       />
 
-      {/* Aviso integração ativa */}
-      <div style={{background:"#F0FDF4",border:"1px solid #86EFAC",borderRadius:10,padding:"9px 13px",marginBottom:14,display:"flex",alignItems:"center",gap:8}}>
-        <span style={{fontSize:14}}>✅</span>
-        <span style={{color:"#166534",fontSize:11,lineHeight:1.4}}>Leitura de romaneio <b>Gemini 2.5 Flash Lite</b> · rotas <b>Google Maps</b></span>
-      </div>
-
       {/* Erro foto */}
       {erroFoto&&(
         <div style={{background:"#FFF5F5",border:"1.5px solid #FCA5A5",borderRadius:10,padding:"10px 13px",marginBottom:12,color:"#DC2626",fontSize:13,fontWeight:600}}>
@@ -4389,7 +4383,7 @@ export default function App(){
   ];
 
   if(screen==="loading"){return(
-    <div style={{minHeight:"100vh",width:"100%",position:"relative",overflow:"hidden",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"flex-end",paddingBottom:60}}>
+    <div style={{minHeight:"100vh",width:"100%",position:"relative",overflow:"hidden",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"flex-end",paddingBottom:120}}>
       <link href="https://fonts.googleapis.com/css2?family=Sora:wght@700;800;900&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet"/>
       {/* Imagem de fundo cobrindo tela inteira */}
       <img src={SPLASH_B64} alt="LogRotas" style={{position:"absolute",inset:0,width:"100%",height:"100%",objectFit:"cover",objectPosition:"center"}}/>

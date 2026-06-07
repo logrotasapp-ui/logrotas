@@ -22,7 +22,7 @@ const btnBase = {
 };
 
 /**
- * Scanner de romaneio: câmera ou arquivo → Gemini 2.5 Flash Lite (nuvem).
+ * Scanner de romaneio: câmera ou arquivo (nuvem).
  */
 export default function ScannerModule({
   disabled = false,
@@ -318,8 +318,7 @@ export default function ScannerModule({
               textAlign: "center",
             }}
           >
-            Fotos JPG/PNG ou PDF (1ª página). Requer internet — leitura via{" "}
-            <b>Gemini 2.5 Flash Lite</b>.
+            Fotos JPG/PNG ou PDF (1ª página). Requer internet.
           </p>
 
           <button
@@ -339,6 +338,8 @@ export default function ScannerModule({
             overflow: "hidden",
             border: `2px solid ${C.green}`,
             background: "#000",
+            marginLeft: -4,
+            marginRight: -4,
           }}
         >
           <video
@@ -348,7 +349,8 @@ export default function ScannerModule({
             style={{
               width: "100%",
               display: "block",
-              maxHeight: 280,
+              minHeight: 240,
+              maxHeight: "min(65vh, 420px)",
               objectFit: "cover",
             }}
           />
@@ -458,17 +460,6 @@ export default function ScannerModule({
           >
             Cancelar leitura
           </button>
-          <p
-            style={{
-              color: C.muted,
-              fontSize: 10,
-              marginTop: 8,
-              marginBottom: 0,
-              lineHeight: 1.35,
-            }}
-          >
-            Analisando na nuvem (Gemini). Problemas? Use o campo manual abaixo.
-          </p>
         </div>
       )}
 
