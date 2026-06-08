@@ -820,23 +820,31 @@ const RegisterFlow=({onDone,onBack})=>{
     }));
   },[]);
 
+  useEffect(()=>{
+    if(step!==2)setErroAuth("");
+  },[step]);
+
   const finishRegister=async(payload)=>{
+    const reqId=++registerReqRef.current;
     setRegistering(true);
-    setErro("");
+    setErroAuth("");
     try{
       const cred=await signUpWithEmail(payload.email,payload.pass);
+      if(reqId!==registerReqRef.current)return;
       try{
         await saveUserProfile(cred.user.uid,cadastroToFirestorePayload(payload));
       }catch{
         /* Auth OK — perfil pode ser salvo depois se Firestore falhar */
       }
+      if(reqId!==registerReqRef.current)return;
       if(payload?.profile)saveRegisterPrefs({profile:payload.profile});
       if(payload?.vehicle)saveRegisterPrefs({vehicle:payload.vehicle});
       onDone(payload);
     }catch(e){
-      setErro(getAuthErrorMessage(e?.code));
+      if(reqId!==registerReqRef.current)return;
+      setErroAuth(getAuthErrorMessage(e?.code));
     }finally{
-      setRegistering(false);
+      if(reqId===registerReqRef.current)setRegistering(false);
     }
   };
 
@@ -847,12 +855,15 @@ const RegisterFlow=({onDone,onBack})=>{
   );
 
   const avancar0=()=>{
-    if(!data.name.trim()){setErro("Preencha seu nome completo.");return;}
-    if(!data.email.trim()||!data.email.includes("@")){setErro("Preencha um e-mail válido — necessário para acessar sua conta.");return;}
-    if(!data.phone.trim()||data.phone.replace(/\D/g,"").length<10){setErro("Preencha seu WhatsApp com DDD — usado para recuperação de senha.");return;}
-    if(data.pass.length<6){setErro("A senha precisa ter pelo menos 6 caracteres.");return;}
-    if(data.pass!==data.confirmPass){setErro("As senhas não coincidem. Verifique e tente novamente.");return;}
-    setErro("");saveStep1Fields({name:data.name.trim(),email:data.email.trim(),phone:data.phone.trim()});setStep(1);
+    setErroLocal("");
+    setErroAuth("");
+    if(!data.name.trim()){setErroLocal("Preencha seu nome completo.");return;}
+    if(!data.email.trim()||!data.email.includes("@")){setErroLocal("Preencha um e-mail válido — necessário para acessar sua conta.");return;}
+    if(!data.phone.trim()||data.phone.replace(/\D/g,"").length<10){setErroLocal("Preencha seu WhatsApp com DDD — usado para recuperação de senha.");return;}
+    if(data.pass.length<6){setErroLocal("A senha precisa ter pelo menos 6 caracteres.");return;}
+    if(data.pass!==data.confirmPass){setErroLocal("As senhas não coincidem. Verifique e tente novamente.");return;}
+    saveStep1Fields({name:data.name.trim(),email:data.email.trim(),phone:data.phone.trim()});
+    setStep(1);
   };
 
   return(
@@ -868,30 +879,30 @@ const RegisterFlow=({onDone,onBack})=>{
           <div style={{color:C.navy,fontWeight:800,fontSize:18,fontFamily:"'Sora',sans-serif",marginBottom:4}}>Criar sua conta</div>
           <div style={{color:C.muted,fontSize:12,marginBottom:16}}>Passo 1 de 3 — campos com * são obrigatórios</div>
           <div style={{display:"flex",flexDirection:"column",gap:12}}>
-            <FloatInput label="Nome completo" value={data.name} onChange={v=>{setData(d=>({...d,name:v}));saveStep1Fields({name:v});setErro("");}} icon={UserIcon} placeholder="Ex: João da Silva"/>
-            <FloatInput label="E-mail *" value={data.email} onChange={v=>{setData(d=>({...d,email:v}));saveStep1Fields({email:v});setErro("");}} type="email" icon={MailIcon} placeholder="Ex: joao@email.com"/>
+            <FloatInput label="Nome completo" value={data.name} onChange={v=>{setData(d=>({...d,name:v}));saveStep1Fields({name:v});setErroLocal("");}} icon={UserIcon} placeholder="Ex: João da Silva"/>
+            <FloatInput label="E-mail *" value={data.email} onChange={v=>{setData(d=>({...d,email:v}));saveStep1Fields({email:v});setErroLocal("");}} type="email" icon={MailIcon} placeholder="Ex: joao@email.com"/>
             <div style={{display:"flex",flexDirection:"column",gap:2}}>
-              <FloatInput label="WhatsApp *" value={data.phone} onChange={v=>{setData(d=>({...d,phone:v}));saveStep1Fields({phone:v});setErro("");}} type="tel" icon={PhoneIcon} placeholder="(11) 99999-9999"/>
+              <FloatInput label="WhatsApp *" value={data.phone} onChange={v=>{setData(d=>({...d,phone:v}));saveStep1Fields({phone:v});setErroLocal("");}} type="tel" icon={PhoneIcon} placeholder="(11) 99999-9999"/>
               <div style={{display:"flex",alignItems:"center",gap:5,paddingLeft:2}}>
                 <svg width="11" height="11" viewBox="0 0 24 24" fill="#22C55E"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/><path d="M12 0C5.373 0 0 5.373 0 12c0 2.089.537 4.049 1.475 5.757L.057 23.928c-.046.228.13.445.362.445a.42.42 0 00.102-.013l6.345-1.646A11.94 11.94 0 0012 24c6.627 0 12-5.373 12-12S18.627 0 12 0zm0 21.75a9.712 9.712 0 01-4.943-1.349l-.354-.209-3.664.95.982-3.561-.231-.371A9.712 9.712 0 012.25 12C2.25 6.615 6.615 2.25 12 2.25S21.75 6.615 21.75 12 17.385 21.75 12 21.75z"/></svg>
                 <span style={{color:"#64748B",fontSize:11}}>Usado para recuperação de senha e suporte</span>
               </div>
             </div>
             <div>
-              <FloatInput label="Senha" value={data.pass} onChange={v=>{setData(d=>({...d,pass:v}));setErro("");}} type={show?"text":"password"} icon={LockIcon} placeholder="Mínimo 6 caracteres"
+              <FloatInput label="Senha" value={data.pass} onChange={v=>{setData(d=>({...d,pass:v}));setErroLocal("");}} type={show?"text":"password"} icon={LockIcon} placeholder="Mínimo 6 caracteres"
                 suffix={<button onClick={()=>setShow(s=>!s)} style={{background:"none",border:"none",cursor:"pointer",color:C.muted,display:"flex"}}>{show?<EyeOffIcon size={14}/>:<EyeIcon size={14}/>}</button>}/>
               {data.pass.length>0&&data.pass.length<6&&<div style={{color:C.amber,fontSize:12,marginTop:5,paddingLeft:4}}>⚠️ Mínimo 6 caracteres</div>}
               {data.pass.length>=6&&<div style={{color:C.green,fontSize:12,marginTop:5,paddingLeft:4}}>✓ Senha válida</div>}
             </div>
             {/* Confirmar senha */}
             <div>
-              <FloatInput label="Confirmar senha" value={data.confirmPass} onChange={v=>{setData(d=>({...d,confirmPass:v}));setErro("");}} type={showConfirm?"text":"password"} icon={LockIcon} placeholder="Repita sua senha"
+              <FloatInput label="Confirmar senha" value={data.confirmPass} onChange={v=>{setData(d=>({...d,confirmPass:v}));setErroLocal("");}} type={showConfirm?"text":"password"} icon={LockIcon} placeholder="Repita sua senha"
                 suffix={<button onClick={()=>setShowConfirm(s=>!s)} style={{background:"none",border:"none",cursor:"pointer",color:C.muted,display:"flex"}}>{showConfirm?<EyeOffIcon size={14}/>:<EyeIcon size={14}/>}</button>}/>
               {data.confirmPass.length>0&&data.confirmPass!==data.pass&&<div style={{color:C.red,fontSize:12,marginTop:5,paddingLeft:4}}>❌ As senhas não coincidem</div>}
               {data.confirmPass.length>0&&data.confirmPass===data.pass&&<div style={{color:C.green,fontSize:12,marginTop:5,paddingLeft:4}}>✓ Senhas conferem</div>}
             </div>
           </div>
-          {erro&&<div style={{background:C.redLight,border:`1px solid ${C.red}33`,borderRadius:10,padding:"10px 13px",marginTop:12,color:C.red,fontSize:14,fontWeight:600}}>{erro}</div>}
+          {erroLocal&&<div style={{background:C.redLight,border:`1px solid ${C.red}33`,borderRadius:10,padding:"10px 13px",marginTop:12,color:C.red,fontSize:14,fontWeight:600}}>{erroLocal}</div>}
           <PrimaryBtn onClick={avancar0} style={{width:"100%",marginTop:16}}>Próximo → (1 de 3)</PrimaryBtn>
         </>
       )}
@@ -995,7 +1006,7 @@ const RegisterFlow=({onDone,onBack})=>{
               {registering?"Criando conta...":"✓ Criar Conta"}
             </PrimaryBtn>
           </div>
-          {erro&&step===2&&<div style={{background:C.redLight,border:`1px solid ${C.red}33`,borderRadius:10,padding:"10px 13px",marginTop:12,color:C.red,fontSize:14,fontWeight:600}}>{erro}</div>}
+          {erroAuth&&<div style={{background:C.redLight,border:`1px solid ${C.red}33`,borderRadius:10,padding:"10px 13px",marginTop:12,color:C.red,fontSize:14,fontWeight:600}}>{erroAuth}</div>}
           {(!data.vehicle||!data.terms)&&(
             <div style={{background:C.navyLight,borderRadius:10,padding:"9px 13px",marginTop:10,fontSize:12,color:C.navy,textAlign:"center"}}>
               {!data.vehicle&&!data.terms?"Selecione o veículo e aceite os termos":!data.vehicle?"Selecione seu veículo para continuar":"Aceite os termos para finalizar"}
