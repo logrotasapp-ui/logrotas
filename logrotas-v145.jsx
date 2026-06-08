@@ -24,6 +24,8 @@ import ScannerModule from "./src/components/ScannerModule.js";
 import { playWhooshSound } from "./src/utils/whooshSound.js";
 import DeliveryMap from "./src/components/DeliveryMap.js";
 import { OFFLINE_KEYS, AUTH_KEYS, readOfflineCache, writeOfflineCache, clearAllLogRotasStorage, activateProTrial, readProPlanActive, readProTrialDaysLeft } from "./src/services/offlineStorage.js";
+import { subscribeAuth, signInWithEmail, signUpWithEmail, signInWithGoogle, signOutUser, getAuthErrorMessage } from "./src/services/authService.js";
+import { saveUserProfile, loadUserProfile, ensureGoogleUserProfile, cadastroToFirestorePayload, firestoreToPerfil } from "./src/services/userProfileService.js";
 import {
   CheckIcon, XIcon, ZapIcon, UsersIcon, StarIcon,
   ArrowRightIcon, ArrowLeftIcon, CrownIcon, LockIcon, PhoneIcon,
@@ -525,14 +527,14 @@ const FloatInput=({label,value,onChange,type="text",placeholder,icon:Icon,suffix
   );
 };
 
-const LoginScreen=({onLogin,onRegister})=>{
+const LoginScreen=({onRegister})=>{
   const[email,setEmail]=useState("");
   const[pass,setPass]=useState("");
   const[rememberMe,setRememberMe]=useState(false);
   const[show,setShow]=useState(false);
   const[loading,setLoading]=useState(false);
+  const[erro,setErro]=useState("");
   const[showRecuperar,setShowRecuperar]=useState(false);
-  const[showGoogle,setShowGoogle]=useState(false);
   const[showApple,setShowApple]=useState(false);
 
   useEffect(()=>{
@@ -543,17 +545,43 @@ const LoginScreen=({onLogin,onRegister})=>{
     }
   },[]);
 
-  const go=()=>{
+  const persistRememberEmail=()=>{
+    if(rememberMe){
+      writeOfflineCache(AUTH_KEYS.session,{remember:true,email});
+    }else{
+      try{localStorage.removeItem(AUTH_KEYS.session);}catch{/* ignore */}
+    }
+  };
+
+  const go=async()=>{
     setLoading(true);
-    setTimeout(()=>{
+    setErro("");
+    try{
+      await signInWithEmail(email,pass);
+      persistRememberEmail();
+    }catch(e){
+      setErro(getAuthErrorMessage(e?.code));
+    }finally{
       setLoading(false);
-      if(rememberMe){
-        writeOfflineCache(AUTH_KEYS.session,{remember:true,email,active:true});
-      }else{
-        try{localStorage.removeItem(AUTH_KEYS.session);}catch{/* ignore */}
+    }
+  };
+
+  const loginGoogle=async()=>{
+    setLoading(true);
+    setErro("");
+    try{
+      const cred=await signInWithGoogle();
+      await ensureGoogleUserProfile(cred.user);
+      if(rememberMe&&cred.user.email){
+        writeOfflineCache(AUTH_KEYS.session,{remember:true,email:cred.user.email});
       }
-      onLogin(email);
-    },900);
+    }catch(e){
+      if(e?.code!=="auth/popup-closed-by-user"&&e?.code!=="auth/cancelled-popup-request"){
+        setErro(getAuthErrorMessage(e?.code));
+      }
+    }finally{
+      setLoading(false);
+    }
   };
 
   const azul="#1E3A8A";
@@ -683,6 +711,8 @@ const LoginScreen=({onLogin,onRegister})=>{
           </div>
         )}
 
+        {erro&&<div style={{background:C.redLight,border:`1px solid ${C.red}33`,borderRadius:10,padding:"10px 13px",marginBottom:14,color:C.red,fontSize:13,fontWeight:600}}>{erro}</div>}
+
         {/* Botão Entrar */}
         <button onClick={go} disabled={!email||!pass}
           style={{width:"100%",padding:"15px",background:!email||!pass?"#F1F5F9":`linear-gradient(135deg,${C.orange},#FF9800)`,border:`1.5px solid ${!email||!pass?"#E2E8F0":C.orange}`,borderRadius:14,cursor:!email||!pass?"not-allowed":"pointer",color:!email||!pass?"#B0BEC5":"#fff",fontWeight:700,fontSize:15,fontFamily:"'Sora',sans-serif",display:"flex",alignItems:"center",justifyContent:"center",gap:8,boxShadow:!email||!pass?"none":`0 6px 20px ${C.orange}44`,marginBottom:16,transition:"all .2s"}}>
@@ -699,8 +729,8 @@ const LoginScreen=({onLogin,onRegister})=>{
         {/* Botões sociais lado a lado */}
         <div style={{display:"flex",gap:10,marginBottom:12}}>
           {/* Google */}
-          <button onClick={()=>setShowGoogle(true)}
-            style={{flex:1,padding:"13px",background:"#fff",border:`1.5px solid ${C.orange}33`,borderRadius:14,cursor:"pointer",color:"#334155",fontWeight:600,fontSize:13,display:"flex",alignItems:"center",justifyContent:"center",gap:7,boxShadow:"0 1px 4px #00000008"}}>
+          <button onClick={loginGoogle} disabled={loading}
+            style={{flex:1,padding:"13px",background:"#fff",border:`1.5px solid ${C.orange}33`,borderRadius:14,cursor:loading?"not-allowed":"pointer",color:"#334155",fontWeight:600,fontSize:13,display:"flex",alignItems:"center",justifyContent:"center",gap:7,boxShadow:"0 1px 4px #00000008",opacity:loading?0.6:1}}>
             <svg width="16" height="16" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
             Google
           </button>
@@ -712,21 +742,6 @@ const LoginScreen=({onLogin,onRegister})=>{
             Apple
           </button>
         </div>
-
-        {/* Modal Google em breve */}
-        {showGoogle&&(
-          <div style={{position:"fixed",inset:0,background:"#00000066",zIndex:800,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
-            <div style={{background:"#fff",borderRadius:20,width:"100%",maxWidth:340,padding:26,textAlign:"center",boxShadow:"0 20px 60px #00000033"}}>
-              <div style={{fontSize:40,marginBottom:12}}>🔜</div>
-              <div style={{color:C.navy,fontWeight:800,fontSize:16,fontFamily:"'Sora',sans-serif",marginBottom:8}}>Em breve!</div>
-              <div style={{color:C.muted,fontSize:13,lineHeight:1.6,marginBottom:20}}>O login com Google estará disponível em breve. Por enquanto use seu e-mail e senha para entrar.</div>
-              <button onClick={()=>setShowGoogle(false)}
-                style={{width:"100%",padding:"12px",background:`linear-gradient(135deg,${C.orange},#FF9800)`,border:"none",borderRadius:12,cursor:"pointer",color:"#fff",fontWeight:700,fontSize:14,boxShadow:`0 4px 12px ${C.orange}44`}}>
-                Entendi
-              </button>
-            </div>
-          </div>
-        )}
 
         {/* Modal Apple em breve */}
         {showApple&&(
@@ -756,7 +771,7 @@ const LoginScreen=({onLogin,onRegister})=>{
         </button>
 
         <div style={{marginTop:18,textAlign:"center",color:"#B0BEC5",fontSize:11}}>
-          Protótipo · Dados temporários
+          Login seguro via Firebase
         </div>
       </div>
     </div>
@@ -779,6 +794,7 @@ const RegisterFlow=({onDone,onBack})=>{
   const[showConfirmacao,setShowConfirmacao]=useState(false);
   const[confirmaEnviado,setConfirmaEnviado]=useState("");
   const[showProfileModal,setShowProfileModal]=useState(false);
+  const[registering,setRegistering]=useState(false);
 
   const saveRegisterPrefs=(patch)=>{
     const cur=readOfflineCache(AUTH_KEYS.registerPrefs)||{};
@@ -804,10 +820,22 @@ const RegisterFlow=({onDone,onBack})=>{
     }));
   },[]);
 
-  const finishRegister=(payload)=>{
-    if(payload?.profile)saveRegisterPrefs({profile:payload.profile});
-    if(payload?.vehicle)saveRegisterPrefs({vehicle:payload.vehicle});
-    onDone(payload);
+  const finishRegister=async(payload)=>{
+    setRegistering(true);
+    setErro("");
+    try{
+      const cred=await signUpWithEmail(payload.email,payload.pass);
+      await saveUserProfile(cred.user.uid,cadastroToFirestorePayload(payload));
+      if(payload?.profile)saveRegisterPrefs({profile:payload.profile});
+      if(payload?.vehicle)saveRegisterPrefs({vehicle:payload.vehicle});
+      setShowConfirmacao(false);
+      onDone(payload);
+    }catch(e){
+      setErro(getAuthErrorMessage(e?.code));
+      setShowConfirmacao(false);
+    }finally{
+      setRegistering(false);
+    }
   };
 
   const Steps=()=>(
@@ -1016,8 +1044,8 @@ const RegisterFlow=({onDone,onBack})=>{
               <button onClick={()=>{
                 const msg=`🚛 *Bem-vindo ao LogRotas!*\n\nOlá, ${data.name}! 🎉\n\nSeu cadastro foi realizado com sucesso.\n\n📧 E-mail: ${data.email}\n📱 WhatsApp: ${data.phone}\n\nQualquer dúvida estamos aqui para ajudar.\n\nBoas rotas! 🗺️`;
                 window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`,"_blank");
-                setTimeout(()=>finishRegister(data),600);
-              }} style={{display:"flex",alignItems:"center",gap:14,background:"#F0FDF4",border:"1.5px solid #BBF7D0",borderRadius:14,padding:"14px 16px",cursor:"pointer",textAlign:"left"}}>
+                finishRegister(data);
+              }} disabled={registering} style={{display:"flex",alignItems:"center",gap:14,background:"#F0FDF4",border:"1.5px solid #BBF7D0",borderRadius:14,padding:"14px 16px",cursor:registering?"not-allowed":"pointer",textAlign:"left",opacity:registering?0.6:1}}>
                 <div style={{width:42,height:42,borderRadius:"50%",background:"#22C55E",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
                   <svg width="20" height="20" viewBox="0 0 24 24" fill="white"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/><path d="M12 0C5.373 0 0 5.373 0 12c0 2.089.537 4.049 1.475 5.757L.057 23.928c-.046.228.13.445.362.445a.42.42 0 00.102-.013l6.345-1.646A11.94 11.94 0 0012 24c6.627 0 12-5.373 12-12S18.627 0 12 0zm0 21.75a9.712 9.712 0 01-4.943-1.349l-.354-.209-3.664.95.982-3.561-.231-.371A9.712 9.712 0 012.25 12C2.25 6.615 6.615 2.25 12 2.25S21.75 6.615 21.75 12 17.385 21.75 12 21.75z"/></svg>
                 </div>
@@ -1027,8 +1055,8 @@ const RegisterFlow=({onDone,onBack})=>{
                 </div>
               </button>
               {/* E-mail */}
-              <button onClick={()=>setTimeout(()=>finishRegister(data),300)}
-                style={{display:"flex",alignItems:"center",gap:14,background:"#EFF6FF",border:"1.5px solid #BFDBFE",borderRadius:14,padding:"14px 16px",cursor:"pointer",textAlign:"left"}}>
+              <button onClick={()=>finishRegister(data)} disabled={registering}
+                style={{display:"flex",alignItems:"center",gap:14,background:"#EFF6FF",border:"1.5px solid #BFDBFE",borderRadius:14,padding:"14px 16px",cursor:registering?"not-allowed":"pointer",textAlign:"left",opacity:registering?0.6:1}}>
                 <div style={{width:42,height:42,borderRadius:"50%",background:"#3B82F6",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
                   <MailIcon size={18} color="#fff"/>
                 </div>
@@ -4399,27 +4427,58 @@ export default function App(){
   const docsVencendo30=(docs||[]).filter(d=>{if(!d.expiry)return false;const[dia,mes,ano]=d.expiry.split("/");const dias=Math.ceil((new Date(ano,mes-1,dia)-hoje)/(1000*60*60*24));return dias<=30&&dias>=0;});
   const docsVencendo=(docs||[]).filter(d=>{if(!d.expiry)return false;const[dia,mes,ano]=d.expiry.split("/");const dias=Math.ceil((new Date(ano,mes-1,dia)-hoje)/(1000*60*60*24));return dias<=60&&dias>=0;});
   const[perfil,setPerfil]=useState({nome:"",email:"",telefone:"",tipo:"Motorista Autônomo",veiculo:""});
+  const[authReady,setAuthReady]=useState(false);
+  const[firebaseUser,setFirebaseUser]=useState(null);
+  const[splashDone,setSplashDone]=useState(false);
   const ganhoMes=historicoFretes.filter(f=>{if(!f.date)return false;const[,mes,ano]=f.date.split("/");return parseInt(mes)===hoje.getMonth()+1&&parseInt(ano)===hoje.getFullYear();}).reduce((a,f)=>a+(f.lucro||0),0);
 
-  // Tela de carregamento por 2 segundos
   useEffect(()=>{
     const t=setTimeout(()=>{
       if(readProPlanActive()){
         setPlan("pro");
         setTrialDias(readProTrialDaysLeft());
       }
-      const session=readOfflineCache(AUTH_KEYS.session);
-      if(session?.active&&session?.remember){
-        if(session.email){
-          setPerfil(p=>({...p,email:session.email}));
-        }
-        setScreen("app");
-      }else{
-        setScreen("login");
-      }
+      setSplashDone(true);
     },4000);
     return()=>clearTimeout(t);
   },[]);
+
+  useEffect(()=>{
+    return subscribeAuth(async(user)=>{
+      setFirebaseUser(user);
+      if(user){
+        try{
+          let profile=await loadUserProfile(user.uid);
+          if(!profile){
+            const isGoogle=user.providerData?.some(p=>p.providerId==="google.com");
+            if(isGoogle)profile=await ensureGoogleUserProfile(user);
+          }
+          if(profile){
+            setPerfil(firestoreToPerfil(profile));
+          }else{
+            setPerfil(p=>({
+              ...p,
+              nome:user.displayName||p.nome,
+              email:user.email||p.email,
+            }));
+          }
+        }catch{
+          setPerfil(p=>({
+            ...p,
+            nome:user.displayName||p.nome,
+            email:user.email||p.email,
+          }));
+        }
+      }
+      setAuthReady(true);
+    });
+  },[]);
+
+  useEffect(()=>{
+    if(!splashDone||!authReady)return;
+    if(firebaseUser)setScreen("app");
+    else setScreen("login");
+  },[splashDone,authReady,firebaseUser]);
 
   useEffect(()=>{
     if(screen!=="loading")return;
@@ -4436,15 +4495,15 @@ export default function App(){
   const FRASES=["Calcule melhor, lucre mais.","Sua rota, seu controle.","Gestão inteligente na estrada.","Cada km conta no seu bolso."];
   const frase=FRASES[Math.floor(Math.random()*FRASES.length)];
 
-  const handleLogin=(loginEmail)=>{
-    const session=readOfflineCache(AUTH_KEYS.session);
-    if(session?.remember&&loginEmail){
-      setPerfil(p=>({...p,email:loginEmail}));
-    }
-    setScreen("app");
+  const handleLogout=async()=>{
+    try{
+      await signOutUser();
+    }catch{/* ignore */}
+    setPerfil({nome:"",email:"",telefone:"",tipo:"Motorista Autônomo",veiculo:""});
+    setScreen("login");
   };
 
-  // Quando o motorista conclui o cadastro — preenche o perfil automaticamente
+  // Quando o motorista conclui o cadastro — preenche o perfil e bônus local
   const handleCadastroConcluido=(dadosCadastro)=>{
     const profileLabels={
       caminhoneiro:"Caminhoneiro",
@@ -4467,9 +4526,8 @@ export default function App(){
     // Se veio por link de indicação → ativa 7 dias Pro grátis
     if(refIndicacao){
       aplicarBonusIndicado(setPlan,setTrialDias);
-      // TODO Firebase: registrarIndicacao(refIndicacao, dadosCadastro.phone)
     }
-    setScreen("app");
+    // onAuthStateChanged já autenticou — perfil veio do Firestore; só aplica bônus local
   };
 
   const handleChangePlan=(newPlan)=>{
@@ -4523,7 +4581,7 @@ export default function App(){
       <div style={{position:"relative",zIndex:2,width:"100%",maxWidth:480,margin:"0 auto"}}>
         <div style={{height:3,background:`linear-gradient(90deg,transparent,${C.orange},transparent)`}}/>
         {screen==="login"
-          ?<LoginScreen onLogin={handleLogin} onRegister={()=>setScreen("register")}/>
+          ?<LoginScreen onRegister={()=>setScreen("register")}/>
           :<div style={{padding:"32px 16px 40px"}}>
             <div style={{textAlign:"center",marginBottom:24}}>
               <div style={{display:"flex",justifyContent:"center",marginBottom:12}}>
@@ -4569,7 +4627,7 @@ export default function App(){
             <BellIcon size={18} color={C.navy}/>
             {(docsVencidos.length>0||docsVencendo30.length>0)&&<div style={{position:"absolute",top:-2,right:-2,width:7,height:7,borderRadius:"50%",background:C.red}}/>}
           </button>
-          <button onClick={()=>setScreen("login")} style={{background:"none",border:"none",cursor:"pointer",color:C.muted,display:"flex",alignItems:"center"}}><LogOutIcon size={17}/></button>
+          <button onClick={handleLogout} style={{background:"none",border:"none",cursor:"pointer",color:C.muted,display:"flex",alignItems:"center"}}><LogOutIcon size={17}/></button>
           <div style={{width:32,height:32,borderRadius:"50%",background:`linear-gradient(135deg,${C.navy},${C.navyMid})`,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:800,fontSize:13,color:"#fff",cursor:"pointer"}} onClick={()=>setPage("perfil")}>
             {perfil.nome?perfil.nome.charAt(0).toUpperCase():"J"}
           </div>
@@ -4652,7 +4710,8 @@ export default function App(){
                 style={{flex:1,padding:"13px",background:C.subtle,border:`1px solid ${C.border}`,borderRadius:12,cursor:"pointer",color:C.text2,fontWeight:600,fontSize:14}}>
                 Cancelar
               </button>
-              <button onClick={()=>{
+              <button onClick={async()=>{
+                try{await signOutUser();}catch{/* ignore */}
                 clearAllLogRotasStorage();
                 setHistoricoFretes([]);setManutencoes([]);setDespesas([]);setDocs([]);
                 setMetaMes(8000);setValorKm("");setAdicionalFixo("");
