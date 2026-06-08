@@ -23,7 +23,7 @@ import { calculateTripCosts } from "./src/services/tripCalcService.js";
 import ScannerModule from "./src/components/ScannerModule.js";
 import { playWhooshSound } from "./src/utils/whooshSound.js";
 import DeliveryMap from "./src/components/DeliveryMap.js";
-import { OFFLINE_KEYS, readOfflineCache, writeOfflineCache } from "./src/services/offlineStorage.js";
+import { OFFLINE_KEYS, AUTH_KEYS, readOfflineCache, writeOfflineCache } from "./src/services/offlineStorage.js";
 import {
   CheckIcon, XIcon, ZapIcon, UsersIcon, StarIcon,
   ArrowRightIcon, ArrowLeftIcon, CrownIcon, LockIcon, PhoneIcon,
@@ -527,12 +527,33 @@ const FloatInput=({label,value,onChange,type="text",placeholder,icon:Icon,suffix
 const LoginScreen=({onLogin,onRegister})=>{
   const[email,setEmail]=useState("");
   const[pass,setPass]=useState("");
+  const[rememberMe,setRememberMe]=useState(false);
   const[show,setShow]=useState(false);
   const[loading,setLoading]=useState(false);
   const[showRecuperar,setShowRecuperar]=useState(false);
   const[showGoogle,setShowGoogle]=useState(false);
   const[showApple,setShowApple]=useState(false);
-  const go=()=>{setLoading(true);setTimeout(()=>{setLoading(false);onLogin();},900);};
+
+  useEffect(()=>{
+    const session=readOfflineCache(AUTH_KEYS.session);
+    if(session?.remember&&session?.email){
+      setEmail(session.email);
+      setRememberMe(true);
+    }
+  },[]);
+
+  const go=()=>{
+    setLoading(true);
+    setTimeout(()=>{
+      setLoading(false);
+      if(rememberMe){
+        writeOfflineCache(AUTH_KEYS.session,{remember:true,email,active:true});
+      }else{
+        try{localStorage.removeItem(AUTH_KEYS.session);}catch{/* ignore */}
+      }
+      onLogin(email);
+    },900);
+  };
 
   const azul="#1E3A8A";
   const azulMid="#2952C8";
@@ -600,6 +621,16 @@ const LoginScreen=({onLogin,onRegister})=>{
             </button>
           </div>
         </div>
+
+        <label style={{display:"flex",alignItems:"center",gap:9,marginBottom:14,cursor:"pointer",userSelect:"none"}}>
+          <input
+            type="checkbox"
+            checked={rememberMe}
+            onChange={e=>setRememberMe(e.target.checked)}
+            style={{width:17,height:17,accentColor:C.orange,cursor:"pointer"}}
+          />
+          <span style={{color:"#64748B",fontSize:13,fontWeight:600}}>Lembrar de mim</span>
+        </label>
 
         <div style={{textAlign:"right",marginBottom:22}}>
           <span onClick={()=>setShowRecuperar(true)} style={{color:C.orange,fontSize:12,fontWeight:600,cursor:"pointer"}}>Esqueci minha senha</span>
@@ -748,6 +779,27 @@ const RegisterFlow=({onDone,onBack})=>{
   const[confirmaEnviado,setConfirmaEnviado]=useState("");
   const[showProfileModal,setShowProfileModal]=useState(false);
 
+  const saveRegisterPrefs=(patch)=>{
+    const cur=readOfflineCache(AUTH_KEYS.registerPrefs)||{};
+    writeOfflineCache(AUTH_KEYS.registerPrefs,{...cur,...patch});
+  };
+
+  useEffect(()=>{
+    const prefs=readOfflineCache(AUTH_KEYS.registerPrefs);
+    if(!prefs)return;
+    setData(d=>({
+      ...d,
+      profile:prefs.profile||d.profile,
+      vehicle:prefs.vehicle||d.vehicle,
+    }));
+  },[]);
+
+  const finishRegister=(payload)=>{
+    if(payload?.profile)saveRegisterPrefs({profile:payload.profile});
+    if(payload?.vehicle)saveRegisterPrefs({vehicle:payload.vehicle});
+    onDone(payload);
+  };
+
   const Steps=()=>(
     <div style={{display:"flex",gap:5,justifyContent:"center",marginBottom:20}}>
       {[0,1,2].map(i=><div key={i} style={{height:4,borderRadius:4,width:i===step?28:16,background:i<=step?C.orange:C.border,transition:"all .3s"}}/>)}
@@ -765,15 +817,13 @@ const RegisterFlow=({onDone,onBack})=>{
 
   return(
     <div>
-      <div style={{display:"flex",justifyContent:"center",marginBottom:16}}><LogRotasLogo size={36} showText/></div>
-
       {/* PASSO 0 — dados básicos */}
       {step===0&&(
         <>
-          <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:16}}>
-            <button onClick={onBack} style={{background:"none",border:"none",cursor:"pointer",color:C.muted,display:"flex",padding:0}}><ArrowLeftIcon size={16}/></button>
-            <span style={{color:C.muted,fontSize:12}}>Voltar para o login</span>
-          </div>
+          <button type="button" onClick={onBack} style={{background:"none",border:"none",cursor:"pointer",display:"flex",alignItems:"center",gap:9,marginBottom:16,padding:0,color:"#1E3A8A",fontSize:15,fontWeight:700,fontFamily:"'DM Sans',sans-serif",lineHeight:1.2}}>
+            <ArrowLeftIcon size={18}/>
+            Voltar para o login
+          </button>
           <Steps/>
           <div style={{color:C.navy,fontWeight:800,fontSize:18,fontFamily:"'Sora',sans-serif",marginBottom:4}}>Criar sua conta</div>
           <div style={{color:C.muted,fontSize:12,marginBottom:16}}>Passo 1 de 3 — campos com * são obrigatórios</div>
@@ -843,7 +893,7 @@ const RegisterFlow=({onDone,onBack})=>{
                 <div style={{color:C.navy,fontWeight:800,fontSize:16,fontFamily:"'Sora',sans-serif",marginBottom:16,textAlign:"center"}}>Qual é o seu perfil?</div>
                 <div style={{display:"flex",flexDirection:"column",gap:10}}>
                   {PROFILES_A.map(p=>(
-                    <button key={p.id} onClick={()=>{setData(d=>({...d,profile:p.id}));setShowProfileModal(false);}}
+                    <button key={p.id} onClick={()=>{setData(d=>({...d,profile:p.id}));saveRegisterPrefs({profile:p.id});setShowProfileModal(false);}}
                       style={{background:data.profile===p.id?p.bg:C.subtle,border:`2px solid ${data.profile===p.id?p.color:C.border}`,borderRadius:13,padding:"13px 16px",cursor:"pointer",textAlign:"left",display:"flex",alignItems:"center",gap:12}}>
                       <span style={{fontSize:24,width:40,height:40,borderRadius:10,background:p.bg,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{p.icon}</span>
                       <div style={{flex:1}}>
@@ -874,7 +924,7 @@ const RegisterFlow=({onDone,onBack})=>{
           <div style={{color:C.muted,fontSize:12,marginBottom:16}}>Passo 3 de 3 — usado nos cálculos automáticos</div>
           <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:8,marginBottom:14}}>
             {DEFAULT_VEHICLES.map(v=>{const sel=data.vehicle===v.id;return(
-              <button key={v.id} onClick={()=>setData(d=>({...d,vehicle:v.id}))}
+              <button key={v.id} onClick={()=>{setData(d=>({...d,vehicle:v.id}));saveRegisterPrefs({vehicle:v.id});}}
                 style={{background:sel?C.orangeLight:C.subtle,border:`2px solid ${sel?C.orange:C.border}`,borderRadius:13,padding:"13px 8px",cursor:"pointer",textAlign:"center",transition:"all .15s"}}>
                 <div style={{fontSize:28,marginBottom:4}}>{v.emoji}</div>
                 <div style={{color:sel?C.orange:C.text,fontWeight:700,fontSize:12}}>{v.label}</div>
@@ -956,7 +1006,7 @@ const RegisterFlow=({onDone,onBack})=>{
               <button onClick={()=>{
                 const msg=`🚛 *Bem-vindo ao LogRotas!*\n\nOlá, ${data.name}! 🎉\n\nSeu cadastro foi realizado com sucesso.\n\n📧 E-mail: ${data.email}\n📱 WhatsApp: ${data.phone}\n\nQualquer dúvida estamos aqui para ajudar.\n\nBoas rotas! 🗺️`;
                 window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`,"_blank");
-                setTimeout(()=>onDone(data),600);
+                setTimeout(()=>finishRegister(data),600);
               }} style={{display:"flex",alignItems:"center",gap:14,background:"#F0FDF4",border:"1.5px solid #BBF7D0",borderRadius:14,padding:"14px 16px",cursor:"pointer",textAlign:"left"}}>
                 <div style={{width:42,height:42,borderRadius:"50%",background:"#22C55E",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
                   <svg width="20" height="20" viewBox="0 0 24 24" fill="white"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/><path d="M12 0C5.373 0 0 5.373 0 12c0 2.089.537 4.049 1.475 5.757L.057 23.928c-.046.228.13.445.362.445a.42.42 0 00.102-.013l6.345-1.646A11.94 11.94 0 0012 24c6.627 0 12-5.373 12-12S18.627 0 12 0zm0 21.75a9.712 9.712 0 01-4.943-1.349l-.354-.209-3.664.95.982-3.561-.231-.371A9.712 9.712 0 012.25 12C2.25 6.615 6.615 2.25 12 2.25S21.75 6.615 21.75 12 17.385 21.75 12 21.75z"/></svg>
@@ -967,7 +1017,7 @@ const RegisterFlow=({onDone,onBack})=>{
                 </div>
               </button>
               {/* E-mail */}
-              <button onClick={()=>setTimeout(()=>onDone(data),300)}
+              <button onClick={()=>setTimeout(()=>finishRegister(data),300)}
                 style={{display:"flex",alignItems:"center",gap:14,background:"#EFF6FF",border:"1.5px solid #BFDBFE",borderRadius:14,padding:"14px 16px",cursor:"pointer",textAlign:"left"}}>
                 <div style={{width:42,height:42,borderRadius:"50%",background:"#3B82F6",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
                   <MailIcon size={18} color="#fff"/>
@@ -977,7 +1027,7 @@ const RegisterFlow=({onDone,onBack})=>{
                   <div style={{color:"#64748B",fontSize:12,marginTop:2,lineHeight:1.4}}>Disponível após ativação do sistema de e-mails</div>
                 </div>
               </button>
-              <button onClick={()=>onDone(data)}
+              <button onClick={()=>finishRegister(data)}
                 style={{background:"none",border:"none",cursor:"pointer",color:"#94A3B8",fontSize:12,padding:"8px 0",textDecoration:"underline",textAlign:"center"}}>
                 Pular e entrar no app
               </button>
@@ -4342,7 +4392,20 @@ export default function App(){
   const ganhoMes=historicoFretes.filter(f=>{if(!f.date)return false;const[,mes,ano]=f.date.split("/");return parseInt(mes)===hoje.getMonth()+1&&parseInt(ano)===hoje.getFullYear();}).reduce((a,f)=>a+(f.lucro||0),0);
 
   // Tela de carregamento por 2 segundos
-  useEffect(()=>{const t=setTimeout(()=>setScreen("login"),4000);return()=>clearTimeout(t);},[]);
+  useEffect(()=>{
+    const t=setTimeout(()=>{
+      const session=readOfflineCache(AUTH_KEYS.session);
+      if(session?.active&&session?.remember){
+        if(session.email){
+          setPerfil(p=>({...p,email:session.email}));
+        }
+        setScreen("app");
+      }else{
+        setScreen("login");
+      }
+    },4000);
+    return()=>clearTimeout(t);
+  },[]);
 
   useEffect(()=>{
     if(screen!=="loading")return;
@@ -4359,13 +4422,27 @@ export default function App(){
   const FRASES=["Calcule melhor, lucre mais.","Sua rota, seu controle.","Gestão inteligente na estrada.","Cada km conta no seu bolso."];
   const frase=FRASES[Math.floor(Math.random()*FRASES.length)];
 
+  const handleLogin=(loginEmail)=>{
+    const session=readOfflineCache(AUTH_KEYS.session);
+    if(session?.remember&&loginEmail){
+      setPerfil(p=>({...p,email:loginEmail}));
+    }
+    setScreen("app");
+  };
+
   // Quando o motorista conclui o cadastro — preenche o perfil automaticamente
   const handleCadastroConcluido=(dadosCadastro)=>{
+    const profileLabels={
+      caminhoneiro:"Caminhoneiro",
+      guincheiro:"Guincheiro",
+      motoqueiro:"Motoqueiro",
+      outros:"Outros",
+    };
     setPerfil({
       nome: dadosCadastro.name||"",
       email: dadosCadastro.email||"",
       telefone: dadosCadastro.phone||"",
-      tipo: dadosCadastro.profile==="transportadora"?"Guincheiro":dadosCadastro.profile==="entregador"?"Entregador":"Motorista Autônomo",
+      tipo: profileLabels[dadosCadastro.profile]||"Motorista Autônomo",
       veiculo: dadosCadastro.vehicle||"",
     });
     // Veículo escolhido no cadastro também é selecionado na calculadora
@@ -4422,12 +4499,12 @@ export default function App(){
       <div style={{position:"relative",zIndex:2,width:"100%",maxWidth:480,margin:"0 auto"}}>
         <div style={{height:3,background:`linear-gradient(90deg,transparent,${C.orange},transparent)`}}/>
         {screen==="login"
-          ?<LoginScreen onLogin={()=>setScreen("app")} onRegister={()=>setScreen("register")}/>
+          ?<LoginScreen onLogin={handleLogin} onRegister={()=>setScreen("register")}/>
           :<div style={{padding:"32px 16px 40px"}}>
             <div style={{textAlign:"center",marginBottom:24}}>
               <div style={{display:"flex",justifyContent:"center",marginBottom:12}}>
-                <div style={{width:80,height:80,borderRadius:"50%",border:`2px solid ${C.orange}66`,background:"#2A4AB588",display:"flex",alignItems:"center",justifyContent:"center"}}>
-                  <img src={LOGO_B64} alt="LogRotas" style={{width:64,height:64,objectFit:"contain"}}/>
+                <div style={{borderRadius:20,border:"3px solid #EFEFEF",boxShadow:"0 4px 20px #00000033",background:"#EFEFEF",overflow:"hidden",width:96,height:96,display:"flex",alignItems:"center",justifyContent:"center",padding:6}}>
+                  <img src={LOGO_B64} alt="LogRotas" style={{width:"100%",height:"100%",objectFit:"contain",borderRadius:12}}/>
                 </div>
               </div>
               <div style={{display:"flex",justifyContent:"center",alignItems:"baseline"}}>

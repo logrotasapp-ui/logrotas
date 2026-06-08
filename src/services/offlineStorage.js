@@ -8,6 +8,11 @@ export const OFFLINE_KEYS = {
   otimizar: "logrotas_offline_otimizar",
 };
 
+export const AUTH_KEYS = {
+  session: "logrotas_auth_session",
+  registerPrefs: "logrotas_register_prefs",
+};
+
 export function readOfflineCache(key) {
   try {
     const raw = localStorage.getItem(key);
