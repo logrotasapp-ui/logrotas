@@ -795,6 +795,7 @@ const RegisterFlow=({onDone,onBack})=>{
   const[showProfileModal,setShowProfileModal]=useState(false);
   const[registering,setRegistering]=useState(false);
   const registerReqRef=useRef(0);
+  const prevStepRef=useRef(0);
 
   const saveRegisterPrefs=(patch)=>{
     const cur=readOfflineCache(AUTH_KEYS.registerPrefs)||{};
@@ -821,7 +822,12 @@ const RegisterFlow=({onDone,onBack})=>{
   },[]);
 
   useEffect(()=>{
+    if(prevStepRef.current===2&&step!==2){
+      registerReqRef.current+=1;
+      setRegistering(false);
+    }
     if(step!==2)setErroAuth("");
+    prevStepRef.current=step;
   },[step]);
 
   const finishRegister=async(payload)=>{
