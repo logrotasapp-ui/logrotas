@@ -791,8 +791,6 @@ const RegisterFlow=({onDone,onBack})=>{
   const[showConfirm,setShowConfirm]=useState(false);
   const[erro,setErro]=useState("");
   const[showTerms,setShowTerms]=useState(false);
-  const[showConfirmacao,setShowConfirmacao]=useState(false);
-  const[confirmaEnviado,setConfirmaEnviado]=useState("");
   const[showProfileModal,setShowProfileModal]=useState(false);
   const[registering,setRegistering]=useState(false);
 
@@ -825,14 +823,16 @@ const RegisterFlow=({onDone,onBack})=>{
     setErro("");
     try{
       const cred=await signUpWithEmail(payload.email,payload.pass);
-      await saveUserProfile(cred.user.uid,cadastroToFirestorePayload(payload));
+      try{
+        await saveUserProfile(cred.user.uid,cadastroToFirestorePayload(payload));
+      }catch{
+        /* Auth OK — perfil pode ser salvo depois se Firestore falhar */
+      }
       if(payload?.profile)saveRegisterPrefs({profile:payload.profile});
       if(payload?.vehicle)saveRegisterPrefs({vehicle:payload.vehicle});
-      setShowConfirmacao(false);
       onDone(payload);
     }catch(e){
       setErro(getAuthErrorMessage(e?.code));
-      setShowConfirmacao(false);
     }finally{
       setRegistering(false);
     }
@@ -989,8 +989,11 @@ const RegisterFlow=({onDone,onBack})=>{
 
           <div style={{display:"flex",gap:9}}>
             <button onClick={()=>setStep(1)} style={{padding:"11px 13px",background:C.subtle,border:`1.5px solid ${C.border}`,borderRadius:11,cursor:"pointer",color:C.muted,display:"flex"}}><ArrowLeftIcon size={16}/></button>
-            <PrimaryBtn onClick={()=>{if(data.vehicle&&data.terms)setShowConfirmacao(true);}} style={{flex:1,opacity:data.vehicle&&data.terms?1:0.5}}>✓ Criar Conta</PrimaryBtn>
+            <PrimaryBtn onClick={()=>{if(data.vehicle&&data.terms&&!registering)finishRegister(data);}} style={{flex:1,opacity:data.vehicle&&data.terms&&!registering?1:0.5}}>
+              {registering?"Criando conta...":"✓ Criar Conta"}
+            </PrimaryBtn>
           </div>
+          {erro&&step===2&&<div style={{background:C.redLight,border:`1px solid ${C.red}33`,borderRadius:10,padding:"10px 13px",marginTop:12,color:C.red,fontSize:14,fontWeight:600}}>{erro}</div>}
           {(!data.vehicle||!data.terms)&&(
             <div style={{background:C.navyLight,borderRadius:10,padding:"9px 13px",marginTop:10,fontSize:12,color:C.navy,textAlign:"center"}}>
               {!data.vehicle&&!data.terms?"Selecione o veículo e aceite os termos":!data.vehicle?"Selecione seu veículo para continuar":"Aceite os termos para finalizar"}
@@ -1030,49 +1033,6 @@ const RegisterFlow=({onDone,onBack})=>{
         </div>
       )}
 
-      {/* Modal confirmação de boas-vindas */}
-      {showConfirmacao&&(
-        <div style={{position:"fixed",inset:0,background:"#00000066",zIndex:800,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
-          <div style={{background:"#fff",borderRadius:24,width:"100%",maxWidth:370,padding:28,boxShadow:"0 20px 60px #00000033"}}>
-            <div style={{textAlign:"center",marginBottom:20}}>
-              <div style={{fontSize:44,marginBottom:10}}>🎉</div>
-              <div style={{color:"#0F1E2E",fontWeight:800,fontSize:18,fontFamily:"'Sora',sans-serif",marginBottom:6}}>Conta criada com sucesso!</div>
-              <div style={{color:"#64748B",fontSize:14,lineHeight:1.6}}>Como prefere receber sua confirmação de cadastro?</div>
-            </div>
-            <div style={{display:"flex",flexDirection:"column",gap:10,marginBottom:6}}>
-              {/* WhatsApp */}
-              <button onClick={()=>{
-                const msg=`🚛 *Bem-vindo ao LogRotas!*\n\nOlá, ${data.name}! 🎉\n\nSeu cadastro foi realizado com sucesso.\n\n📧 E-mail: ${data.email}\n📱 WhatsApp: ${data.phone}\n\nQualquer dúvida estamos aqui para ajudar.\n\nBoas rotas! 🗺️`;
-                window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`,"_blank");
-                finishRegister(data);
-              }} disabled={registering} style={{display:"flex",alignItems:"center",gap:14,background:"#F0FDF4",border:"1.5px solid #BBF7D0",borderRadius:14,padding:"14px 16px",cursor:registering?"not-allowed":"pointer",textAlign:"left",opacity:registering?0.6:1}}>
-                <div style={{width:42,height:42,borderRadius:"50%",background:"#22C55E",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="white"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/><path d="M12 0C5.373 0 0 5.373 0 12c0 2.089.537 4.049 1.475 5.757L.057 23.928c-.046.228.13.445.362.445a.42.42 0 00.102-.013l6.345-1.646A11.94 11.94 0 0012 24c6.627 0 12-5.373 12-12S18.627 0 12 0zm0 21.75a9.712 9.712 0 01-4.943-1.349l-.354-.209-3.664.95.982-3.561-.231-.371A9.712 9.712 0 012.25 12C2.25 6.615 6.615 2.25 12 2.25S21.75 6.615 21.75 12 17.385 21.75 12 21.75z"/></svg>
-                </div>
-                <div>
-                  <div style={{color:"#15803D",fontWeight:700,fontSize:14}}>Confirmar pelo WhatsApp</div>
-                  <div style={{color:"#64748B",fontSize:12,marginTop:2}}>Receba uma mensagem de boas-vindas agora</div>
-                </div>
-              </button>
-              {/* E-mail */}
-              <button onClick={()=>finishRegister(data)} disabled={registering}
-                style={{display:"flex",alignItems:"center",gap:14,background:"#EFF6FF",border:"1.5px solid #BFDBFE",borderRadius:14,padding:"14px 16px",cursor:registering?"not-allowed":"pointer",textAlign:"left",opacity:registering?0.6:1}}>
-                <div style={{width:42,height:42,borderRadius:"50%",background:"#3B82F6",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
-                  <MailIcon size={18} color="#fff"/>
-                </div>
-                <div>
-                  <div style={{color:"#1D4ED8",fontWeight:700,fontSize:14}}>Confirmar por e-mail</div>
-                  <div style={{color:"#64748B",fontSize:12,marginTop:2,lineHeight:1.4}}>Disponível após ativação do sistema de e-mails</div>
-                </div>
-              </button>
-              <button onClick={()=>finishRegister(data)}
-                style={{background:"none",border:"none",cursor:"pointer",color:"#94A3B8",fontSize:12,padding:"8px 0",textDecoration:"underline",textAlign:"center"}}>
-                Pular e entrar no app
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };
@@ -4444,40 +4404,52 @@ export default function App(){
   },[]);
 
   useEffect(()=>{
-    return subscribeAuth(async(user)=>{
+    return subscribeAuth((user)=>{
       setFirebaseUser(user);
-      if(user){
-        try{
-          let profile=await loadUserProfile(user.uid);
-          if(!profile){
-            const isGoogle=user.providerData?.some(p=>p.providerId==="google.com");
-            if(isGoogle)profile=await ensureGoogleUserProfile(user);
-          }
-          if(profile){
-            setPerfil(firestoreToPerfil(profile));
-          }else{
-            setPerfil(p=>({
-              ...p,
-              nome:user.displayName||p.nome,
-              email:user.email||p.email,
-            }));
-          }
-        }catch{
-          setPerfil(p=>({
-            ...p,
-            nome:user.displayName||p.nome,
-            email:user.email||p.email,
-          }));
-        }
-      }
       setAuthReady(true);
     });
   },[]);
 
   useEffect(()=>{
+    if(!firebaseUser?.uid)return;
+    let cancelled=false;
+    (async()=>{
+      try{
+        let profile=await loadUserProfile(firebaseUser.uid);
+        if(!profile){
+          const isGoogle=firebaseUser.providerData?.some(p=>p.providerId==="google.com");
+          if(isGoogle)profile=await ensureGoogleUserProfile(firebaseUser);
+        }
+        if(cancelled)return;
+        if(profile){
+          setPerfil(firestoreToPerfil(profile));
+        }else{
+          setPerfil(p=>({
+            ...p,
+            nome:firebaseUser.displayName||p.nome,
+            email:firebaseUser.email||p.email,
+          }));
+        }
+      }catch{
+        if(!cancelled){
+          setPerfil(p=>({
+            ...p,
+            nome:firebaseUser.displayName||p.nome,
+            email:firebaseUser.email||p.email,
+          }));
+        }
+      }
+    })();
+    return()=>{cancelled=true;};
+  },[firebaseUser?.uid]);
+
+  useEffect(()=>{
     if(!splashDone||!authReady)return;
-    if(firebaseUser)setScreen("app");
-    else setScreen("login");
+    if(firebaseUser){
+      setScreen("app");
+    }else if(screen!=="register"){
+      setScreen("login");
+    }
   },[splashDone,authReady,firebaseUser]);
 
   useEffect(()=>{
@@ -4527,7 +4499,7 @@ export default function App(){
     if(refIndicacao){
       aplicarBonusIndicado(setPlan,setTrialDias);
     }
-    // onAuthStateChanged já autenticou — perfil veio do Firestore; só aplica bônus local
+    setScreen("app");
   };
 
   const handleChangePlan=(newPlan)=>{
