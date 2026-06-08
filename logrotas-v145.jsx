@@ -24,8 +24,9 @@ import ScannerModule from "./src/components/ScannerModule.js";
 import { playWhooshSound } from "./src/utils/whooshSound.js";
 import DeliveryMap from "./src/components/DeliveryMap.js";
 import { OFFLINE_KEYS, AUTH_KEYS, readOfflineCache, writeOfflineCache, clearAllLogRotasStorage, activateProTrial, readProPlanActive, readProTrialDaysLeft } from "./src/services/offlineStorage.js";
-import { subscribeAuth, signInWithEmail, signUpWithEmail, signInWithGoogle, signOutUser, getAuthErrorMessage } from "./src/services/authService.js";
+import { subscribeAuth, signInWithEmail, signUpWithEmail, signInWithGoogle, signOutUser, deleteCurrentUser, getAuthErrorMessage } from "./src/services/authService.js";
 import { saveUserProfile, loadUserProfile, ensureGoogleUserProfile, cadastroToFirestorePayload, firestoreToPerfil } from "./src/services/userProfileService.js";
+import { validateBetaCode, consumeBetaCode, normalizeBetaCode } from "./src/services/betaCodeService.js";
 import {
   CheckIcon, XIcon, ZapIcon, UsersIcon, StarIcon,
   ArrowRightIcon, ArrowLeftIcon, CrownIcon, LockIcon, PhoneIcon,
@@ -33,7 +34,7 @@ import {
   BellIcon, PlusIcon, Trash2Icon, PlusCircleIcon,
   NavigationIcon, CalculatorIcon, BarChart3Icon, FuelIcon,
   TrendingUpIcon, TrendingDownIcon, DollarSignIcon, MapPinIcon,
-  EyeIcon, EyeOffIcon, UserIcon, MailIcon, RouteIcon, InfoIcon,
+  EyeIcon, EyeOffIcon, UserIcon, MailIcon, RouteIcon, InfoIcon, KeyIcon,
   LogOutIcon, EditIcon, SaveIcon, ChevronLeftIcon, ChevronRightIcon,
   ThumbsUpIcon, ThumbsDownIcon, SettingsIcon,
 } from "lucide-react";
@@ -786,7 +787,7 @@ const PROFILES_A=[
 ];
 const RegisterFlow=({onDone,onBack})=>{
   const[step,setStep]=useState(0);
-  const[data,setData]=useState({name:"",email:"",phone:"",pass:"",confirmPass:"",profile:"",vehicle:"",terms:false});
+  const[data,setData]=useState({name:"",email:"",phone:"",pass:"",confirmPass:"",betaCode:"",profile:"",vehicle:"",terms:false});
   const[show,setShow]=useState(false);
   const[showConfirm,setShowConfirm]=useState(false);
   const[erroLocal,setErroLocal]=useState("");
@@ -794,6 +795,7 @@ const RegisterFlow=({onDone,onBack})=>{
   const[showTerms,setShowTerms]=useState(false);
   const[showProfileModal,setShowProfileModal]=useState(false);
   const[registering,setRegistering]=useState(false);
+  const[validatingBeta,setValidatingBeta]=useState(false);
   const registerReqRef=useRef(0);
   const prevStepRef=useRef(0);
 
@@ -816,6 +818,7 @@ const RegisterFlow=({onDone,onBack})=>{
       name:step1?.name||d.name,
       email:step1?.email||d.email,
       phone:step1?.phone||d.phone,
+      betaCode:step1?.betaCode||d.betaCode,
       profile:prefs?.profile||d.profile,
       vehicle:prefs?.vehicle||d.vehicle,
     }));
@@ -837,6 +840,15 @@ const RegisterFlow=({onDone,onBack})=>{
     try{
       const cred=await signUpWithEmail(payload.email,payload.pass);
       if(reqId!==registerReqRef.current)return;
+
+      const betaResult=await consumeBetaCode(payload.betaCode,payload.email);
+      if(reqId!==registerReqRef.current)return;
+      if(!betaResult.ok){
+        try{await deleteCurrentUser();}catch{/* ignore */}
+        setErroAuth(betaResult.error);
+        return;
+      }
+
       try{
         await saveUserProfile(cred.user.uid,cadastroToFirestorePayload(payload));
       }catch{
@@ -860,16 +872,37 @@ const RegisterFlow=({onDone,onBack})=>{
     </div>
   );
 
-  const avancar0=()=>{
+  const avancar0=async()=>{
     setErroLocal("");
     setErroAuth("");
     if(!data.name.trim()){setErroLocal("Preencha seu nome completo.");return;}
     if(!data.email.trim()||!data.email.includes("@")){setErroLocal("Preencha um e-mail válido — necessário para acessar sua conta.");return;}
     if(!data.phone.trim()||data.phone.replace(/\D/g,"").length<10){setErroLocal("Preencha seu WhatsApp com DDD — usado para recuperação de senha.");return;}
+    if(!data.betaCode.trim()){setErroLocal("Informe seu código de acesso beta.");return;}
     if(data.pass.length<6){setErroLocal("A senha precisa ter pelo menos 6 caracteres.");return;}
     if(data.pass!==data.confirmPass){setErroLocal("As senhas não coincidem. Verifique e tente novamente.");return;}
-    saveStep1Fields({name:data.name.trim(),email:data.email.trim(),phone:data.phone.trim()});
-    setStep(1);
+
+    setValidatingBeta(true);
+    try{
+      const betaCheck=await validateBetaCode(data.betaCode);
+      if(!betaCheck.ok){
+        setErroLocal(betaCheck.error);
+        return;
+      }
+      const normalizedCode=betaCheck.code;
+      setData(d=>({...d,betaCode:normalizedCode}));
+      saveStep1Fields({
+        name:data.name.trim(),
+        email:data.email.trim(),
+        phone:data.phone.trim(),
+        betaCode:normalizedCode,
+      });
+      setStep(1);
+    }catch{
+      setErroLocal("Não foi possível validar o código. Verifique sua conexão.");
+    }finally{
+      setValidatingBeta(false);
+    }
   };
 
   return(
@@ -886,6 +919,7 @@ const RegisterFlow=({onDone,onBack})=>{
           <div style={{color:C.muted,fontSize:12,marginBottom:16}}>Passo 1 de 3 — campos com * são obrigatórios</div>
           <div style={{display:"flex",flexDirection:"column",gap:12}}>
             <FloatInput label="Nome completo" value={data.name} onChange={v=>{setData(d=>({...d,name:v}));saveStep1Fields({name:v});setErroLocal("");}} icon={UserIcon} placeholder="Ex: João da Silva"/>
+            <FloatInput label="Código de acesso beta *" value={data.betaCode} onChange={v=>{const c=normalizeBetaCode(v);setData(d=>({...d,betaCode:c}));saveStep1Fields({betaCode:c});setErroLocal("");}} icon={KeyIcon} placeholder="Ex: BETA-LR-001"/>
             <FloatInput label="E-mail *" value={data.email} onChange={v=>{setData(d=>({...d,email:v}));saveStep1Fields({email:v});setErroLocal("");}} type="email" icon={MailIcon} placeholder="Ex: joao@email.com"/>
             <div style={{display:"flex",flexDirection:"column",gap:2}}>
               <FloatInput label="WhatsApp *" value={data.phone} onChange={v=>{setData(d=>({...d,phone:v}));saveStep1Fields({phone:v});setErroLocal("");}} type="tel" icon={PhoneIcon} placeholder="(11) 99999-9999"/>
@@ -909,7 +943,9 @@ const RegisterFlow=({onDone,onBack})=>{
             </div>
           </div>
           {erroLocal&&<div style={{background:C.redLight,border:`1px solid ${C.red}33`,borderRadius:10,padding:"10px 13px",marginTop:12,color:C.red,fontSize:14,fontWeight:600}}>{erroLocal}</div>}
-          <PrimaryBtn onClick={avancar0} style={{width:"100%",marginTop:16}}>Próximo → (1 de 3)</PrimaryBtn>
+          <PrimaryBtn onClick={avancar0} disabled={validatingBeta} style={{width:"100%",marginTop:16,opacity:validatingBeta?0.7:1}}>
+            {validatingBeta?"Validando código...":"Próximo → (1 de 3)"}
+          </PrimaryBtn>
         </>
       )}
 

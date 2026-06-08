@@ -6,7 +6,8 @@
     "build": "npm run generate-icons && vite build",
     "generate-icons": "node scripts/generate-pwa-icons.mjs",
     "preview": "vite preview",
-    "test:romaneio": "node scripts/simulate-romaneio-parser.mjs"
+    "test:romaneio": "node scripts/simulate-romaneio-parser.mjs",
+    "seed:beta-codes": "node scripts/seed-beta-codes.mjs"
   },
   "dependencies": {
     "@googlemaps/markerclusterer": "^2.5.3",
