@@ -23,7 +23,7 @@ import { calculateTripCosts } from "./src/services/tripCalcService.js";
 import ScannerModule from "./src/components/ScannerModule.js";
 import { playWhooshSound } from "./src/utils/whooshSound.js";
 import DeliveryMap from "./src/components/DeliveryMap.js";
-import { OFFLINE_KEYS, AUTH_KEYS, readOfflineCache, writeOfflineCache } from "./src/services/offlineStorage.js";
+import { OFFLINE_KEYS, AUTH_KEYS, readOfflineCache, writeOfflineCache, clearAllLogRotasStorage, activateProTrial, readProPlanActive, readProTrialDaysLeft } from "./src/services/offlineStorage.js";
 import {
   CheckIcon, XIcon, ZapIcon, UsersIcon, StarIcon,
   ArrowRightIcon, ArrowLeftIcon, CrownIcon, LockIcon, PhoneIcon,
@@ -77,6 +77,7 @@ const lerRefIndicacao=()=>{
 
 // Aplica 7 dias Pro ao novo usuário indicado (visual — persistência real requer Firebase)
 const aplicarBonusIndicado=(setPlano,setPeriodoTrial)=>{
+  activateProTrial(7);
   setPlano("pro");
   if(setPeriodoTrial)setPeriodoTrial(7);
 };
@@ -784,13 +785,22 @@ const RegisterFlow=({onDone,onBack})=>{
     writeOfflineCache(AUTH_KEYS.registerPrefs,{...cur,...patch});
   };
 
+  const saveStep1Fields=(patch)=>{
+    const cur=readOfflineCache(AUTH_KEYS.registerStep1)||{};
+    writeOfflineCache(AUTH_KEYS.registerStep1,{...cur,...patch});
+  };
+
   useEffect(()=>{
+    const step1=readOfflineCache(AUTH_KEYS.registerStep1);
     const prefs=readOfflineCache(AUTH_KEYS.registerPrefs);
-    if(!prefs)return;
+    if(!step1&&!prefs)return;
     setData(d=>({
       ...d,
-      profile:prefs.profile||d.profile,
-      vehicle:prefs.vehicle||d.vehicle,
+      name:step1?.name||d.name,
+      email:step1?.email||d.email,
+      phone:step1?.phone||d.phone,
+      profile:prefs?.profile||d.profile,
+      vehicle:prefs?.vehicle||d.vehicle,
     }));
   },[]);
 
@@ -812,7 +822,7 @@ const RegisterFlow=({onDone,onBack})=>{
     if(!data.phone.trim()||data.phone.replace(/\D/g,"").length<10){setErro("Preencha seu WhatsApp com DDD — usado para recuperação de senha.");return;}
     if(data.pass.length<6){setErro("A senha precisa ter pelo menos 6 caracteres.");return;}
     if(data.pass!==data.confirmPass){setErro("As senhas não coincidem. Verifique e tente novamente.");return;}
-    setErro("");setStep(1);
+    setErro("");saveStep1Fields({name:data.name.trim(),email:data.email.trim(),phone:data.phone.trim()});setStep(1);
   };
 
   return(
@@ -828,10 +838,10 @@ const RegisterFlow=({onDone,onBack})=>{
           <div style={{color:C.navy,fontWeight:800,fontSize:18,fontFamily:"'Sora',sans-serif",marginBottom:4}}>Criar sua conta</div>
           <div style={{color:C.muted,fontSize:12,marginBottom:16}}>Passo 1 de 3 — campos com * são obrigatórios</div>
           <div style={{display:"flex",flexDirection:"column",gap:12}}>
-            <FloatInput label="Nome completo" value={data.name} onChange={v=>{setData(d=>({...d,name:v}));setErro("");}} icon={UserIcon} placeholder="Ex: João da Silva"/>
-            <FloatInput label="E-mail *" value={data.email} onChange={v=>{setData(d=>({...d,email:v}));setErro("");}} type="email" icon={MailIcon} placeholder="Ex: joao@email.com"/>
+            <FloatInput label="Nome completo" value={data.name} onChange={v=>{setData(d=>({...d,name:v}));saveStep1Fields({name:v});setErro("");}} icon={UserIcon} placeholder="Ex: João da Silva"/>
+            <FloatInput label="E-mail *" value={data.email} onChange={v=>{setData(d=>({...d,email:v}));saveStep1Fields({email:v});setErro("");}} type="email" icon={MailIcon} placeholder="Ex: joao@email.com"/>
             <div style={{display:"flex",flexDirection:"column",gap:2}}>
-              <FloatInput label="WhatsApp *" value={data.phone} onChange={v=>{setData(d=>({...d,phone:v}));setErro("");}} type="tel" icon={PhoneIcon} placeholder="(11) 99999-9999"/>
+              <FloatInput label="WhatsApp *" value={data.phone} onChange={v=>{setData(d=>({...d,phone:v}));saveStep1Fields({phone:v});setErro("");}} type="tel" icon={PhoneIcon} placeholder="(11) 99999-9999"/>
               <div style={{display:"flex",alignItems:"center",gap:5,paddingLeft:2}}>
                 <svg width="11" height="11" viewBox="0 0 24 24" fill="#22C55E"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/><path d="M12 0C5.373 0 0 5.373 0 12c0 2.089.537 4.049 1.475 5.757L.057 23.928c-.046.228.13.445.362.445a.42.42 0 00.102-.013l6.345-1.646A11.94 11.94 0 0012 24c6.627 0 12-5.373 12-12S18.627 0 12 0zm0 21.75a9.712 9.712 0 01-4.943-1.349l-.354-.209-3.664.95.982-3.561-.231-.371A9.712 9.712 0 012.25 12C2.25 6.615 6.615 2.25 12 2.25S21.75 6.615 21.75 12 17.385 21.75 12 21.75z"/></svg>
                 <span style={{color:"#64748B",fontSize:11}}>Usado para recuperação de senha e suporte</span>
@@ -4373,8 +4383,8 @@ export default function App(){
   const[page,setPage]=useState("dashboard");
   const[showCalc,setShowCalc]=useState(false);
   const[calcMode,setCalcMode]=useState(null);
-  const[plan,setPlan]=useState("free");
-  const[trialDias,setTrialDias]=useState(0);
+  const[plan,setPlan]=useState(()=>(readProPlanActive()?"pro":"free"));
+  const[trialDias,setTrialDias]=useState(()=>(readProPlanActive()?readProTrialDaysLeft():0));
   const[refIndicacao]=useState(()=>lerRefIndicacao()); // lê ?ref= uma vez ao montar
   const[vehicles,setVehicles]=useState(DEFAULT_VEHICLES);
   const[metaMes,setMetaMes]=useState(8000);
@@ -4394,6 +4404,10 @@ export default function App(){
   // Tela de carregamento por 2 segundos
   useEffect(()=>{
     const t=setTimeout(()=>{
+      if(readProPlanActive()){
+        setPlan("pro");
+        setTrialDias(readProTrialDaysLeft());
+      }
       const session=readOfflineCache(AUTH_KEYS.session);
       if(session?.active&&session?.remember){
         if(session.email){
@@ -4456,6 +4470,16 @@ export default function App(){
       // TODO Firebase: registrarIndicacao(refIndicacao, dadosCadastro.phone)
     }
     setScreen("app");
+  };
+
+  const handleChangePlan=(newPlan)=>{
+    if(newPlan==="pro"){
+      activateProTrial(14);
+      setPlan("pro");
+      setTrialDias(14);
+    }else{
+      setPlan(newPlan);
+    }
   };
 
   const limparTudo=()=>{setConfirmLimpar(true);};
@@ -4565,7 +4589,7 @@ export default function App(){
         {page==="comparador"  &&<Comparador historicoFretes={historicoFretes} setHistoricoFretes={setHistoricoFretes}/>}
         {page==="manutencao"  &&<Manutencao manutencoes={manutencoes} setManutencoes={setManutencoes}/>}
         {page==="documentos"  &&<Documentos docs={docs} setDocs={setDocs}/>}
-        {page==="assinatura"  &&<Assinatura plan={plan} onChangePlan={setPlan}/>}
+        {page==="assinatura"  &&<Assinatura plan={plan} onChangePlan={handleChangePlan}/>}
         {page==="perfil"      &&<Perfil metaMes={metaMes} setMetaMes={setMetaMes} ganhoMes={ganhoMes} vehicles={vehicles} setVehicles={setVehicles} perfil={perfil} setPerfil={setPerfil} onLimpar={limparTudo} onAdmin={()=>setShowAdmin(true)}/>}
       </div>
       {page!=="dashboard"&&(<button onClick={()=>{setCalcMode(null);setShowCalc(true);}} style={{position:"fixed",bottom:22,right:18,width:52,height:52,borderRadius:"50%",background:C.orange,border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",boxShadow:`0 4px 20px ${C.orange}55`,zIndex:90}}><RouteIcon size={22} color="#fff"/></button>)}
@@ -4629,11 +4653,16 @@ export default function App(){
                 Cancelar
               </button>
               <button onClick={()=>{
+                clearAllLogRotasStorage();
                 setHistoricoFretes([]);setManutencoes([]);setDespesas([]);setDocs([]);
                 setMetaMes(8000);setValorKm("");setAdicionalFixo("");
                 setVehicles(DEFAULT_VEHICLES);
                 setPerfil({nome:"",email:"",telefone:"",tipo:"Motorista Autônomo",veiculo:""});
+                setPlan("free");
+                setTrialDias(0);
                 setConfirmLimpar(false);
+                setPage("dashboard");
+                setScreen("register");
               }} style={{flex:1,padding:"13px",background:C.red,border:"none",borderRadius:12,cursor:"pointer",color:"#fff",fontWeight:700,fontSize:14,display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
                 <Trash2Icon size={14}/> Apagar tudo
               </button>

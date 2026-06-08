@@ -17,7 +17,7 @@ export function playWhooshSound() {
     for (let i = 0; i < sampleCount; i++) {
       const t = i / sampleCount;
       const envelope = Math.sin(Math.PI * t);
-      data[i] = (Math.random() * 2 - 1) * envelope * envelope * 1.15;
+      data[i] = (Math.random() * 2 - 1) * envelope * envelope * 2.4;
     }
 
     const noise = ctx.createBufferSource();
@@ -36,12 +36,12 @@ export function playWhooshSound() {
 
     const toneGain = ctx.createGain();
     toneGain.gain.setValueAtTime(0.0001, t0);
-    toneGain.gain.exponentialRampToValueAtTime(0.048, t0 + toneAttack);
+    toneGain.gain.exponentialRampToValueAtTime(0.14, t0 + toneAttack);
     toneGain.gain.exponentialRampToValueAtTime(0.0001, t0 + duration);
 
     const master = ctx.createGain();
     master.gain.setValueAtTime(0.0001, t0);
-    master.gain.exponentialRampToValueAtTime(0.13, t0 + attack);
+    master.gain.exponentialRampToValueAtTime(0.55, t0 + attack);
     master.gain.exponentialRampToValueAtTime(0.0001, t0 + duration);
 
     noise.connect(filter);
