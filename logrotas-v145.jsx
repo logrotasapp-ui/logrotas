@@ -283,7 +283,7 @@ const Metric=({label,value,sub,trend,icon:Icon,color,bg})=>(
 );
 const PrimaryBtn=({children,onClick,variant="orange",disabled,small,style:s={}})=>{
   const v={orange:{bg:C.orange,color:"#fff",sh:C.orange},navy:{bg:C.navy,color:"#fff",sh:C.navy},red:{bg:C.red,color:"#fff",sh:C.red},electric:{bg:C.electric,color:"#fff",sh:C.electric},green:{bg:C.green,color:"#fff",sh:C.green}}[variant]||{bg:C.orange,color:"#fff",sh:C.orange};
-  return <button onClick={onClick} disabled={disabled} style={{display:"flex",alignItems:"center",justifyContent:"center",gap:6,background:disabled?C.border:v.bg,color:disabled?C.muted:v.color,border:"none",borderRadius:11,padding:small?"8px 14px":"11px 18px",cursor:disabled?"not-allowed":"pointer",fontWeight:700,fontSize:small?12:13,fontFamily:"'Sora',sans-serif",boxShadow:disabled?"none":`0 3px 10px ${v.sh}44`,...s}}>{children}</button>;
+  return <button type="button" onClick={onClick} disabled={disabled} style={{display:"flex",alignItems:"center",justifyContent:"center",gap:6,background:disabled?C.border:v.bg,color:disabled?C.muted:v.color,border:"none",borderRadius:11,padding:small?"8px 14px":"11px 18px",cursor:disabled?"not-allowed":"pointer",fontWeight:700,fontSize:small?12:13,fontFamily:"'Sora',sans-serif",boxShadow:disabled?"none":`0 3px 10px ${v.sh}44`,...s}}>{children}</button>;
 };
 
 // V152 — Logos Waze e Google Maps em base64 (funciona offline, sem CDN)
@@ -789,10 +789,12 @@ const RegisterFlow=({onDone,onBack})=>{
   const[data,setData]=useState({name:"",email:"",phone:"",pass:"",confirmPass:"",profile:"",vehicle:"",terms:false});
   const[show,setShow]=useState(false);
   const[showConfirm,setShowConfirm]=useState(false);
-  const[erro,setErro]=useState("");
+  const[erroLocal,setErroLocal]=useState("");
+  const[erroAuth,setErroAuth]=useState("");
   const[showTerms,setShowTerms]=useState(false);
   const[showProfileModal,setShowProfileModal]=useState(false);
   const[registering,setRegistering]=useState(false);
+  const registerReqRef=useRef(0);
 
   const saveRegisterPrefs=(patch)=>{
     const cur=readOfflineCache(AUTH_KEYS.registerPrefs)||{};
