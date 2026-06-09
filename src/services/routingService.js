@@ -22,6 +22,7 @@ import {
   parseRomaneioTextToDestinations,
   buildParadasFromAddresses,
   parseDeliveryAddressesFromLabelText,
+  cleanAddressLine,
 } from "./romaneioRouting.js";
 
 export {
