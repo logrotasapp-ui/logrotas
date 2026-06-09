@@ -27,7 +27,7 @@ import ScannerModule from "./src/components/ScannerModule.js";
 import { playWhooshSound } from "./src/utils/whooshSound.js";
 import DeliveryMap from "./src/components/DeliveryMap.js";
 import NavigationMap from "./src/components/NavigationMap.jsx";
-import { loadDeliveryRoutes, saveDeliveryRoute } from "./src/services/deliveryRouteService.js";
+import { loadDeliveryRoutes, saveDeliveryRoute, deleteDeliveryRoute } from "./src/services/deliveryRouteService.js";
 import {
   saveDeliveryReportPdf,
   shareDeliveryReportWhatsApp,
@@ -73,7 +73,7 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="V214";
+const APP_VERSION="V216";
 const BETA_HIDE_PLANOS=true;
 
 const OfflineRestoredBanner=({show})=>show?(
@@ -1267,6 +1267,132 @@ function formatNowBR(){
   };
 }
 
+const HistoricoEntregasScreen=({
+  onBack,
+  uid,
+  rotas,
+  onReload,
+  abertoId,
+  setAbertoId,
+  onGerarPdf,
+  gerandoPdf,
+  reportFromHistorico,
+})=>{
+  const[confirmApagar,setConfirmApagar]=useState(null);
+  const[apagando,setApagando]=useState(false);
+  const[erroApagar,setErroApagar]=useState("");
+
+  const handleApagar=async()=>{
+    if(!confirmApagar||!uid)return;
+    setApagando(true);
+    setErroApagar("");
+    try{
+      await deleteDeliveryRoute(uid,confirmApagar);
+      setConfirmApagar(null);
+      if(abertoId===confirmApagar)setAbertoId(null);
+      await onReload?.();
+    }catch{
+      setErroApagar("Não foi possível apagar o registro.");
+    }finally{
+      setApagando(false);
+    }
+  };
+
+  return(
+    <div style={{position:"fixed",inset:0,zIndex:750,background:C.surface,display:"flex",flexDirection:"column"}}>
+      <div style={{padding:"12px 14px",borderBottom:`1px solid ${C.border}`,display:"flex",alignItems:"center",gap:12,background:"#fff",flexShrink:0}}>
+        <button type="button" onClick={onBack} aria-label="Voltar"
+          style={{background:C.subtle,border:`1px solid ${C.border}`,borderRadius:9,padding:8,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>
+          <ArrowLeftIcon size={18} color={C.navy}/>
+        </button>
+        <div style={{color:C.navy,fontWeight:800,fontSize:16,fontFamily:"'Sora',sans-serif"}}>📋 Histórico de Entregas</div>
+      </div>
+
+      <div style={{flex:1,overflowY:"auto",padding:"14px 16px",paddingBottom:"max(16px, env(safe-area-inset-bottom))"}}>
+        {erroApagar&&(
+          <div style={{background:"#FFF5F5",border:"1px solid #FCA5A5",borderRadius:10,padding:"10px 12px",marginBottom:12,color:C.red,fontSize:12,fontWeight:600}}>
+            {erroApagar}
+          </div>
+        )}
+        {!uid&&(
+          <div style={{background:C.subtle,border:`1px dashed ${C.border}`,borderRadius:11,padding:"14px",color:C.muted,fontSize:12,textAlign:"center"}}>
+            Faça login para ver rotas anteriores.
+          </div>
+        )}
+        {uid&&rotas.length===0&&(
+          <div style={{textAlign:"center",padding:"48px 20px",color:C.muted}}>
+            <div style={{fontSize:40,marginBottom:12}}>📋</div>
+            <div style={{fontSize:14,fontWeight:600}}>Nenhuma entrega registrada ainda</div>
+          </div>
+        )}
+        {uid&&rotas.length>0&&(
+          <div style={{display:"flex",flexDirection:"column",gap:8}}>
+            {rotas.map(r=>{
+              const aberto=abertoId===r.id;
+              return(
+                <div key={r.id} style={{background:C.subtle,border:`1px solid ${aberto?OTIMIZAR_AZUL:C.border}`,borderRadius:11,overflow:"hidden"}}>
+                  <button type="button" onClick={()=>setAbertoId(aberto?null:r.id)}
+                    style={{width:"100%",textAlign:"left",background:"transparent",border:"none",padding:"12px 14px",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"space-between",gap:10}}>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{color:C.text,fontWeight:700,fontSize:13}}>{r.date||"—"}{r.hora?` · ${r.hora}`:""} · {r.totalParadas||0} paradas</div>
+                      <div style={{color:C.muted,fontSize:12,marginTop:3}}>
+                        ✅ {r.entregues||0} entregues · ❌ {r.naoEntregues||0} não entregues
+                        {r.synced===false&&<span style={{color:C.amber,marginLeft:6}}>· só no dispositivo</span>}
+                      </div>
+                    </div>
+                    <span style={{color:OTIMIZAR_AZUL,fontSize:12,fontWeight:800,flexShrink:0}}>{aberto?"▼":"▶"}</span>
+                  </button>
+                  {aberto&&(
+                    <div style={{padding:"0 14px 14px",borderTop:`1px solid ${C.border}`}}>
+                      {(r.paradas||[]).map((p,i)=>(
+                        <div key={i} style={{padding:"10px 0",borderBottom:i<(r.paradas?.length||0)-1?`1px solid ${C.border}`:"none"}}>
+                          <div style={{color:C.text,fontSize:13,fontWeight:600}}>{i+1}. {p.endereco}</div>
+                          <div style={{color:p.status==="entregue"?C.green:C.red,fontSize:12,marginTop:4}}>
+                            {p.status==="entregue"?"✅ Entregue":`❌ Não entregue${p.motivo?` — ${p.motivo}`:""}`}
+                            {p.horario?` · ${p.horario}`:""}
+                          </div>
+                        </div>
+                      ))}
+                      <button type="button" disabled={gerandoPdf} onClick={()=>onGerarPdf?.(reportFromHistorico(r))}
+                        style={{width:"100%",padding:11,marginTop:12,background:"#fff",border:`1.5px solid ${OTIMIZAR_AZUL}`,borderRadius:10,cursor:gerandoPdf?"wait":"pointer",color:OTIMIZAR_AZUL,fontWeight:700,fontSize:13}}>
+                        📄 {gerandoPdf?"Gerando PDF…":"Gerar PDF"}
+                      </button>
+                      <button type="button" disabled={apagando} onClick={()=>setConfirmApagar(r.id)}
+                        style={{width:"100%",padding:12,marginTop:8,background:C.red,border:"none",borderRadius:10,cursor:apagando?"wait":"pointer",color:"#fff",fontWeight:700,fontSize:13}}>
+                        🗑️ Apagar este registro
+                      </button>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {confirmApagar&&(
+        <div style={{position:"fixed",inset:0,zIndex:800,background:"#1E3A8A66",display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+          <div style={{background:C.surface,borderRadius:18,width:"100%",maxWidth:340,padding:24,boxShadow:"0 12px 40px #00000033",textAlign:"center"}}>
+            <div style={{color:C.navy,fontWeight:800,fontSize:16,fontFamily:"'Sora',sans-serif",marginBottom:18,lineHeight:1.5}}>
+              Tem certeza que deseja apagar este registro?
+            </div>
+            <div style={{display:"flex",flexDirection:"column",gap:10}}>
+              <button type="button" disabled={apagando} onClick={handleApagar}
+                style={{width:"100%",padding:13,background:C.red,border:"none",borderRadius:12,cursor:apagando?"wait":"pointer",color:"#fff",fontWeight:700,fontSize:14}}>
+                {apagando?"Apagando…":"Apagar"}
+              </button>
+              <button type="button" disabled={apagando} onClick={()=>setConfirmApagar(null)}
+                style={{width:"100%",padding:13,background:C.subtle,border:`1px solid ${C.border}`,borderRadius:12,cursor:"pointer",color:C.text2,fontWeight:600,fontSize:14}}>
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
 const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation=false,onNavigationResumed})=>{
   const[paradas,setParadas]=useState([]);
   const[novoEndereco,setNovoEndereco]=useState("");
@@ -1309,6 +1435,7 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
   const[pdfBlobCache,setPdfBlobCache]=useState(null);
   const[pdfFilenameCache,setPdfFilenameCache]=useState("");
   const[gerandoPdf,setGerandoPdf]=useState(false);
+  const[showHistoricoEntregas,setShowHistoricoEntregas]=useState(false);
 
   const isPro=plan==="pro";
   const LIMITE=isPro?Infinity:10;
@@ -2011,60 +2138,13 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
         </div>
       )}
 
-      {/* Histórico de entregas */}
-      {!modoNavegacao&&!showResumo&&(
-        <div style={{marginBottom:14}}>
-          <div style={{color:C.navy,fontWeight:700,fontSize:13,marginBottom:8}}>📋 Histórico de Entregas</div>
-          {!uid&&(
-            <div style={{background:C.subtle,border:`1px dashed ${C.border}`,borderRadius:11,padding:"14px",color:C.muted,fontSize:12,textAlign:"center"}}>
-              Faça login para salvar e ver rotas anteriores.
-            </div>
-          )}
-          {uid&&historicoEntregas.length===0&&(
-            <div style={{background:C.subtle,border:`1px dashed ${C.border}`,borderRadius:11,padding:"14px",color:C.muted,fontSize:12,textAlign:"center"}}>
-              Nenhuma rota concluída ainda. Finalize uma navegação para aparecer aqui.
-            </div>
-          )}
-          {uid&&historicoEntregas.length>0&&(
-            <div style={{display:"flex",flexDirection:"column",gap:8}}>
-              {historicoEntregas.slice(0,12).map(r=>{
-                const aberto=historicoAbertoId===r.id;
-                return(
-                  <div key={r.id} style={{background:C.subtle,border:`1px solid ${aberto?OTIMIZAR_AZUL:C.border}`,borderRadius:11,overflow:"hidden"}}>
-                    <button type="button" onClick={()=>setHistoricoAbertoId(aberto?null:r.id)}
-                      style={{width:"100%",textAlign:"left",background:"transparent",border:"none",padding:"12px 14px",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"space-between",gap:10}}>
-                      <div style={{flex:1,minWidth:0}}>
-                        <div style={{color:C.text,fontWeight:700,fontSize:13}}>{r.date||"—"}{r.hora?` · ${r.hora}`:""} · {r.totalParadas||0} paradas</div>
-                        <div style={{color:C.muted,fontSize:12,marginTop:3}}>
-                          ✅ {r.entregues||0} entregues · ❌ {r.naoEntregues||0} não entregues
-                          {r.synced===false&&<span style={{color:C.amber,marginLeft:6}}>· só no dispositivo</span>}
-                        </div>
-                      </div>
-                      <span style={{color:OTIMIZAR_AZUL,fontSize:12,fontWeight:800,flexShrink:0}}>{aberto?"▼":"▶"}</span>
-                    </button>
-                    {aberto&&(
-                      <div style={{padding:"0 14px 14px",borderTop:`1px solid ${C.border}`}}>
-                        <button type="button" disabled={gerandoPdf} onClick={(e)=>{e.stopPropagation();handleGerarPdf(reportFromHistorico(r));}}
-                          style={{width:"100%",padding:10,marginTop:10,marginBottom:10,background:"#fff",border:`1.5px solid ${OTIMIZAR_AZUL}`,borderRadius:10,cursor:gerandoPdf?"wait":"pointer",color:OTIMIZAR_AZUL,fontWeight:700,fontSize:13}}>
-                          📄 {gerandoPdf?"Gerando PDF…":"Gerar PDF"}
-                        </button>
-                        {(r.paradas||[]).map((p,i)=>(
-                          <div key={i} style={{padding:"10px 0",borderBottom:i<(r.paradas?.length||0)-1?`1px solid ${C.border}`:"none"}}>
-                            <div style={{color:C.text,fontSize:13,fontWeight:600}}>{i+1}. {p.endereco}</div>
-                            <div style={{color:p.status==="entregue"?C.green:C.red,fontSize:12,marginTop:4}}>
-                              {p.status==="entregue"?"✅ Entregue":`❌ Não entregue${p.motivo?` — ${p.motivo}`:""}`}
-                              {p.horario?` · ${p.horario}`:""}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
+      {/* Histórico de entregas — botão para tela dedicada */}
+      {!modoNavegacao&&!showResumo&&!showHistoricoEntregas&&(
+        <button type="button" onClick={()=>{carregarHistorico();setShowHistoricoEntregas(true);}}
+          style={{width:"100%",padding:"13px 16px",marginBottom:14,background:C.subtle,border:`1.5px solid ${C.border}`,borderRadius:12,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"space-between",gap:10}}>
+          <span style={{color:C.navy,fontWeight:700,fontSize:14}}>📋 Histórico de Entregas</span>
+          <span style={{color:OTIMIZAR_AZUL,fontSize:13,fontWeight:800}}>▶</span>
+        </button>
       )}
 
       {showResumo&&resumoFinal&&(
@@ -2102,10 +2182,6 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
           <button onClick={reiniciarRota} style={{width:"100%",padding:14,background:`linear-gradient(135deg,${OTIMIZAR_AZUL},${OTIMIZAR_AZUL_MID})`,border:"none",borderRadius:12,color:"#fff",fontWeight:800,fontSize:15,cursor:"pointer"}}>
             Nova Rota
           </button>
-          <button type="button" disabled={gerandoPdf} onClick={()=>handleGerarPdf(resumoFinal)}
-            style={{width:"100%",padding:13,marginTop:10,background:C.subtle,border:`1.5px solid ${OTIMIZAR_AZUL}`,borderRadius:12,cursor:gerandoPdf?"wait":"pointer",color:OTIMIZAR_AZUL,fontWeight:700,fontSize:14}}>
-            📄 {gerandoPdf?"Gerando PDF…":"Gerar PDF"}
-          </button>
           <button onClick={()=>{reiniciarRota();onClose();}} style={{width:"100%",padding:12,marginTop:10,background:C.subtle,border:`1px solid ${C.border}`,borderRadius:12,cursor:"pointer",color:C.text2,fontWeight:600}}>
             Fechar
           </button>
@@ -2115,57 +2191,50 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
       {/* Navegação embutida */}
       {modoNavegacao&&paradaAtual&&(
         <div style={{position:"fixed",inset:0,zIndex:700,background:"#fff",display:"flex",flexDirection:"column"}}>
-          <div style={{padding:"12px 14px",borderBottom:`1px solid ${C.border}`,display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,background:"#EFF6FF"}}>
-            <div>
-              <div style={{color:OTIMIZAR_AZUL,fontWeight:900,fontSize:16,fontFamily:"'Sora',sans-serif"}}>
-                Parada {paradaAtualIdx+1} de {paradas.length}
-              </div>
-              {reotimizando&&<div style={{color:C.muted,fontSize:11}}>Reotimizando rota…</div>}
-            </div>
-            <button type="button" onClick={()=>setViewNav(v=>v==="mapa"?"lista":"mapa")}
-              style={{padding:"8px 14px",background:"#fff",border:`1.5px solid ${OTIMIZAR_AZUL}`,borderRadius:10,cursor:"pointer",color:OTIMIZAR_AZUL,fontWeight:700,fontSize:13}}>
-              {viewNav==="mapa"?"Ver Lista":"Continuar Navegação"}
-            </button>
-            <button type="button" onClick={()=>setShowConfirmExitNav(true)} aria-label="Pausar navegação"
-              style={{padding:8,background:"#fff",border:`1px solid ${C.border}`,borderRadius:9,cursor:"pointer",display:"flex"}}>
-              <XIcon size={16} color={C.muted}/>
-            </button>
-          </div>
-
           {viewNav==="mapa"?(
             <>
-              <NavigationMap
-                paradas={paradas}
-                currentStopIndex={paradaAtualIdx}
-                originCoords={posicaoMotorista}
-                height="calc(100vh - 340px)"
-                onDriverLocationUpdate={setPosicaoMotorista}
-              />
-              <div style={{padding:"12px 16px",borderTop:`1px solid ${C.border}`,background:C.subtle}}>
-                <div style={{color:C.muted,fontSize:11,fontWeight:700,marginBottom:4}}>ENDEREÇO ATUAL</div>
-                <div style={{color:C.text,fontSize:14,fontWeight:600,lineHeight:1.4,marginBottom:10}}>{paradaAtual.endereco}</div>
-                <button type="button" onClick={()=>openGoogleMapsNavigationToStop(paradaAtual)}
-                  style={{width:"100%",padding:"12px 14px",background:"#fff",border:`2px solid ${OTIMIZAR_AZUL}`,borderRadius:12,cursor:"pointer",color:OTIMIZAR_AZUL,fontWeight:800,fontSize:14,display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
-                  🗺️ Navegar
+              <div style={{position:"relative",flex:1,minHeight:0}}>
+                <NavigationMap
+                  paradas={paradas}
+                  currentStopIndex={paradaAtualIdx}
+                  originCoords={posicaoMotorista}
+                  height="100%"
+                  onDriverLocationUpdate={setPosicaoMotorista}
+                />
+                <button type="button" onClick={()=>setShowConfirmExitNav(true)} aria-label="Pausar navegação"
+                  style={{position:"absolute",top:12,right:12,zIndex:20,width:40,height:40,borderRadius:"50%",background:"#fff",border:"none",boxShadow:"0 2px 10px rgba(0,0,0,0.22)",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>
+                  <XIcon size={18} color={C.muted}/>
                 </button>
+                {reotimizando&&(
+                  <div style={{position:"absolute",top:12,left:12,zIndex:20,background:"rgba(255,255,255,0.92)",borderRadius:10,padding:"6px 12px",fontSize:12,fontWeight:600,color:OTIMIZAR_AZUL}}>
+                    Reotimizando rota…
+                  </div>
+                )}
               </div>
-              <div style={{padding:"12px 16px",display:"grid",gridTemplateColumns:"1fr 1fr 52px",gap:8,paddingBottom:"max(12px, env(safe-area-inset-bottom))",borderTop:`1px solid ${C.border}`,background:"#fff"}}>
-                <button type="button" onClick={()=>confirmarParada("entregue")}
-                  style={{padding:"14px 8px",background:"#DCFCE7",border:"2px solid #22C55E",borderRadius:14,cursor:"pointer",color:"#15803D",fontWeight:800,fontSize:14}}>
-                  ✅ Entregue
-                </button>
-                <button type="button" onClick={()=>setShowMotivo(true)}
-                  style={{padding:"14px 8px",background:"#FEE2E2",border:"2px solid #DC2626",borderRadius:14,cursor:"pointer",color:"#B91C1C",fontWeight:800,fontSize:14}}>
-                  ❌ Não entregue
-                </button>
-                <button type="button" onClick={()=>setShowAddNavMenu(true)} title="Adicionar parada"
-                  style={{padding:0,background:OTIMIZAR_AZUL,border:"none",borderRadius:14,cursor:"pointer",color:"#fff",fontSize:22,fontWeight:700,boxShadow:"0 2px 10px #2563EB44"}}>
-                  ➕
-                </button>
+              <div style={{padding:"12px 16px",borderTop:`1px solid ${C.border}`,background:C.subtle,flexShrink:0}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+                  <span style={{color:C.muted,fontSize:11,fontWeight:700}}>Próxima parada</span>
+                  <span style={{color:OTIMIZAR_AZUL,fontSize:12,fontWeight:800}}>{paradaAtualIdx+1} de {paradas.length}</span>
+                </div>
+                <div style={{color:C.text,fontSize:14,fontWeight:600,lineHeight:1.4,marginBottom:12}}>{paradaAtual.endereco}</div>
+                <div style={{display:"grid",gridTemplateColumns:"3fr 2fr",gap:8}}>
+                  <button type="button" onClick={()=>openGoogleMapsNavigationToStop(paradaAtual)}
+                    style={{padding:"12px 10px",background:OTIMIZAR_AZUL,border:"none",borderRadius:12,cursor:"pointer",color:"#fff",fontWeight:800,fontSize:14,display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
+                    🗺️ Navegar
+                  </button>
+                  <button type="button" onClick={()=>setShowAddNavMenu(true)}
+                    style={{padding:"12px 10px",background:"#fff",border:`2px solid ${OTIMIZAR_AZUL}`,borderRadius:12,cursor:"pointer",color:OTIMIZAR_AZUL,fontWeight:800,fontSize:13,display:"flex",alignItems:"center",justifyContent:"center",gap:4}}>
+                    ➕ Nova parada
+                  </button>
+                </div>
               </div>
             </>
           ):(
-            <div style={{flex:1,overflowY:"auto",padding:14}}>
+            <div style={{position:"relative",flex:1,minHeight:0,overflowY:"auto",padding:14,paddingTop:56}}>
+              <button type="button" onClick={()=>setShowConfirmExitNav(true)} aria-label="Pausar navegação"
+                style={{position:"absolute",top:12,right:12,zIndex:20,width:40,height:40,borderRadius:"50%",background:"#fff",border:"none",boxShadow:"0 2px 10px rgba(0,0,0,0.22)",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>
+                <XIcon size={18} color={C.muted}/>
+              </button>
               {paradas.map((p,i)=>(
                 <div key={p.id} style={{
                   padding:"12px",marginBottom:8,borderRadius:11,
@@ -2185,7 +2254,35 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
               ))}
             </div>
           )}
+          <div style={{padding:"12px 16px",display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,paddingBottom:"max(12px, env(safe-area-inset-bottom))",borderTop:`1px solid ${C.border}`,background:"#fff",flexShrink:0}}>
+            <button type="button" onClick={()=>confirmarParada("entregue")}
+              style={{padding:"14px 6px",background:"#DCFCE7",border:"2px solid #22C55E",borderRadius:14,cursor:"pointer",color:"#15803D",fontWeight:800,fontSize:13}}>
+              ✅ Entregue
+            </button>
+            <button type="button" onClick={()=>setShowMotivo(true)}
+              style={{padding:"14px 6px",background:"#FEE2E2",border:"2px solid #DC2626",borderRadius:14,cursor:"pointer",color:"#B91C1C",fontWeight:800,fontSize:13}}>
+              ❌ Não entregue
+            </button>
+            <button type="button" onClick={()=>setViewNav(v=>v==="mapa"?"lista":"mapa")}
+              style={{padding:"14px 6px",background:"#fff",border:`2px solid ${OTIMIZAR_AZUL}`,borderRadius:14,cursor:"pointer",color:OTIMIZAR_AZUL,fontWeight:800,fontSize:13}}>
+              📋 {viewNav==="mapa"?"Ver Lista":"Ver Mapa"}
+            </button>
+          </div>
         </div>
+      )}
+
+      {showHistoricoEntregas&&(
+        <HistoricoEntregasScreen
+          onBack={()=>setShowHistoricoEntregas(false)}
+          uid={uid}
+          rotas={historicoEntregas}
+          onReload={carregarHistorico}
+          abertoId={historicoAbertoId}
+          setAbertoId={setHistoricoAbertoId}
+          onGerarPdf={handleGerarPdf}
+          gerandoPdf={gerandoPdf}
+          reportFromHistorico={reportFromHistorico}
+        />
       )}
 
       {showConfirmExitNav&&(

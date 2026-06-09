@@ -4,6 +4,7 @@ import {
   getDocs,
   addDoc,
   getDoc,
+  deleteDoc,
   serverTimestamp,
 } from "firebase/firestore";
 import { db } from "../firebase.js";
@@ -30,6 +31,29 @@ export function appendLocalDeliveryRoute(uid, route) {
   if (!uid || !route?.id) return;
   const routes = readLocalRoutes(uid).filter((r) => r.id !== route.id);
   writeLocalRoutes(uid, [route, ...routes]);
+}
+
+export function removeLocalDeliveryRoute(uid, routeId) {
+  if (!uid || !routeId) return;
+  writeLocalRoutes(
+    uid,
+    readLocalRoutes(uid).filter((r) => r.id !== routeId)
+  );
+}
+
+/**
+ * Remove rota do Firestore e do cache local.
+ * @param {string} uid
+ * @param {string} routeId
+ */
+export async function deleteDeliveryRoute(uid, routeId) {
+  if (!uid || !routeId) throw new Error("Registro inválido.");
+
+  removeLocalDeliveryRoute(uid, routeId);
+
+  if (String(routeId).startsWith("local_")) return;
+
+  await deleteDoc(doc(db, "users", uid, ENTREGAS_COLLECTION, routeId));
 }
 
 function sanitizeResultado(resultado) {
