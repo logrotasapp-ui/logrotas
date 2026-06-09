@@ -97,6 +97,8 @@ export async function saveDeliveryRoute(uid, routeData) {
 
   const payload = {
     date: routeData.date || paradas[0]?.data || "",
+    hora: routeData.hora || paradas[0]?.horario || "",
+    motorista: routeData.motorista || "",
     totalParadas: paradas.length,
     entregues,
     naoEntregues,
@@ -114,5 +116,10 @@ export async function saveDeliveryRoute(uid, routeData) {
   };
 
   const ref = await addDoc(colRef(uid), payload);
-  return { id: ref.id, ...payload };
+  return {
+    id: ref.id,
+    ...payload,
+    createdAt: null,
+    updatedAt: null,
+  };
 }

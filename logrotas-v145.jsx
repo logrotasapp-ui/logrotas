@@ -11,6 +11,7 @@ import {
   resolveCalculatorStopsCoords,
   geocodeRomaneioExtractedAddresses,
   optimizeDeliveryRoute,
+  reoptimizeRemainingDeliveryRoute,
   buildParadasFromAddresses,
   resolveManualAddress,
   buildCalculatorStopSearchBias,
@@ -26,6 +27,12 @@ import { playWhooshSound } from "./src/utils/whooshSound.js";
 import DeliveryMap from "./src/components/DeliveryMap.js";
 import NavigationMap from "./src/components/NavigationMap.jsx";
 import { loadDeliveryRoutes, loadDeliveryRouteDetail, saveDeliveryRoute } from "./src/services/deliveryRouteService.js";
+import {
+  generateDeliveryReportPdf,
+  downloadPdfBlob,
+  shareDeliveryReportWhatsApp,
+  shareDeliveryReportEmail,
+} from "./src/services/deliveryReportPdf.js";
 import {
   readNavigationSession,
   writeNavigationSession,
@@ -65,7 +72,7 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="V212";
+const APP_VERSION="V213";
 const BETA_HIDE_PLANOS=true;
 
 const OfflineRestoredBanner=({show})=>show?(
@@ -1282,8 +1289,6 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
   const[showMotivo,setShowMotivo]=useState(false);
   const[showResumo,setShowResumo]=useState(false);
   const[showAddNavMenu,setShowAddNavMenu]=useState(false);
-  const[showInsertOpcoes,setShowInsertOpcoes]=useState(false);
-  const[paradaPendenteInsert,setParadaPendenteInsert]=useState(null);
   const[novoEnderecoNav,setNovoEnderecoNav]=useState("");
   const[erroNavAdd,setErroNavAdd]=useState("");
   const[adicionandoNav,setAdicionandoNav]=useState(false);
@@ -1296,6 +1301,9 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
   const[erroHistoricoSave,setErroHistoricoSave]=useState("");
   const[showConfirmExitNav,setShowConfirmExitNav]=useState(false);
   const[aposConclusao,setAposConclusao]=useState(false);
+  const[showPdfShare,setShowPdfShare]=useState(false);
+  const[pdfReportData,setPdfReportData]=useState(null);
+  const[gerandoPdf,setGerandoPdf]=useState(false);
 
   const isPro=plan==="pro";
   const LIMITE=isPro?Infinity:10;
@@ -1382,6 +1390,7 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
 
   const finalizarRota=useCallback(async(listaParadas)=>{
     const lista=listaParadas||paradas;
+    const ts=formatNowBR();
     const stats={
       total:lista.length,
       entregues:lista.filter(p=>getParadaStatus(p)==="entregue").length,
@@ -1390,6 +1399,15 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
         id:p.id,
         endereco:p.endereco,
         motivo:p.motivo||"—",
+      })),
+      data:ts.data,
+      hora:ts.horario,
+      motorista:perfil?.nome||"",
+      paradas:lista.map(p=>({
+        endereco:p.endereco||"",
+        status:getParadaStatus(p),
+        motivo:p.motivo||null,
+        horario:p.horario||"",
       })),
     };
 
@@ -1403,32 +1421,34 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
     writeOfflineCache(OFFLINE_KEYS.otimizar,{paradas:[]});
     setShowResumo(true);
 
-    if(!uid||rotaSalvaId)return;
+    if(!uid)return;
 
     setSalvandoRota(true);
     setErroHistoricoSave("");
+    setRotaSalvaId(null);
     try{
-      const {data}=formatNowBR();
       const saved=await saveDeliveryRoute(uid,{
-        date:data,
+        date:ts.data,
+        hora:ts.horario,
+        motorista:perfil?.nome||"",
         paradas:lista.map(p=>({
           endereco:p.endereco||"",
           status:getParadaStatus(p),
           motivo:p.motivo||null,
           horario:p.horario||"",
-          data:p.data||data,
+          data:p.data||ts.data,
           coords:Array.isArray(p.coords)&&p.coords.length>=2?p.coords:null,
         })),
         resultado,
       });
       setRotaSalvaId(saved.id);
       await carregarHistorico();
-    }catch{
+    }catch(err){
       setErroHistoricoSave("Não foi possível salvar no histórico. Verifique sua conexão e login.");
     }finally{
       setSalvandoRota(false);
     }
-  },[uid,paradas,resultado,rotaSalvaId,carregarHistorico]);
+  },[uid,paradas,resultado,perfil?.nome,carregarHistorico]);
 
   useEffect(()=>{
     if(!modoNavegacao||!paradas.length||showResumo)return;
@@ -1472,47 +1492,75 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
     writeOfflineCache(OFFLINE_KEYS.otimizar,{paradas:[]});
   };
 
-  const encerrarNavegacao=()=>{
+  const pausarNavegacao=()=>{
     setModoNavegacao(false);
     setShowConfirmExitNav(false);
   };
 
-  const aplicarInsertParada=async(modo,novaParada)=>{
-    setShowInsertOpcoes(false);
-    setParadaPendenteInsert(null);
+  const inserirParadaDuranteNavegacao=async(novaParada)=>{
     if(!novaParada)return;
-    if(modo==="proxima"){
-      setParadas(prev=>{
-        const idx=paradaAtualIdx>=0?paradaAtualIdx+1:prev.length;
-        const next=[...prev];
-        next.splice(idx,0,novaParada);
-        return next;
-      });
-      return;
-    }
-    if(modo==="final"){
-      setParadas(prev=>[...prev,novaParada]);
-      return;
-    }
-    if(modo==="eficiente"){
-      setReotimizando(true);
-      try{
-        const concluidas=paradas.filter(p=>getParadaStatus(p)!=="pendente");
-        const pendentes=paradas.filter(p=>getParadaStatus(p)==="pendente");
-        pendentes.push(novaParada);
-        if(pendentes.length<2){
-          setParadas([...concluidas,...pendentes]);
-          return;
+    setReotimizando(true);
+    setErroNavAdd("");
+    try{
+      let driverCoords=posicaoMotorista;
+      if(!driverCoords?.length){
+        const fresh=await getDriverGeolocation({preferFresh:true});
+        if(fresh){
+          driverCoords=[fresh.lng,fresh.lat];
+          setPosicaoMotorista(driverCoords);
         }
-        const out=await optimizeDeliveryRoute(pendentes,{
-          consumoKmL:perfil?.consumo,
-          precoCombustivel:5.89,
-        });
-        if(out.ok)setParadas([...concluidas,...out.paradasOtimizadas]);
-        else setParadas(prev=>{const idx=paradaAtualIdx>=0?paradaAtualIdx+1:prev.length;const next=[...prev];next.splice(idx,0,novaParada);return next;});
-      }finally{setReotimizando(false);}
+      }
+      const concluidas=paradas.filter(p=>getParadaStatus(p)!=="pendente");
+      const pendentes=paradas.filter(p=>getParadaStatus(p)==="pendente");
+      const out=await reoptimizeRemainingDeliveryRoute(concluidas,pendentes,{
+        ...novaParada,
+        id:novaParada.id||Date.now(),
+        status:"pendente",
+      },{
+        consumoKmL:perfil?.consumo,
+        precoCombustivel:5.89,
+        driverOriginCoords:driverCoords,
+      });
+      if(out.ok){
+        setParadas(out.paradas);
+        if(out.motoristaCoords)setPosicaoMotorista(out.motoristaCoords);
+      }else{
+        setErroNavAdd(out.error||"Não foi possível reotimizar a rota restante.");
+      }
+    }catch{
+      setErroNavAdd("Erro ao reotimizar. Tente novamente.");
+    }finally{
+      setReotimizando(false);
+      setShowAddNavMenu(false);
     }
   };
+
+  const handleGerarPdf=async(reportData)=>{
+    if(!reportData||gerandoPdf)return;
+    setGerandoPdf(true);
+    try{
+      const {blob,filename}=await generateDeliveryReportPdf(reportData);
+      downloadPdfBlob(blob,filename);
+      setPdfReportData(reportData);
+      setShowPdfShare(true);
+    }catch{
+      setErroHistoricoSave("Não foi possível gerar o PDF.");
+    }finally{
+      setGerandoPdf(false);
+    }
+  };
+
+  const reportFromHistorico=(det)=>(
+    det?{
+      motorista:det.motorista||perfil?.nome||"",
+      date:det.date||"",
+      hora:det.hora||"",
+      total:det.totalParadas||det.paradas?.length||0,
+      entregues:det.entregues??0,
+      naoEntregues:det.naoEntregues??0,
+      paradas:det.paradas||[],
+    }:null
+  );
 
   const handleNavScannerSuccess=async(novasParadas,meta)=>{
     setErroNavAdd("");
@@ -1521,24 +1569,21 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
     setAdicionandoNav(true);
     try{
       const geocoded=await geocodeRomaneioExtractedAddresses(novas);
-      if(geocoded[0])setParadaPendenteInsert(geocoded[0]);
-      setShowInsertOpcoes(true);
-      setShowAddNavMenu(false);
+      if(geocoded[0])await inserirParadaDuranteNavegacao(geocoded[0]);
+      else setErroNavAdd("Não foi possível localizar o endereço.");
     }catch{setErroNavAdd("Erro ao localizar endereço.");}
     finally{setAdicionandoNav(false);}
   };
 
   const handleNavManualAdd=async()=>{
-    if(!novoEnderecoNav.trim()||adicionandoNav)return;
+    if(!novoEnderecoNav.trim()||adicionandoNav||reotimizando)return;
     setErroNavAdd("");
     setAdicionandoNav(true);
     try{
       const out=await resolveManualAddress(novoEnderecoNav);
       if(!out.ok){setErroNavAdd(out.error);return;}
-      setParadaPendenteInsert({id:Date.now(),endereco:out.endereco,coords:out.coords,status:"pendente"});
       setNovoEnderecoNav("");
-      setShowInsertOpcoes(true);
-      setShowAddNavMenu(false);
+      await inserirParadaDuranteNavegacao({id:Date.now(),endereco:out.endereco,coords:out.coords,status:"pendente"});
     }catch{setErroNavAdd("Não foi possível validar o endereço.");}
     finally{setAdicionandoNav(false);}
   };
@@ -1947,7 +1992,7 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
                   if(det)setHistoricoDetalhe(det);
                 }}
                   style={{textAlign:"left",background:C.subtle,border:`1px solid ${C.border}`,borderRadius:11,padding:"12px 14px",cursor:"pointer"}}>
-                  <div style={{color:C.text,fontWeight:700,fontSize:13}}>{r.date||"—"} · {r.totalParadas||0} paradas</div>
+                  <div style={{color:C.text,fontWeight:700,fontSize:13}}>{r.date||"—"}{r.hora?` · ${r.hora}`:""} · {r.totalParadas||0} paradas</div>
                   <div style={{color:C.muted,fontSize:12,marginTop:3}}>
                     ✅ {r.entregues||0} entregues · ❌ {r.naoEntregues||0} não entregues
                   </div>
@@ -1962,9 +2007,13 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
         <div style={{position:"fixed",inset:0,zIndex:650,background:"#1E3A8A55",display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
           <div style={{background:C.surface,borderRadius:18,width:"100%",maxWidth:440,maxHeight:"85vh",overflowY:"auto",padding:20}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
-              <div style={{color:C.navy,fontWeight:800,fontSize:16}}>Rota · {historicoDetalhe.date}</div>
+              <div style={{color:C.navy,fontWeight:800,fontSize:16}}>Rota · {historicoDetalhe.date}{historicoDetalhe.hora?` · ${historicoDetalhe.hora}`:""}</div>
               <button type="button" onClick={()=>setHistoricoDetalhe(null)} style={{background:C.subtle,border:"none",borderRadius:8,padding:6,cursor:"pointer"}}><XIcon size={16}/></button>
             </div>
+            <button type="button" disabled={gerandoPdf} onClick={()=>handleGerarPdf(reportFromHistorico(historicoDetalhe))}
+              style={{width:"100%",padding:12,marginBottom:14,background:C.subtle,border:`1.5px solid ${OTIMIZAR_AZUL}`,borderRadius:12,cursor:gerandoPdf?"wait":"pointer",color:OTIMIZAR_AZUL,fontWeight:700,fontSize:14}}>
+              📄 {gerandoPdf?"Gerando PDF…":"Gerar PDF"}
+            </button>
             {(historicoDetalhe.paradas||[]).map((p,i)=>(
               <div key={i} style={{padding:"10px 0",borderBottom:i<historicoDetalhe.paradas.length-1?`1px solid ${C.border}`:"none"}}>
                 <div style={{color:C.text,fontSize:13,fontWeight:600}}>{i+1}. {p.endereco}</div>
@@ -2013,6 +2062,10 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
           <button onClick={reiniciarRota} style={{width:"100%",padding:14,background:`linear-gradient(135deg,${OTIMIZAR_AZUL},${OTIMIZAR_AZUL_MID})`,border:"none",borderRadius:12,color:"#fff",fontWeight:800,fontSize:15,cursor:"pointer"}}>
             Nova Rota
           </button>
+          <button type="button" disabled={gerandoPdf} onClick={()=>handleGerarPdf(resumoFinal)}
+            style={{width:"100%",padding:13,marginTop:10,background:C.subtle,border:`1.5px solid ${OTIMIZAR_AZUL}`,borderRadius:12,cursor:gerandoPdf?"wait":"pointer",color:OTIMIZAR_AZUL,fontWeight:700,fontSize:14}}>
+            📄 {gerandoPdf?"Gerando PDF…":"Gerar PDF"}
+          </button>
           <button onClick={()=>{reiniciarRota();onClose();}} style={{width:"100%",padding:12,marginTop:10,background:C.subtle,border:`1px solid ${C.border}`,borderRadius:12,cursor:"pointer",color:C.text2,fontWeight:600}}>
             Fechar
           </button>
@@ -2033,7 +2086,7 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
               style={{padding:"8px 14px",background:"#fff",border:`1.5px solid ${OTIMIZAR_AZUL}`,borderRadius:10,cursor:"pointer",color:OTIMIZAR_AZUL,fontWeight:700,fontSize:13}}>
               {viewNav==="mapa"?"Ver Lista":"Continuar Navegação"}
             </button>
-            <button type="button" onClick={()=>setShowConfirmExitNav(true)} aria-label="Sair da navegação"
+            <button type="button" onClick={()=>setShowConfirmExitNav(true)} aria-label="Pausar navegação"
               style={{padding:8,background:"#fff",border:`1px solid ${C.border}`,borderRadius:9,cursor:"pointer",display:"flex"}}>
               <XIcon size={16} color={C.muted}/>
             </button>
@@ -2073,10 +2126,6 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
             </>
           ):(
             <div style={{flex:1,overflowY:"auto",padding:14}}>
-              <button type="button" onClick={()=>setViewNav("mapa")}
-                style={{width:"100%",padding:12,marginBottom:12,background:OTIMIZAR_AZUL,border:"none",borderRadius:12,color:"#fff",fontWeight:800,fontSize:14,cursor:"pointer"}}>
-                Continuar Navegação
-              </button>
               {paradas.map((p,i)=>(
                 <div key={p.id} style={{
                   padding:"12px",marginBottom:8,borderRadius:11,
@@ -2102,12 +2151,12 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
       {showConfirmExitNav&&(
         <div style={{position:"fixed",inset:0,zIndex:720,background:"#1E3A8A66",display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
           <div style={{background:C.surface,borderRadius:18,width:"100%",maxWidth:360,padding:24,boxShadow:"0 12px 40px #00000033",textAlign:"center"}}>
-            <div style={{color:C.navy,fontWeight:800,fontSize:17,fontFamily:"'Sora',sans-serif",marginBottom:8}}>Deseja encerrar a navegação?</div>
-            <div style={{color:C.muted,fontSize:13,marginBottom:20,lineHeight:1.5}}>Você voltará para o Otimizador e poderá retomar depois pelo banner.</div>
+            <div style={{color:C.navy,fontWeight:800,fontSize:17,fontFamily:"'Sora',sans-serif",marginBottom:8}}>Deseja pausar a navegação?</div>
+            <div style={{color:C.muted,fontSize:13,marginBottom:20,lineHeight:1.5}}>Você voltará ao Otimizador. Seu progresso será mantido e poderá retomar pelo banner.</div>
             <div style={{display:"flex",flexDirection:"column",gap:10}}>
-              <button type="button" onClick={encerrarNavegacao}
-                style={{width:"100%",padding:13,background:C.red,border:"none",borderRadius:12,cursor:"pointer",color:"#fff",fontWeight:700,fontSize:14}}>
-                Sim, encerrar
+              <button type="button" onClick={pausarNavegacao}
+                style={{width:"100%",padding:13,background:OTIMIZAR_AZUL,border:"none",borderRadius:12,cursor:"pointer",color:"#fff",fontWeight:700,fontSize:14}}>
+                Sim, pausar
               </button>
               <button type="button" onClick={()=>setShowConfirmExitNav(false)}
                 style={{width:"100%",padding:13,background:C.subtle,border:`1px solid ${C.border}`,borderRadius:12,cursor:"pointer",color:C.text2,fontWeight:600,fontSize:14}}>
@@ -2160,23 +2209,26 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
         </div>
       )}
 
-      {showInsertOpcoes&&paradaPendenteInsert&&(
-        <div style={{position:"fixed",inset:0,zIndex:770,background:"#1E3A8A66",display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
-          <div style={{background:C.surface,borderRadius:18,width:"100%",maxWidth:380,padding:22}}>
-            <div style={{color:C.navy,fontWeight:800,fontSize:15,marginBottom:8}}>Onde inserir?</div>
-            <div style={{color:C.muted,fontSize:12,marginBottom:14,lineHeight:1.4}}>{paradaPendenteInsert.endereco}</div>
-            {[
-              {id:"proxima",label:"Próxima parada",desc:"Logo após a parada atual"},
-              {id:"final",label:"Final da rota",desc:"Última parada da lista"},
-              {id:"eficiente",label:"Posição mais eficiente",desc:"Reotimiza paradas restantes"},
-            ].map(op=>(
-              <button key={op.id} type="button" disabled={reotimizando} onClick={()=>aplicarInsertParada(op.id,{...paradaPendenteInsert,id:Date.now()})}
-                style={{width:"100%",textAlign:"left",padding:"12px 14px",marginBottom:8,background:C.subtle,border:`1px solid ${C.border}`,borderRadius:10,cursor:reotimizando?"wait":"pointer"}}>
-                <div style={{color:C.text,fontWeight:700,fontSize:14}}>{op.label}</div>
-                <div style={{color:C.muted,fontSize:11,marginTop:2}}>{op.desc}</div>
+      {showPdfShare&&pdfReportData&&(
+        <div style={{position:"fixed",inset:0,zIndex:780,background:"#1E3A8A66",display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+          <div style={{background:C.surface,borderRadius:18,width:"100%",maxWidth:360,padding:24,boxShadow:"0 12px 40px #00000033",textAlign:"center"}}>
+            <div style={{fontSize:36,marginBottom:8}}>📄</div>
+            <div style={{color:C.navy,fontWeight:800,fontSize:16,fontFamily:"'Sora',sans-serif",marginBottom:8}}>PDF gerado!</div>
+            <div style={{color:C.muted,fontSize:13,marginBottom:18,lineHeight:1.5}}>O relatório foi baixado. Compartilhe o resumo:</div>
+            <div style={{display:"flex",flexDirection:"column",gap:10}}>
+              <button type="button" onClick={()=>shareDeliveryReportWhatsApp(pdfReportData)}
+                style={{width:"100%",padding:13,background:"#25D366",border:"none",borderRadius:12,cursor:"pointer",color:"#fff",fontWeight:700,fontSize:14}}>
+                WhatsApp
               </button>
-            ))}
-            <button type="button" onClick={()=>{setShowInsertOpcoes(false);setParadaPendenteInsert(null);}} style={{width:"100%",padding:10,marginTop:4,background:"transparent",border:"none",cursor:"pointer",color:C.muted}}>Cancelar</button>
+              <button type="button" onClick={()=>shareDeliveryReportEmail(pdfReportData)}
+                style={{width:"100%",padding:13,background:C.navy,border:"none",borderRadius:12,cursor:"pointer",color:"#fff",fontWeight:700,fontSize:14}}>
+                E-mail
+              </button>
+              <button type="button" onClick={()=>{setShowPdfShare(false);setPdfReportData(null);}}
+                style={{width:"100%",padding:12,background:C.subtle,border:`1px solid ${C.border}`,borderRadius:12,cursor:"pointer",color:C.text2,fontWeight:600,fontSize:14}}>
+                Fechar
+              </button>
+            </div>
           </div>
         </div>
       )}

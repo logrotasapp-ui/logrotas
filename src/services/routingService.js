@@ -395,16 +395,13 @@ export async function openGoogleMapsDirections(stops) {
  */
 export function openGoogleMapsNavigationToStop(stop) {
   const addr = String(stop?.endereco || stop?.v || "").trim();
-  const coords = stop?.coords;
-  const params = new URLSearchParams({ api: "1", travelmode: "driving" });
+  if (!addr) return;
 
-  if (coords?.length >= 2) {
-    params.set("destination", `${coords[1]},${coords[0]}`);
-  } else if (addr) {
-    params.set("destination", addr);
-  } else {
-    return;
-  }
+  const params = new URLSearchParams({
+    api: "1",
+    destination: addr,
+    travelmode: "driving",
+  });
 
   window.open(`https://www.google.com/maps/dir/?${params.toString()}`, "_blank");
 }
@@ -856,7 +853,11 @@ export async function extractRomaneioAddressesFromImage(file, options = {}) {
  * @param {Array<{id, endereco}>} paradas
  */
 export async function optimizeDeliveryRoute(paradas, options = {}) {
-  const { consumoKmL = 10, precoCombustivel = 5.89 } = options;
+  const {
+    consumoKmL = 10,
+    precoCombustivel = 5.89,
+    driverOriginCoords = null,
+  } = options;
 
   if (!paradas || paradas.length < 2) {
     return { ok: false, error: "Adicione pelo menos 2 paradas." };
@@ -876,10 +877,15 @@ export async function optimizeDeliveryRoute(paradas, options = {}) {
       };
     }
 
-    const driverPos = await getDriverGeolocation({ preferFresh: true });
-    const driverOrigin = driverPos
-      ? { lng: driverPos.lng, lat: driverPos.lat }
-      : null;
+    let driverOrigin = null;
+    if (driverOriginCoords?.length >= 2) {
+      driverOrigin = { lng: driverOriginCoords[0], lat: driverOriginCoords[1] };
+    } else {
+      const driverPos = await getDriverGeolocation({ preferFresh: true });
+      driverOrigin = driverPos
+        ? { lng: driverPos.lng, lat: driverPos.lat }
+        : null;
+    }
 
     const optRes = await fetchGoogleOptimizedRoute(entries, driverOrigin);
 
@@ -913,6 +919,36 @@ export async function optimizeDeliveryRoute(paradas, options = {}) {
   } catch {
     return { ok: false, error: CONNECTION_ERROR };
   }
+}
+
+/**
+ * Reotimiza paradas pendentes + nova parada, preservando as já concluídas.
+ * Usa a posição atual do motorista como origem quando informada.
+ */
+export async function reoptimizeRemainingDeliveryRoute(
+  concluidas,
+  pendentes,
+  novaParada,
+  options = {}
+) {
+  const lista = [...(pendentes || []), novaParada];
+  if (lista.length < 2) {
+    return {
+      ok: true,
+      paradas: [...(concluidas || []), ...lista],
+      paradasOtimizadas: lista,
+      resultado: null,
+      motoristaCoords: options.driverOriginCoords || null,
+    };
+  }
+
+  const out = await optimizeDeliveryRoute(lista, options);
+  if (!out.ok) return out;
+
+  return {
+    ...out,
+    paradas: [...(concluidas || []), ...out.paradasOtimizadas],
+  };
 }
 
 // ── Cálculos puros (sem rede) ────────────────────────────────────────────────
