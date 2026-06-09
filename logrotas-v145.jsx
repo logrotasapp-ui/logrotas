@@ -57,7 +57,7 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="V205";
+const APP_VERSION="V207";
 const BETA_HIDE_PLANOS=true;
 
 const OfflineRestoredBanner=({show})=>show?(
@@ -350,7 +350,19 @@ const BotoesNavegacao=({onWaze,onMaps,wazeLabel="Abrir no Waze"})=>(
 );
 const ModalWrap=({children,maxW=480})=>(
   <div style={{position:"fixed",inset:0,background:"#1E3A8A33",zIndex:300,display:"flex",alignItems:"flex-start",justifyContent:"center",padding:"12px",overflowY:"auto",overflowX:"hidden",maxWidth:"100vw",boxSizing:"border-box"}}>
-    <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:20,width:"100%",maxWidth:maxW,padding:24,marginTop:10,boxShadow:"0 20px 60px #1E3A8A18",overflowX:"hidden",boxSizing:"border-box"}}>{children}</div>
+    <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:20,width:"100%",maxWidth:maxW,padding:24,marginTop:10,marginBottom:12,boxShadow:"0 20px 60px #1E3A8A18",overflowX:"hidden",boxSizing:"border-box"}}>{children}</div>
+  </div>
+);
+const ModalFormLayout=({children,footer,maxBodyHeight="min(58vh, 520px)"})=>(
+  <div style={{display:"flex",flexDirection:"column",maxHeight:maxBodyHeight}}>
+    <div style={{flex:1,overflowY:"auto",overflowX:"hidden",marginBottom:16,paddingRight:2,WebkitOverflowScrolling:"touch"}}>
+      {children}
+    </div>
+    {footer&&(
+      <div style={{flexShrink:0,paddingTop:12,borderTop:`1px solid ${C.border}`,background:C.surface}}>
+        {footer}
+      </div>
+    )}
   </div>
 );
 const ModalHeader=({title,sub,icon:Icon,iconColor,onClose})=>(
@@ -448,7 +460,7 @@ const DatePicker=({label,value,onChange})=>{
         <CalendarIcon size={14} color={open?C.orange:C.muted}/>{value||"Selecionar data"}
       </button>
       {open&&(
-        <div ref={calRef} style={{position:"absolute",top:"100%",left:0,zIndex:500,marginTop:6,background:C.surface,border:`1px solid ${C.border}`,borderRadius:14,padding:16,boxShadow:"0 8px 32px #1E3A8A18",minWidth:280}}>
+        <div ref={calRef} style={{marginTop:6,background:C.surface,border:`1px solid ${C.border}`,borderRadius:14,padding:16,boxShadow:"0 4px 16px #1E3A8A12",minWidth:280}}>
           <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
             <button onClick={()=>setView(new Date(y,m-1,1))} style={{background:C.subtle,border:"none",borderRadius:8,padding:6,cursor:"pointer",display:"flex"}}><ChevronLeftIcon size={14} color={C.text2}/></button>
             <span style={{color:C.navy,fontWeight:800,fontSize:14,fontFamily:"'Sora',sans-serif"}}>{MONTHS[m]} {y}</span>
@@ -1258,7 +1270,7 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade})=>{
     setParadas(p=>p.map(x=>x.id===id?{...x,entregue:true}:x));
   };
 
-  // Geocoding Google com proximity (GPS + cadeia) p/ endereços do Gemini
+  // Geocoding Google com proximity (GPS + cadeia) p/ endereços do OCR (Vision)
   // V169 — paradas com confianca ok|warn; feedback para FAIL
   const handleScannerSuccess=async(novasParadas,meta)=>{
     setErroFoto("");
@@ -3067,23 +3079,24 @@ const Despesas=({despesas,onAddDespesa,onUpdateDespesa,onDeleteDespesa})=>{
 
       {/* Modal registrar */}
       {showAdd&&(<ModalWrap><ModalHeader title={editingId?"Editar Despesa":"Registrar Despesa"} icon={DollarSignIcon} iconColor={C.red} onClose={()=>{setShowAdd(false);setEditingId(null);setForm({categoria:"Café da manhã",descricao:"",valor:"",date:""});}}/>
-        <div style={{display:"flex",flexDirection:"column",gap:12,paddingBottom:240}}>
-          <div style={{display:"flex",flexDirection:"column",gap:5}}>
-            <label style={{color:C.text2,fontSize:14,fontWeight:700,letterSpacing:0.4}}>Categoria</label>
-            <div style={{display:"flex",flexWrap:"wrap",gap:7}}>
-              {categorias.map(cat=>(
-                <button key={cat} onClick={()=>setForm(f=>({...f,categoria:cat}))}
-                  style={{background:form.categoria===cat?C.redLight:C.subtle,border:`1.5px solid ${form.categoria===cat?C.red:C.border}`,borderRadius:20,padding:"6px 14px",cursor:"pointer",color:form.categoria===cat?C.red:C.text2,fontSize:12,fontWeight:form.categoria===cat?700:400}}>
-                  {cat}
-                </button>
-              ))}
+        <ModalFormLayout footer={<PrimaryBtn onClick={add} variant="red" style={{width:"100%"}}>{editingId?"Salvar alterações →":"Salvar Despesa →"}</PrimaryBtn>}>
+          <div style={{display:"flex",flexDirection:"column",gap:12}}>
+            <div style={{display:"flex",flexDirection:"column",gap:5}}>
+              <label style={{color:C.text2,fontSize:14,fontWeight:700,letterSpacing:0.4}}>Categoria</label>
+              <div style={{display:"flex",flexWrap:"wrap",gap:7}}>
+                {categorias.map(cat=>(
+                  <button key={cat} onClick={()=>setForm(f=>({...f,categoria:cat}))}
+                    style={{background:form.categoria===cat?C.redLight:C.subtle,border:`1.5px solid ${form.categoria===cat?C.red:C.border}`,borderRadius:20,padding:"6px 14px",cursor:"pointer",color:form.categoria===cat?C.red:C.text2,fontSize:12,fontWeight:form.categoria===cat?700:400}}>
+                    {cat}
+                  </button>
+                ))}
+              </div>
             </div>
+            <Field label="Descrição (opcional)" value={form.descricao} onChange={v=>setForm(f=>({...f,descricao:v}))} placeholder="ex: Almoço em Campinas"/>
+            <Field label="Valor (R$)" value={form.valor} onChange={v=>setForm(f=>({...f,valor:v}))} placeholder="25.00" prefix="R$"/>
+            <DatePicker label="Data" value={form.date} onChange={v=>setForm(f=>({...f,date:v}))}/>
           </div>
-          <Field label="Descrição (opcional)" value={form.descricao} onChange={v=>setForm(f=>({...f,descricao:v}))} placeholder="ex: Almoço em Campinas"/>
-          <Field label="Valor (R$)" value={form.valor} onChange={v=>setForm(f=>({...f,valor:v}))} placeholder="25.00" prefix="R$"/>
-          <DatePicker label="Data" value={form.date} onChange={v=>setForm(f=>({...f,date:v}))}/>
-        </div>
-        <PrimaryBtn onClick={add} variant="red" style={{width:"100%",marginTop:16}}>{editingId?"Salvar alterações →":"Salvar Despesa →"}</PrimaryBtn>
+        </ModalFormLayout>
       </ModalWrap>)}
 
       {/* Sub-componente de item de despesa com editar + excluir */}
@@ -3307,13 +3320,14 @@ const Documentos=({docs,onAddDocumento,onDeleteDocumento})=>{
       </Card>
 
       {showAdd&&(<ModalWrap><ModalHeader title="Novo Documento" icon={FileTextIcon} iconColor={C.navy} onClose={()=>setShowAdd(false)}/>
-        <div style={{display:"flex",flexDirection:"column",gap:12,paddingBottom:240}}>
-          <SelectField label="Tipo" value={form.type} onChange={v=>setForm(f=>({...f,type:v}))} options={["CNH","CRLV","Seguro","Tacógrafo","Licença ANTT","Outros"]}/>
-          {form.type!=="CNH"&&<Field label="Veículo / Titular" value={form.vehicle} onChange={v=>setForm(f=>({...f,vehicle:v}))} placeholder="Caminhão MB 1620"/>}
-          <Field label="Número / Registro" value={form.number} onChange={v=>setForm(f=>({...f,number:v}))} placeholder="ABC-1234"/>
-          <DatePicker label="Data de Vencimento" value={form.expiry} onChange={v=>setForm(f=>({...f,expiry:v}))}/>
-        </div>
-        <PrimaryBtn onClick={async()=>{await onAddDocumento?.({...form,status:"ok"});setForm({type:"CNH",vehicle:"",number:"",expiry:""});setShowAdd(false);}} style={{width:"100%",marginTop:16}}>Salvar →</PrimaryBtn>
+        <ModalFormLayout footer={<PrimaryBtn onClick={async()=>{await onAddDocumento?.({...form,status:"ok"});setForm({type:"CNH",vehicle:"",number:"",expiry:""});setShowAdd(false);}} style={{width:"100%"}}>Salvar →</PrimaryBtn>}>
+          <div style={{display:"flex",flexDirection:"column",gap:12}}>
+            <SelectField label="Tipo" value={form.type} onChange={v=>setForm(f=>({...f,type:v}))} options={["CNH","CRLV","Seguro","Tacógrafo","Licença ANTT","Outros"]}/>
+            {form.type!=="CNH"&&<Field label="Veículo / Titular" value={form.vehicle} onChange={v=>setForm(f=>({...f,vehicle:v}))} placeholder="Caminhão MB 1620"/>}
+            <Field label="Número / Registro" value={form.number} onChange={v=>setForm(f=>({...f,number:v}))} placeholder="ABC-1234"/>
+            <DatePicker label="Data de Vencimento" value={form.expiry} onChange={v=>setForm(f=>({...f,expiry:v}))}/>
+          </div>
+        </ModalFormLayout>
       </ModalWrap>)}
       {del&&<DeleteConfirm message={`Excluir "${del.type}" de ${del.vehicle}?`} onConfirm={async()=>{await onDeleteDocumento?.(del.id);setDel(null);}} onCancel={()=>setDel(null)}/>}
     </div>

@@ -2,7 +2,6 @@ import {
   API_KEYS,
   API_ENDPOINTS,
   ORS_HEADERS,
-  GEMINI_HEADERS,
   SEARCH_COUNTRIES,
 } from "./apiConfig.js";
 import {
@@ -25,7 +24,7 @@ import {
   buildParadasFromAddresses,
   buildParadasFromGeminiItems,
 } from "./romaneioRouting.js";
-import { cleanAddressLine } from "./romaneioParser.js";
+import { cleanAddressLine, parseAddressesFromRomaneioText } from "./romaneioParser.js";
 
 export {
   parseRomaneioTextToDestinations,
@@ -40,35 +39,6 @@ export {
 export const TOLL_PER_AXLE = 3.2;
 
 // V173 — autocomplete SP reforçado + Waze/Maps waypoints; V172 — GPS origem Maps
-const ROMANEIO_PROMPT =
-  "Analise esta imagem de documento de entrega (romaneio ou etiqueta). REGRAS ABSOLUTAS — violar qualquer uma é erro grave:\n\n" +
-  "VALIDAÇÃO LITERAL (obrigatória antes de cada linha de saída):\n" +
-  "- Antes de retornar qualquer endereço, verifique se CADA PALAVRA do endereço (rua, número, bairro, cidade, UF) aparece LITERALMENTE na imagem.\n" +
-  "- NUNCA complete, corrija ou infira partes do endereço que não estejam visíveis na imagem.\n" +
-  "- Se tiver dúvida sobre QUALQUER parte do endereço → retorne WARN com apenas o que estiver visível, NUNCA invente.\n" +
-  "- Se não houver destinatário identificável → FAIL| (linha vazia).\n\n" +
-  "CEP (fonte da verdade para validação, NÃO para inventar):\n" +
-  "- O CEP visível na imagem é OBRIGATÓRIO para confirmar cidade/UF em linhas OK.\n" +
-  "- Se o CEP não bater com a cidade escrita na etiqueta, corrija a cidade/UF pelo CEP (o CEP prevalece).\n" +
-  "- Use faixas de CEP apenas para VALIDAR, nunca para inferir cidade se o nome da cidade não estiver legível na imagem:\n" +
-  "  03xxx/04xxx = São Paulo-SP | 88xxx = Santa Catarina | 60xxx = Ceará | 01xxx/02xxx = região metropolitana SP.\n" +
-  "- PROIBIDO retornar cidades como Pacoti-CE ou Siderópolis-SC se esses nomes NÃO aparecerem literalmente na imagem.\n\n" +
-  "ETIQUETAS E ROMANEIOS:\n" +
-  "- Máximo de 1 endereço por etiqueta física. Se houver mais de 1 candidato, use SOMENTE o do DESTINATÁRIO.\n" +
-  "- Ignore COMPLETAMENTE tudo após a palavra REMETENTE.\n" +
-  "- Ignore rastreio, corredor, gaiola, hub, ordem, parada, SKU, NF, série.\n" +
-  "- ROMANEIO: uma linha por endereço de destino visível. ETIQUETA (qualquer transportadora): uma etiqueta = uma linha.\n\n" +
-  "FORMATO DE SAÍDA (prefixo obrigatório, uma linha por etiqueta/endereço):\n" +
-  "OK|Rua/Avenida, Número[, Complemento] - Bairro, Cidade - UF\n" +
-  "WARN|somente trechos literalmente visíveis e duvidosos\n" +
-  "FAIL|\n\n" +
-  "OK = todas as palavras literais na imagem + CEP visível confirma cidade/UF.\n" +
-  "WARN = qualquer dúvida, CEP ausente, ou endereço incompleto — sem inventar o que falta.\n" +
-  "FAIL = destinatário não identificado.\n" +
-  "Exemplo: OK|Rua Atucuri, 650 - Chácara Santo Antônio, São Paulo - SP\n" +
-  "Se \"Pacotes nesta parada\" estiver visível, inclua ao final: \" · N pacote(s)\".\n" +
-  "Sem numeração, sem explicações — somente linhas prefixadas.";
-
 const CONNECTION_ERROR =
   "Erro de conexão. Verifique sua internet e tente novamente.";
 
@@ -76,7 +46,7 @@ const CONNECTION_ERROR =
 let cachedGeocodeProximity = null;
 let geocodeProximityRequested = false;
 
-/** V159 — fallback de proximity no fluxo romaneio/Gemini (último endereço geocodificado) */
+/** V159 — fallback de proximity no fluxo romaneio/OCR (último endereço geocodificado) */
 let lastRomaneioGeocodeProximity = null;
 
 /**
@@ -606,7 +576,7 @@ export async function geocodeAddressForDisplay(endereco) {
 }
 
 /**
- * Geocoding de endereços extraídos pelo Gemini (romaneio).
+ * Geocoding de endereços extraídos por OCR (romaneio).
  * Proximity: GPS do motorista → último endereço geocodificado com sucesso.
  */
 export async function geocodeRomaneioExtractedAddress(endereco) {
@@ -661,78 +631,84 @@ async function resolveParadaCoordForOptimization(parada) {
   return geocodeAddressGoogle(parada.endereco, { biasLngLat: proximity });
 }
 
-// ── Romaneio: Gemini Vision (Gemini 2.5 Flash Lite) ────────────────────────────
+// ── Romaneio: Google Cloud Vision (TEXT_DETECTION) ───────────────────────────
 
-function geminiErrorMessage(res) {
+function visionErrorMessage(res) {
   const apiMsg =
     res?.data?.error?.message ||
-    res?.data?.[0]?.error?.message ||
-    res?.data?.promptFeedback?.blockReason;
+    res?.data?.responses?.[0]?.error?.message;
   if (apiMsg) return String(apiMsg);
   if (res?.status === 401 || res?.status === 403) {
-    return "Chave Gemini inválida. Verifique VITE_GEMINI_KEY no arquivo .env.";
+    return "Chave Google Vision inválida. Verifique VITE_GOOGLE_VISION_API_KEY no arquivo .env.";
   }
   if (res?.status === 429) {
-    return "Limite da API Gemini atingido. Aguarde um momento e tente de novo.";
+    return "Limite da API Google Vision atingido. Aguarde um momento e tente de novo.";
   }
   if (res?.status) return `Erro na leitura do romaneio (código ${res.status}).`;
   return "Erro ao processar a imagem. Verifique sua conexão e tente novamente.";
 }
 
+function extractVisionOcrText(data) {
+  const response = data?.responses?.[0];
+  if (!response) return "";
+  if (response.fullTextAnnotation?.text) return response.fullTextAnnotation.text;
+  if (response.textAnnotations?.[0]?.description) {
+    return response.textAnnotations[0].description;
+  }
+  return "";
+}
+
 /**
- * Envia imagem do romaneio ao Gemini 2.5 Flash Lite e extrai endereços.
+ * Envia imagem do romaneio ao Google Cloud Vision e extrai endereços via OCR.
  * @param {Blob|File} file
  * @param {{ onProgress?: (pct: number, status: string) => void, signal?: { aborted?: boolean } }} [options]
  */
-export async function extractRomaneioAddressesFromImageGemini(file, options = {}) {
+export async function extractRomaneioAddressesFromImageVision(file, options = {}) {
   const { onProgress, signal } = options;
   const report = (pct, status) => {
     if (!signal?.aborted) onProgress?.(pct, status);
   };
 
-  if (!API_KEYS.gemini) {
+  if (!API_KEYS.googleVision) {
     return {
       ok: false,
       error:
-        "Leitura automática indisponível. Configure VITE_GEMINI_KEY no arquivo .env.",
+        "Leitura automática indisponível. Configure VITE_GOOGLE_VISION_API_KEY no arquivo .env.",
       addresses: [],
-      method: "gemini",
+      method: "vision",
     };
   }
 
   if (signal?.aborted) {
-    return { ok: false, error: "Leitura cancelada.", addresses: [], method: "gemini" };
+    return { ok: false, error: "Leitura cancelada.", addresses: [], method: "vision" };
   }
 
   try {
     report(20, "Preparando imagem…");
     const imgBase64 = await readFileAsBase64(file);
-    const mimeType = file.type || "image/jpeg";
 
     if (signal?.aborted) {
-      return { ok: false, error: "Leitura cancelada.", addresses: [], method: "gemini" };
+      return { ok: false, error: "Leitura cancelada.", addresses: [], method: "vision" };
     }
 
-    report(40, "Enviando para leitura inteligente…");
-    const url = `${API_ENDPOINTS.geminiGenerate}?key=${API_KEYS.gemini}`;
+    report(40, "Enviando para leitura OCR…");
+    const url = `${API_ENDPOINTS.googleVisionAnnotate}?key=${API_KEYS.googleVision}`;
 
     const res = await fetchJson(url, {
       method: "POST",
-      headers: GEMINI_HEADERS.json,
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        contents: [
+        requests: [
           {
-            parts: [
-              { text: ROMANEIO_PROMPT },
-              { inline_data: { mime_type: mimeType, data: imgBase64 } },
-            ],
+            image: { content: imgBase64 },
+            features: [{ type: "TEXT_DETECTION" }],
           },
         ],
       }),
     });
 
     if (signal?.aborted) {
-      return { ok: false, error: "Leitura cancelada.", addresses: [], method: "gemini" };
+      return { ok: false, error: "Leitura cancelada.", addresses: [], method: "vision" };
     }
 
     if (res.networkError) {
@@ -740,47 +716,33 @@ export async function extractRomaneioAddressesFromImageGemini(file, options = {}
         ok: false,
         error: "Sem conexão. Verifique a internet e tente novamente.",
         addresses: [],
-        method: "gemini",
+        method: "vision",
       };
     }
 
     if (!res.ok) {
       return {
         ok: false,
-        error: geminiErrorMessage(res),
+        error: visionErrorMessage(res),
         addresses: [],
-        method: "gemini",
+        method: "vision",
       };
     }
 
     report(75, "Interpretando endereços…");
-    const texto = res.data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
-    const items = parseGeminiRomaneioResponse(texto);
-    const failedCount = items.filter((i) => i.confianca === "fail").length;
-    const paradas = buildParadasFromGeminiItems(items);
-    const addresses = paradas.map((p) => p.endereco);
+    const texto = extractVisionOcrText(res.data);
+    const addresses = parseAddressesFromRomaneioText(texto);
+    const paradas = buildParadasFromAddresses(addresses);
 
-    if (items.length === 0) {
+    if (!texto.trim()) {
       return {
         ok: false,
         error:
-          "Nenhum endereço encontrado na foto. Tente mais luz, enquadre o romaneio ou use o input manual.",
+          "Nenhum texto encontrado na foto. Tente mais luz, enquadre o romaneio ou use o input manual.",
         addresses: [],
         failedCount: 0,
-        method: "gemini",
-        rawTextPreview: texto.slice(0, 400),
-      };
-    }
-
-    if (paradas.length === 0 && failedCount > 0) {
-      return {
-        ok: false,
-        error: "❌ Endereço não identificado — adicione manualmente.",
-        addresses: [],
-        paradas: [],
-        failedCount,
-        method: "gemini",
-        rawTextPreview: texto.slice(0, 400),
+        method: "vision",
+        rawTextPreview: "",
       };
     }
 
@@ -790,8 +752,8 @@ export async function extractRomaneioAddressesFromImageGemini(file, options = {}
         error:
           "Nenhum endereço encontrado na foto. Tente mais luz, enquadre o romaneio ou use o input manual.",
         addresses: [],
-        failedCount,
-        method: "gemini",
+        failedCount: 0,
+        method: "vision",
         rawTextPreview: texto.slice(0, 400),
       };
     }
@@ -801,12 +763,12 @@ export async function extractRomaneioAddressesFromImageGemini(file, options = {}
       ok: true,
       addresses,
       paradas,
-      failedCount,
-      method: "gemini",
+      failedCount: 0,
+      method: "vision",
     };
   } catch (err) {
     if (signal?.aborted) {
-      return { ok: false, error: "Leitura cancelada.", addresses: [], method: "gemini" };
+      return { ok: false, error: "Leitura cancelada.", addresses: [], method: "vision" };
     }
     return {
       ok: false,
@@ -814,13 +776,13 @@ export async function extractRomaneioAddressesFromImageGemini(file, options = {}
         err?.message ||
         "Erro ao processar a imagem. Verifique sua conexão e tente novamente.",
       addresses: [],
-      method: "gemini",
+      method: "vision",
     };
   }
 }
 
 /**
- * Converte foto/PDF em imagem e extrai endereços via Gemini 2.5 Flash Lite.
+ * Converte foto/PDF em imagem e extrai endereços via Google Cloud Vision OCR.
  * @param {Blob|File} file
  * @param {{ onProgress?: (pct: number, status: string) => void, signal?: { aborted?: boolean } }} [options]
  */
@@ -858,7 +820,7 @@ export async function extractRomaneioAddressesFromImage(file, options = {}) {
     return { ok: false, error: err.message, addresses: [] };
   }
 
-  return extractRomaneioAddressesFromImageGemini(imageFile, {
+  return extractRomaneioAddressesFromImageVision(imageFile, {
     onProgress,
     signal,
   });

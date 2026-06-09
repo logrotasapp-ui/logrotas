@@ -5,7 +5,7 @@
 
 const ENV_VAR_NAMES = {
   ors: "VITE_ORS_KEY",
-  gemini: "VITE_GEMINI_KEY",
+  googleVision: "VITE_GOOGLE_VISION_API_KEY",
   googleMaps: "VITE_GOOGLE_MAPS_KEY",
 };
 
@@ -33,15 +33,14 @@ export const SEARCH_COUNTRIES = "br";
 
 export const API_KEYS = {
   ors: readEnv(ENV_VAR_NAMES.ors),
-  gemini: readEnv(ENV_VAR_NAMES.gemini),
+  googleVision: readEnv(ENV_VAR_NAMES.googleVision),
   googleMaps: readEnv(ENV_VAR_NAMES.googleMaps),
 };
 
 export const API_ENDPOINTS = {
   orsGeocode: "https://api.openrouteservice.org/geocode/autocomplete",
   orsDirections: "https://api.openrouteservice.org/v2/directions/driving-hgv",
-  geminiGenerate:
-    "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent",
+  googleVisionAnnotate: "https://vision.googleapis.com/v1/images:annotate",
 };
 
 export const ORS_HEADERS = {
@@ -49,11 +48,7 @@ export const ORS_HEADERS = {
   auth: () => ({ Authorization: API_KEYS.ors }),
 };
 
-export const GEMINI_HEADERS = {
-  json: { "Content-Type": "application/json" },
-};
-
 /** Indica se as chaves principais estão configuradas. */
 export function hasRequiredApiKeys() {
-  return Boolean(API_KEYS.googleMaps && API_KEYS.gemini);
+  return Boolean(API_KEYS.googleMaps && API_KEYS.googleVision);
 }
