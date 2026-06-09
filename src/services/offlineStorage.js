@@ -14,6 +14,50 @@ export const AUTH_KEYS = {
   registerStep1: "logrotas_register_step1",
 };
 
+export const PROFILE_KEYS = {
+  perfil: "logrotas_perfil",
+};
+
+const PROFILE_LABELS = {
+  caminhoneiro: "Caminhoneiro",
+  guincheiro: "Guincheiro",
+  motoqueiro: "Motoqueiro",
+  outros: "Outros",
+};
+
+/** Fallback de perfil a partir do cache local ou dados do cadastro. */
+export function readPerfilLocalFallback() {
+  const cached = readOfflineCache(PROFILE_KEYS.perfil);
+  if (cached && (cached.nome || cached.email || cached.telefone)) {
+    return {
+      nome: cached.nome || "",
+      email: cached.email || "",
+      telefone: cached.telefone || "",
+      tipo: cached.tipo || "Motorista Autônomo",
+      veiculo: cached.veiculo || "",
+    };
+  }
+  const step1 = readOfflineCache(AUTH_KEYS.registerStep1);
+  const prefs = readOfflineCache(AUTH_KEYS.registerPrefs);
+  return {
+    nome: step1?.name || "",
+    email: step1?.email || "",
+    telefone: step1?.phone || "",
+    tipo: PROFILE_LABELS[prefs?.profile] || "Motorista Autônomo",
+    veiculo: prefs?.vehicle || "",
+  };
+}
+
+export function writePerfilLocalCache(perfil) {
+  writeOfflineCache(PROFILE_KEYS.perfil, {
+    nome: perfil?.nome || "",
+    email: perfil?.email || "",
+    telefone: perfil?.telefone || "",
+    tipo: perfil?.tipo || "Motorista Autônomo",
+    veiculo: perfil?.veiculo || "",
+  });
+}
+
 export const PLAN_KEYS = {
   plano: "logrotas_plano",
   planoExpiry: "logrotas_plano_expiry",

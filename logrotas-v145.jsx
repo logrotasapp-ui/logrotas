@@ -23,9 +23,9 @@ import { calculateTripCosts } from "./src/services/tripCalcService.js";
 import ScannerModule from "./src/components/ScannerModule.js";
 import { playWhooshSound } from "./src/utils/whooshSound.js";
 import DeliveryMap from "./src/components/DeliveryMap.js";
-import { OFFLINE_KEYS, AUTH_KEYS, readOfflineCache, writeOfflineCache, clearAllLogRotasStorage, activateProTrial, readProPlanActive, readProTrialDaysLeft } from "./src/services/offlineStorage.js";
+import { OFFLINE_KEYS, AUTH_KEYS, readOfflineCache, writeOfflineCache, clearAllLogRotasStorage, activateProTrial, readProPlanActive, readProTrialDaysLeft, readPerfilLocalFallback, writePerfilLocalCache } from "./src/services/offlineStorage.js";
 import { subscribeAuth, signInWithEmail, signUpWithEmail, signInWithGoogle, signOutUser, deleteCurrentUser, getAuthErrorMessage } from "./src/services/authService.js";
-import { saveUserProfile, loadUserProfile, ensureGoogleUserProfile, cadastroToFirestorePayload, firestoreToPerfil } from "./src/services/userProfileService.js";
+import { saveUserProfile, loadUserProfile, ensureGoogleUserProfile, cadastroToFirestorePayload, firestoreToPerfil, perfilToFirestorePayload } from "./src/services/userProfileService.js";
 import { validateBetaCode, consumeBetaCode, normalizeBetaCode } from "./src/services/betaCodeService.js";
 import {
   loadUserHistory,
@@ -57,7 +57,8 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="V204";
+const APP_VERSION="V205";
+const BETA_HIDE_PLANOS=true;
 
 const OfflineRestoredBanner=({show})=>show?(
   <div style={{background:"#F0F9FF",border:"1px solid #BAE6FD",borderRadius:8,padding:"6px 12px",marginBottom:10,fontSize:11,color:"#0369A1",fontWeight:600,textAlign:"center"}}>
@@ -3970,6 +3971,15 @@ const AdminPanel=({onClose,historicoFretes,docs,perfil,despesas,manutencoes})=>{
   );
 };
 
+const PlanosBetaPlaceholder=()=>(
+  <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",minHeight:"50vh",padding:"32px 20px",textAlign:"center",gap:14}}>
+    <div style={{fontSize:44}}>🚀</div>
+    <p style={{color:C.navy,fontSize:17,fontWeight:800,fontFamily:"'Sora',sans-serif",margin:0,lineHeight:1.5}}>
+      Em breve — planos serão ativados após o período beta
+    </p>
+  </div>
+);
+
 const Assinatura=({plan:cur,onChangePlan})=>{
   const[billing,setBilling]=useState("monthly");
   const[confirm,setConfirm]=useState(null);
@@ -4177,8 +4187,9 @@ const Assinatura=({plan:cur,onChangePlan})=>{
 };
 
 // ── PERFIL ────────────────────────────────────────────────────────────────────
-const Perfil=({metaMes,setMetaMes,ganhoMes,vehicles,setVehicles,perfil,setPerfil,onLimpar,onAdmin})=>{
+const Perfil=({uid,metaMes,setMetaMes,ganhoMes,vehicles,setVehicles,perfil,setPerfil,onLimpar,onAdmin})=>{
   const[editMode,setEditMode]=useState(false);
+  const[loadingPerfil,setLoadingPerfil]=useState(false);
   const[editandoMeta,setEditandoMeta]=useState(false);
   const[draftMeta,setDraftMeta]=useState(String(metaMes));
   const[editVeh,setEditVeh]=useState(null);
@@ -4192,6 +4203,41 @@ const Perfil=({metaMes,setMetaMes,ganhoMes,vehicles,setVehicles,perfil,setPerfil
   const saveVeh=id=>{setVehicles(vs=>vs.map(x=>x.id===id?{...x,consumption:parseFloat(editVehVals.consumption)||x.consumption,axles:parseInt(editVehVals.axles)||x.axles,kwh:parseFloat(editVehVals.kwh)||x.kwh}:x));setEditVeh(null);};
 
   const tapTimer=useRef(null);
+
+  useEffect(()=>{
+    if(!uid)return;
+    let cancelled=false;
+    setLoadingPerfil(true);
+    (async()=>{
+      try{
+        const profile=await loadUserProfile(uid);
+        if(cancelled)return;
+        if(profile){
+          const p=firestoreToPerfil(profile);
+          setPerfil(p);
+          writePerfilLocalCache(p);
+        }else{
+          setPerfil(readPerfilLocalFallback());
+        }
+      }catch{
+        if(!cancelled)setPerfil(readPerfilLocalFallback());
+      }finally{
+        if(!cancelled)setLoadingPerfil(false);
+      }
+    })();
+    return()=>{cancelled=true;};
+  },[uid]);
+
+  const toggleEditMode=async()=>{
+    if(editMode&&uid){
+      try{
+        await saveUserProfile(uid,perfilToFirestorePayload(perfil));
+        writePerfilLocalCache(perfil);
+      }catch{/* ignore */}
+    }
+    setEditMode(e=>!e);
+  };
+
   const handleTitleTap=()=>{
     const next=tapCount+1;
     setTapCount(next);
@@ -4302,15 +4348,20 @@ const Perfil=({metaMes,setMetaMes,ganhoMes,vehicles,setVehicles,perfil,setPerfil
           <div style={{color:C.navy,fontWeight:800,fontSize:15,fontFamily:"'Sora',sans-serif",display:"flex",alignItems:"center",gap:7}}>
             <span>👤</span> Meus Dados
           </div>
-          <button onClick={()=>setEditMode(e=>!e)}
-            style={{background:editMode?C.greenLight:C.orangeLight,border:`1px solid ${editMode?C.green:C.orange}33`,borderRadius:8,padding:"5px 12px",cursor:"pointer",color:editMode?C.green:C.orange,fontSize:12,fontWeight:700,display:"flex",alignItems:"center",gap:5}}>
+          <button onClick={toggleEditMode} disabled={loadingPerfil}
+            style={{background:editMode?C.greenLight:C.orangeLight,border:`1px solid ${editMode?C.green:C.orange}33`,borderRadius:8,padding:"5px 12px",cursor:loadingPerfil?"wait":"pointer",color:editMode?C.green:C.orange,fontSize:12,fontWeight:700,display:"flex",alignItems:"center",gap:5,opacity:loadingPerfil?0.6:1}}>
             {editMode?<><CheckIcon size={12}/> Salvar</>:<><EditIcon size={12}/> Editar</>}
           </button>
         </div>
         <div style={{padding:"12px 20px",display:"flex",flexDirection:"column",gap:12}}>
+          {loadingPerfil&&(
+            <div style={{background:C.navyLight,border:`1px solid ${C.navy}22`,borderRadius:10,padding:"9px 12px",color:C.navy,fontSize:12,fontWeight:600,textAlign:"center"}}>
+              Carregando seus dados...
+            </div>
+          )}
           <div style={{background:C.navyLight,border:`1px solid ${C.navy}22`,borderRadius:10,padding:"9px 12px",display:"flex",alignItems:"center",gap:7,marginBottom:4}}>
             <InfoIcon size={13} color={C.navy}/>
-            <span style={{color:C.navy,fontSize:12}}>Dados preenchidos automaticamente pelo seu cadastro. Edite quando quiser.</span>
+            <span style={{color:C.navy,fontSize:12}}>Dados sincronizados com sua conta. Edite quando quiser.</span>
           </div>
           <Field label="Meu Nome" value={perfil.nome} onChange={v=>setPerfil(p=>({...p,nome:v}))} placeholder="Ex: João Silva" readOnly={!editMode}/>
           <Field label="E-mail" value={perfil.email} onChange={v=>setPerfil(p=>({...p,email:v}))} placeholder="Ex: joao@email.com" readOnly={!editMode}/>
@@ -4492,21 +4543,25 @@ export default function App(){
         }
         if(cancelled)return;
         if(profile){
-          setPerfil(firestoreToPerfil(profile));
+          const p=firestoreToPerfil(profile);
+          setPerfil(p);
+          writePerfilLocalCache(p);
         }else{
-          setPerfil(p=>({
-            ...p,
-            nome:firebaseUser.displayName||p.nome,
-            email:firebaseUser.email||p.email,
-          }));
+          const local=readPerfilLocalFallback();
+          setPerfil({
+            ...local,
+            nome:local.nome||firebaseUser.displayName||"",
+            email:local.email||firebaseUser.email||"",
+          });
         }
       }catch{
         if(!cancelled){
-          setPerfil(p=>({
-            ...p,
-            nome:firebaseUser.displayName||p.nome,
-            email:firebaseUser.email||p.email,
-          }));
+          const local=readPerfilLocalFallback();
+          setPerfil({
+            ...local,
+            nome:local.nome||firebaseUser.displayName||"",
+            email:local.email||firebaseUser.email||"",
+          });
         }
       }
     })();
@@ -4679,6 +4734,13 @@ export default function App(){
       tipo: profileLabels[dadosCadastro.profile]||"Motorista Autônomo",
       veiculo: dadosCadastro.vehicle||"",
     });
+    writePerfilLocalCache({
+      nome: dadosCadastro.name||"",
+      email: dadosCadastro.email||"",
+      telefone: dadosCadastro.phone||"",
+      tipo: profileLabels[dadosCadastro.profile]||"Motorista Autônomo",
+      veiculo: dadosCadastro.vehicle||"",
+    });
     // Veículo escolhido no cadastro também é selecionado na calculadora
     if(dadosCadastro.vehicle){
       const veh=DEFAULT_VEHICLES.find(v=>v.id===dadosCadastro.vehicle);
@@ -4715,7 +4777,7 @@ export default function App(){
     {id:"documentos", label:"Documentos",  icon:FileTextIcon},
     {id:"assinatura", label:"Planos",      icon:CrownIcon},
     {id:"perfil",     label:"Perfil",      icon:SettingsIcon},
-  ];
+  ].filter(n=>!(BETA_HIDE_PLANOS&&n.id==="assinatura"));
 
   if(screen==="loading"){return(
     <div style={{position:"fixed",inset:0,width:"100%",height:"100%",maxHeight:"100dvh",overflow:"hidden",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"flex-end",paddingBottom:"calc(env(safe-area-inset-bottom, 0px) + 168px)",boxSizing:"border-box"}}>
@@ -4808,8 +4870,9 @@ export default function App(){
         {page==="comparador"  &&<Comparador historicoFretes={historicoFretes} onAddFrete={handleAddFrete} onUpdateFrete={handleUpdateFrete} onDeleteFrete={handleDeleteFrete}/>}
         {page==="manutencao"  &&<Manutencao manutencoes={manutencoes} onAddManutencao={handleAddManutencao} onDeleteManutencao={handleDeleteManutencao}/>}
         {page==="documentos"  &&<Documentos docs={docs} onAddDocumento={handleAddDocumento} onDeleteDocumento={handleDeleteDocumento}/>}
-        {page==="assinatura"  &&<Assinatura plan={plan} onChangePlan={handleChangePlan}/>}
-        {page==="perfil"      &&<Perfil metaMes={metaMes} setMetaMes={setMetaMes} ganhoMes={ganhoMes} vehicles={vehicles} setVehicles={setVehicles} perfil={perfil} setPerfil={setPerfil} onLimpar={limparTudo} onAdmin={()=>setShowAdmin(true)}/>}
+        {page==="assinatura"  &&BETA_HIDE_PLANOS&&<PlanosBetaPlaceholder/>}
+        {page==="assinatura"  &&!BETA_HIDE_PLANOS&&<Assinatura plan={plan} onChangePlan={handleChangePlan}/>}
+        {page==="perfil"      &&<Perfil uid={firebaseUser?.uid} metaMes={metaMes} setMetaMes={setMetaMes} ganhoMes={ganhoMes} vehicles={vehicles} setVehicles={setVehicles} perfil={perfil} setPerfil={setPerfil} onLimpar={limparTudo} onAdmin={()=>setShowAdmin(true)}/>}
       </div>
       {page!=="dashboard"&&(<button onClick={()=>{setCalcMode(null);setShowCalc(true);}} style={{position:"fixed",bottom:22,right:18,width:52,height:52,borderRadius:"50%",background:C.orange,border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",boxShadow:`0 4px 20px ${C.orange}55`,zIndex:90}}><RouteIcon size={22} color="#fff"/></button>)}
       {/* Modal notificações */}
