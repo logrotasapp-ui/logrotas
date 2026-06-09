@@ -1,5 +1,3 @@
-import { jsPDF } from "jspdf";
-
 function statusLabel(status) {
   if (status === "entregue") return "Entregue";
   if (status === "nao_entregue") return "Não entregue";
@@ -48,10 +46,7 @@ export function buildDeliveryReportText(data) {
   return lines.join("\n").trim();
 }
 
-/**
- * @param {Parameters<typeof buildDeliveryReportText>[0]} data
- */
-export async function generateDeliveryReportPdf(data) {
+function buildPdfDocument(data, jsPDF) {
   const doc = new jsPDF({ unit: "mm", format: "a4" });
   const margin = 14;
   const pageWidth = doc.internal.pageSize.getWidth();
@@ -122,20 +117,77 @@ export async function generateDeliveryReportPdf(data) {
     y += 4;
   });
 
-  const safeDate = (data.date || "rota").replace(/\//g, "-");
-  const filename = `logrotas-entregas-${safeDate}.pdf`;
-  return { blob: doc.output("blob"), filename };
+  return doc;
 }
 
-export function downloadPdfBlob(blob, filename) {
-  const url = URL.createObjectURL(blob);
+/**
+ * @param {Parameters<typeof buildDeliveryReportText>[0]} data
+ */
+export async function generateDeliveryReportPdf(data) {
+  const { jsPDF } = await import("jspdf");
+  const safeDate = (data.date || "rota").replace(/\//g, "-");
+  const filename = `logrotas-entregas-${safeDate}.pdf`;
+  const doc = buildPdfDocument(data, jsPDF);
+  const blob = doc.output("blob");
+  return { doc, blob, filename };
+}
+
+function triggerAnchorDownload(url, filename) {
   const a = document.createElement("a");
   a.href = url;
   a.download = filename;
+  a.rel = "noopener";
+  a.style.display = "none";
   document.body.appendChild(a);
   a.click();
   a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 5000);
+}
+
+/**
+ * Salva/compartilha PDF — compatível com PWA Android (Share API + fallbacks).
+ * @returns {Promise<{ blob: Blob, filename: string, method: string }>}
+ */
+export async function saveDeliveryReportPdf(data) {
+  const { doc, blob, filename } = await generateDeliveryReportPdf(data);
+  const pdfFile = new File([blob], filename, { type: "application/pdf" });
+
+  if (typeof navigator !== "undefined" && navigator.share) {
+    try {
+      if (!navigator.canShare || navigator.canShare({ files: [pdfFile] })) {
+        await navigator.share({
+          files: [pdfFile],
+          title: "LogRotas — Relatório de Entregas",
+          text: buildDeliveryReportText(data).slice(0, 500),
+        });
+        return { blob, filename, method: "share" };
+      }
+    } catch (err) {
+      if (err?.name === "AbortError") {
+        return { blob, filename, method: "cancelled" };
+      }
+    }
+  }
+
+  const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || "");
+
+  if (isMobile) {
+    try {
+      doc.save(filename);
+      return { blob, filename, method: "jspdf-save" };
+    } catch {
+      /* fallback abaixo */
+    }
+    const url = URL.createObjectURL(blob);
+    const opened = window.open(url, "_blank");
+    if (!opened) triggerAnchorDownload(url, filename);
+    setTimeout(() => URL.revokeObjectURL(url), 120000);
+    return { blob, filename, method: "open-tab" };
+  }
+
+  const url = URL.createObjectURL(blob);
+  triggerAnchorDownload(url, filename);
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
+  return { blob, filename, method: "download" };
 }
 
 export function shareDeliveryReportWhatsApp(data) {
@@ -146,4 +198,20 @@ export function shareDeliveryReportEmail(data) {
   const subject = encodeURIComponent(`LogRotas — Entregas ${data.date || ""}`);
   const body = encodeURIComponent(buildDeliveryReportText(data));
   window.location.href = `mailto:?subject=${subject}&body=${body}`;
+}
+
+/** @deprecated use saveDeliveryReportPdf */
+export function downloadPdfBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  triggerAnchorDownload(url, filename);
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
+}
+
+export async function sharePdfFileViaSystem(blob, filename) {
+  const file = new File([blob], filename, { type: "application/pdf" });
+  if (navigator.share && (!navigator.canShare || navigator.canShare({ files: [file] }))) {
+    await navigator.share({ files: [file], title: filename });
+    return true;
+  }
+  return false;
 }

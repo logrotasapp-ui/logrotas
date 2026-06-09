@@ -1,4 +1,5 @@
 ﻿import { useState, useRef, useEffect, useCallback, useMemo } from "react";
+import { createPortal } from "react-dom";
 import {
   calculateRouteCosts,
   calculateFreteQuote,
@@ -26,12 +27,12 @@ import ScannerModule from "./src/components/ScannerModule.js";
 import { playWhooshSound } from "./src/utils/whooshSound.js";
 import DeliveryMap from "./src/components/DeliveryMap.js";
 import NavigationMap from "./src/components/NavigationMap.jsx";
-import { loadDeliveryRoutes, loadDeliveryRouteDetail, saveDeliveryRoute } from "./src/services/deliveryRouteService.js";
+import { loadDeliveryRoutes, saveDeliveryRoute } from "./src/services/deliveryRouteService.js";
 import {
-  generateDeliveryReportPdf,
-  downloadPdfBlob,
+  saveDeliveryReportPdf,
   shareDeliveryReportWhatsApp,
   shareDeliveryReportEmail,
+  sharePdfFileViaSystem,
 } from "./src/services/deliveryReportPdf.js";
 import {
   readNavigationSession,
@@ -72,7 +73,7 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="V213";
+const APP_VERSION="V214";
 const BETA_HIDE_PLANOS=true;
 
 const OfflineRestoredBanner=({show})=>show?(
@@ -1289,12 +1290,14 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
   const[showMotivo,setShowMotivo]=useState(false);
   const[showResumo,setShowResumo]=useState(false);
   const[showAddNavMenu,setShowAddNavMenu]=useState(false);
+  const[showInsertOpcoes,setShowInsertOpcoes]=useState(false);
+  const[paradaPendenteInsert,setParadaPendenteInsert]=useState(null);
   const[novoEnderecoNav,setNovoEnderecoNav]=useState("");
   const[erroNavAdd,setErroNavAdd]=useState("");
   const[adicionandoNav,setAdicionandoNav]=useState(false);
   const[reotimizando,setReotimizando]=useState(false);
   const[historicoEntregas,setHistoricoEntregas]=useState([]);
-  const[historicoDetalhe,setHistoricoDetalhe]=useState(null);
+  const[historicoAbertoId,setHistoricoAbertoId]=useState(null);
   const[salvandoRota,setSalvandoRota]=useState(false);
   const[rotaSalvaId,setRotaSalvaId]=useState(null);
   const[resumoFinal,setResumoFinal]=useState(null);
@@ -1303,6 +1306,8 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
   const[aposConclusao,setAposConclusao]=useState(false);
   const[showPdfShare,setShowPdfShare]=useState(false);
   const[pdfReportData,setPdfReportData]=useState(null);
+  const[pdfBlobCache,setPdfBlobCache]=useState(null);
+  const[pdfFilenameCache,setPdfFilenameCache]=useState("");
   const[gerandoPdf,setGerandoPdf]=useState(false);
 
   const isPro=plan==="pro";
@@ -1391,6 +1396,7 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
   const finalizarRota=useCallback(async(listaParadas)=>{
     const lista=listaParadas||paradas;
     const ts=formatNowBR();
+    const resultadoSnapshot=resultado?{...resultado}:null;
     const stats={
       total:lista.length,
       entregues:lista.filter(p=>getParadaStatus(p)==="entregue").length,
@@ -1421,7 +1427,10 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
     writeOfflineCache(OFFLINE_KEYS.otimizar,{paradas:[]});
     setShowResumo(true);
 
-    if(!uid)return;
+    if(!uid){
+      setErroHistoricoSave("Faça login para sincronizar o histórico na nuvem.");
+      return;
+    }
 
     setSalvandoRota(true);
     setErroHistoricoSave("");
@@ -1439,12 +1448,15 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
           data:p.data||ts.data,
           coords:Array.isArray(p.coords)&&p.coords.length>=2?p.coords:null,
         })),
-        resultado,
+        resultado:resultadoSnapshot,
       });
       setRotaSalvaId(saved.id);
       await carregarHistorico();
-    }catch(err){
-      setErroHistoricoSave("Não foi possível salvar no histórico. Verifique sua conexão e login.");
+      if(saved.synced===false){
+        setErroHistoricoSave("Rota salva no dispositivo. Não foi possível sincronizar com a nuvem — verifique conexão.");
+      }
+    }catch{
+      setErroHistoricoSave("Erro ao salvar a rota. Tente novamente.");
     }finally{
       setSalvandoRota(false);
     }
@@ -1497,41 +1509,63 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
     setShowConfirmExitNav(false);
   };
 
-  const inserirParadaDuranteNavegacao=async(novaParada)=>{
+  const aplicarInsertParada=async(modo,novaParada)=>{
+    setShowInsertOpcoes(false);
+    setParadaPendenteInsert(null);
     if(!novaParada)return;
-    setReotimizando(true);
-    setErroNavAdd("");
-    try{
-      let driverCoords=posicaoMotorista;
-      if(!driverCoords?.length){
-        const fresh=await getDriverGeolocation({preferFresh:true});
-        if(fresh){
-          driverCoords=[fresh.lng,fresh.lat];
-          setPosicaoMotorista(driverCoords);
-        }
-      }
-      const concluidas=paradas.filter(p=>getParadaStatus(p)!=="pendente");
-      const pendentes=paradas.filter(p=>getParadaStatus(p)==="pendente");
-      const out=await reoptimizeRemainingDeliveryRoute(concluidas,pendentes,{
-        ...novaParada,
-        id:novaParada.id||Date.now(),
-        status:"pendente",
-      },{
-        consumoKmL:perfil?.consumo,
-        precoCombustivel:5.89,
-        driverOriginCoords:driverCoords,
+
+    if(modo==="proxima"){
+      setParadas(prev=>{
+        const idx=paradaAtualIdx>=0?paradaAtualIdx+1:prev.length;
+        const next=[...prev];
+        next.splice(idx,0,{...novaParada,id:novaParada.id||Date.now(),status:"pendente"});
+        return next;
       });
-      if(out.ok){
-        setParadas(out.paradas);
-        if(out.motoristaCoords)setPosicaoMotorista(out.motoristaCoords);
-      }else{
-        setErroNavAdd(out.error||"Não foi possível reotimizar a rota restante.");
-      }
-    }catch{
-      setErroNavAdd("Erro ao reotimizar. Tente novamente.");
-    }finally{
-      setReotimizando(false);
       setShowAddNavMenu(false);
+      return;
+    }
+
+    if(modo==="final"){
+      setParadas(prev=>[...prev,{...novaParada,id:novaParada.id||Date.now(),status:"pendente"}]);
+      setShowAddNavMenu(false);
+      return;
+    }
+
+    if(modo==="eficiente"){
+      setReotimizando(true);
+      setErroNavAdd("");
+      try{
+        let driverCoords=posicaoMotorista;
+        if(!driverCoords?.length){
+          const fresh=await getDriverGeolocation({preferFresh:true});
+          if(fresh){
+            driverCoords=[fresh.lng,fresh.lat];
+            setPosicaoMotorista(driverCoords);
+          }
+        }
+        const concluidas=paradas.filter(p=>getParadaStatus(p)!=="pendente");
+        const pendentes=paradas.filter(p=>getParadaStatus(p)==="pendente");
+        const out=await reoptimizeRemainingDeliveryRoute(concluidas,pendentes,{
+          ...novaParada,
+          id:novaParada.id||Date.now(),
+          status:"pendente",
+        },{
+          consumoKmL:perfil?.consumo,
+          precoCombustivel:5.89,
+          driverOriginCoords:driverCoords,
+        });
+        if(out.ok){
+          setParadas(out.paradas);
+          if(out.motoristaCoords)setPosicaoMotorista(out.motoristaCoords);
+        }else{
+          setErroNavAdd(out.error||"Não foi possível reotimizar a rota restante.");
+        }
+      }catch{
+        setErroNavAdd("Erro ao reotimizar. Tente novamente.");
+      }finally{
+        setReotimizando(false);
+        setShowAddNavMenu(false);
+      }
     }
   };
 
@@ -1539,8 +1573,10 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
     if(!reportData||gerandoPdf)return;
     setGerandoPdf(true);
     try{
-      const {blob,filename}=await generateDeliveryReportPdf(reportData);
-      downloadPdfBlob(blob,filename);
+      const {blob,filename,method}=await saveDeliveryReportPdf(reportData);
+      if(method==="cancelled")return;
+      setPdfBlobCache(blob);
+      setPdfFilenameCache(filename);
       setPdfReportData(reportData);
       setShowPdfShare(true);
     }catch{
@@ -1550,15 +1586,15 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
     }
   };
 
-  const reportFromHistorico=(det)=>(
-    det?{
-      motorista:det.motorista||perfil?.nome||"",
-      date:det.date||"",
-      hora:det.hora||"",
-      total:det.totalParadas||det.paradas?.length||0,
-      entregues:det.entregues??0,
-      naoEntregues:det.naoEntregues??0,
-      paradas:det.paradas||[],
+  const reportFromHistorico=(r)=>(
+    r?{
+      motorista:r.motorista||perfil?.nome||"",
+      date:r.date||"",
+      hora:r.hora||"",
+      total:r.totalParadas||r.paradas?.length||0,
+      entregues:r.entregues??0,
+      naoEntregues:r.naoEntregues??0,
+      paradas:r.paradas||[],
     }:null
   );
 
@@ -1569,8 +1605,11 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
     setAdicionandoNav(true);
     try{
       const geocoded=await geocodeRomaneioExtractedAddresses(novas);
-      if(geocoded[0])await inserirParadaDuranteNavegacao(geocoded[0]);
-      else setErroNavAdd("Não foi possível localizar o endereço.");
+      if(geocoded[0]){
+        setParadaPendenteInsert(geocoded[0]);
+        setShowInsertOpcoes(true);
+        setShowAddNavMenu(false);
+      }else setErroNavAdd("Não foi possível localizar o endereço.");
     }catch{setErroNavAdd("Erro ao localizar endereço.");}
     finally{setAdicionandoNav(false);}
   };
@@ -1582,8 +1621,10 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
     try{
       const out=await resolveManualAddress(novoEnderecoNav);
       if(!out.ok){setErroNavAdd(out.error);return;}
+      setParadaPendenteInsert({id:Date.now(),endereco:out.endereco,coords:out.coords,status:"pendente"});
       setNovoEnderecoNav("");
-      await inserirParadaDuranteNavegacao({id:Date.now(),endereco:out.endereco,coords:out.coords,status:"pendente"});
+      setShowInsertOpcoes(true);
+      setShowAddNavMenu(false);
     }catch{setErroNavAdd("Não foi possível validar o endereço.");}
     finally{setAdicionandoNav(false);}
   };
@@ -1986,56 +2027,55 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
           )}
           {uid&&historicoEntregas.length>0&&(
             <div style={{display:"flex",flexDirection:"column",gap:8}}>
-              {historicoEntregas.slice(0,12).map(r=>(
-                <button key={r.id} type="button" onClick={async()=>{
-                  const det=await loadDeliveryRouteDetail(uid,r.id);
-                  if(det)setHistoricoDetalhe(det);
-                }}
-                  style={{textAlign:"left",background:C.subtle,border:`1px solid ${C.border}`,borderRadius:11,padding:"12px 14px",cursor:"pointer"}}>
-                  <div style={{color:C.text,fontWeight:700,fontSize:13}}>{r.date||"—"}{r.hora?` · ${r.hora}`:""} · {r.totalParadas||0} paradas</div>
-                  <div style={{color:C.muted,fontSize:12,marginTop:3}}>
-                    ✅ {r.entregues||0} entregues · ❌ {r.naoEntregues||0} não entregues
+              {historicoEntregas.slice(0,12).map(r=>{
+                const aberto=historicoAbertoId===r.id;
+                return(
+                  <div key={r.id} style={{background:C.subtle,border:`1px solid ${aberto?OTIMIZAR_AZUL:C.border}`,borderRadius:11,overflow:"hidden"}}>
+                    <button type="button" onClick={()=>setHistoricoAbertoId(aberto?null:r.id)}
+                      style={{width:"100%",textAlign:"left",background:"transparent",border:"none",padding:"12px 14px",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"space-between",gap:10}}>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{color:C.text,fontWeight:700,fontSize:13}}>{r.date||"—"}{r.hora?` · ${r.hora}`:""} · {r.totalParadas||0} paradas</div>
+                        <div style={{color:C.muted,fontSize:12,marginTop:3}}>
+                          ✅ {r.entregues||0} entregues · ❌ {r.naoEntregues||0} não entregues
+                          {r.synced===false&&<span style={{color:C.amber,marginLeft:6}}>· só no dispositivo</span>}
+                        </div>
+                      </div>
+                      <span style={{color:OTIMIZAR_AZUL,fontSize:12,fontWeight:800,flexShrink:0}}>{aberto?"▼":"▶"}</span>
+                    </button>
+                    {aberto&&(
+                      <div style={{padding:"0 14px 14px",borderTop:`1px solid ${C.border}`}}>
+                        <button type="button" disabled={gerandoPdf} onClick={(e)=>{e.stopPropagation();handleGerarPdf(reportFromHistorico(r));}}
+                          style={{width:"100%",padding:10,marginTop:10,marginBottom:10,background:"#fff",border:`1.5px solid ${OTIMIZAR_AZUL}`,borderRadius:10,cursor:gerandoPdf?"wait":"pointer",color:OTIMIZAR_AZUL,fontWeight:700,fontSize:13}}>
+                          📄 {gerandoPdf?"Gerando PDF…":"Gerar PDF"}
+                        </button>
+                        {(r.paradas||[]).map((p,i)=>(
+                          <div key={i} style={{padding:"10px 0",borderBottom:i<(r.paradas?.length||0)-1?`1px solid ${C.border}`:"none"}}>
+                            <div style={{color:C.text,fontSize:13,fontWeight:600}}>{i+1}. {p.endereco}</div>
+                            <div style={{color:p.status==="entregue"?C.green:C.red,fontSize:12,marginTop:4}}>
+                              {p.status==="entregue"?"✅ Entregue":`❌ Não entregue${p.motivo?` — ${p.motivo}`:""}`}
+                              {p.horario?` · ${p.horario}`:""}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
-                </button>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
       )}
 
-      {historicoDetalhe&&(
-        <div style={{position:"fixed",inset:0,zIndex:650,background:"#1E3A8A55",display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
-          <div style={{background:C.surface,borderRadius:18,width:"100%",maxWidth:440,maxHeight:"85vh",overflowY:"auto",padding:20}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
-              <div style={{color:C.navy,fontWeight:800,fontSize:16}}>Rota · {historicoDetalhe.date}{historicoDetalhe.hora?` · ${historicoDetalhe.hora}`:""}</div>
-              <button type="button" onClick={()=>setHistoricoDetalhe(null)} style={{background:C.subtle,border:"none",borderRadius:8,padding:6,cursor:"pointer"}}><XIcon size={16}/></button>
-            </div>
-            <button type="button" disabled={gerandoPdf} onClick={()=>handleGerarPdf(reportFromHistorico(historicoDetalhe))}
-              style={{width:"100%",padding:12,marginBottom:14,background:C.subtle,border:`1.5px solid ${OTIMIZAR_AZUL}`,borderRadius:12,cursor:gerandoPdf?"wait":"pointer",color:OTIMIZAR_AZUL,fontWeight:700,fontSize:14}}>
-              📄 {gerandoPdf?"Gerando PDF…":"Gerar PDF"}
-            </button>
-            {(historicoDetalhe.paradas||[]).map((p,i)=>(
-              <div key={i} style={{padding:"10px 0",borderBottom:i<historicoDetalhe.paradas.length-1?`1px solid ${C.border}`:"none"}}>
-                <div style={{color:C.text,fontSize:13,fontWeight:600}}>{i+1}. {p.endereco}</div>
-                <div style={{color:p.status==="entregue"?C.green:C.red,fontSize:12,marginTop:4}}>
-                  {p.status==="entregue"?"✅ Entregue":`❌ Não entregue${p.motivo?` — ${p.motivo}`:""}`}
-                  {p.horario?` · ${p.horario}`:""}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Tela resumo final */}
       {showResumo&&resumoFinal&&(
         <div style={{position:"fixed",inset:0,zIndex:680,background:C.surface,display:"flex",flexDirection:"column",padding:"20px 16px",overflowY:"auto"}}>
           <div style={{textAlign:"center",marginBottom:20}}>
             <div style={{fontSize:48,marginBottom:8}}>🏁</div>
             <div style={{color:C.navy,fontWeight:900,fontSize:20,fontFamily:"'Sora',sans-serif"}}>Rota concluída!</div>
             {salvandoRota&&<div style={{color:C.muted,fontSize:12,marginTop:6}}>Salvando no histórico…</div>}
-            {erroHistoricoSave&&<div style={{color:C.red,fontSize:12,marginTop:6,fontWeight:600}}>{erroHistoricoSave}</div>}
             {!salvandoRota&&!erroHistoricoSave&&uid&&rotaSalvaId&&<div style={{color:C.green,fontSize:12,marginTop:6}}>✅ Salvo no histórico</div>}
+            {!salvandoRota&&erroHistoricoSave&&rotaSalvaId&&<div style={{color:C.amber,fontSize:12,marginTop:6,fontWeight:600}}>{erroHistoricoSave}</div>}
+            {!salvandoRota&&erroHistoricoSave&&!rotaSalvaId&&<div style={{color:C.red,fontSize:12,marginTop:6,fontWeight:600}}>{erroHistoricoSave}</div>}
           </div>
           <div style={{background:C.subtle,borderRadius:14,padding:16,marginBottom:16}}>
             {[
@@ -2209,28 +2249,59 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
         </div>
       )}
 
-      {showPdfShare&&pdfReportData&&(
-        <div style={{position:"fixed",inset:0,zIndex:780,background:"#1E3A8A66",display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+      {showInsertOpcoes&&paradaPendenteInsert&&(
+        <div style={{position:"fixed",inset:0,zIndex:770,background:"#1E3A8A66",display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+          <div style={{background:C.surface,borderRadius:18,width:"100%",maxWidth:380,padding:22}}>
+            <div style={{color:C.navy,fontWeight:800,fontSize:15,marginBottom:8}}>Onde inserir?</div>
+            <div style={{color:C.muted,fontSize:12,marginBottom:14,lineHeight:1.4}}>{paradaPendenteInsert.endereco}</div>
+            {[
+              {id:"proxima",label:"Próxima parada",desc:"Logo após a parada atual"},
+              {id:"final",label:"Final da rota",desc:"Última parada da lista"},
+              {id:"eficiente",label:"Posição mais eficiente",desc:"Reotimiza paradas restantes a partir do GPS"},
+            ].map(op=>(
+              <button key={op.id} type="button" disabled={reotimizando} onClick={()=>aplicarInsertParada(op.id,{...paradaPendenteInsert,id:paradaPendenteInsert.id||Date.now()})}
+                style={{width:"100%",textAlign:"left",padding:"12px 14px",marginBottom:8,background:C.subtle,border:`1px solid ${C.border}`,borderRadius:10,cursor:reotimizando?"wait":"pointer"}}>
+                <div style={{color:C.text,fontWeight:700,fontSize:14}}>{op.label}</div>
+                <div style={{color:C.muted,fontSize:11,marginTop:2}}>{op.desc}</div>
+              </button>
+            ))}
+            <button type="button" onClick={()=>{setShowInsertOpcoes(false);setParadaPendenteInsert(null);}} style={{width:"100%",padding:10,marginTop:4,background:"transparent",border:"none",cursor:"pointer",color:C.muted}}>Cancelar</button>
+          </div>
+        </div>
+      )}
+
+      {showPdfShare&&pdfReportData&&createPortal(
+        <div style={{position:"fixed",inset:0,zIndex:2500,background:"#1E3A8A66",display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
           <div style={{background:C.surface,borderRadius:18,width:"100%",maxWidth:360,padding:24,boxShadow:"0 12px 40px #00000033",textAlign:"center"}}>
             <div style={{fontSize:36,marginBottom:8}}>📄</div>
             <div style={{color:C.navy,fontWeight:800,fontSize:16,fontFamily:"'Sora',sans-serif",marginBottom:8}}>PDF gerado!</div>
-            <div style={{color:C.muted,fontSize:13,marginBottom:18,lineHeight:1.5}}>O relatório foi baixado. Compartilhe o resumo:</div>
+            <div style={{color:C.muted,fontSize:13,marginBottom:18,lineHeight:1.5}}>Compartilhe o relatório:</div>
             <div style={{display:"flex",flexDirection:"column",gap:10}}>
               <button type="button" onClick={()=>shareDeliveryReportWhatsApp(pdfReportData)}
                 style={{width:"100%",padding:13,background:"#25D366",border:"none",borderRadius:12,cursor:"pointer",color:"#fff",fontWeight:700,fontSize:14}}>
-                WhatsApp
+                WhatsApp (texto)
               </button>
+              {pdfBlobCache&&(
+                <button type="button" onClick={async()=>{
+                  try{await sharePdfFileViaSystem(pdfBlobCache,pdfFilenameCache||"relatorio.pdf");}
+                  catch{shareDeliveryReportWhatsApp(pdfReportData);}
+                }}
+                  style={{width:"100%",padding:13,background:"#128C7E",border:"none",borderRadius:12,cursor:"pointer",color:"#fff",fontWeight:700,fontSize:14}}>
+                WhatsApp / compartilhar PDF
+              </button>
+              )}
               <button type="button" onClick={()=>shareDeliveryReportEmail(pdfReportData)}
                 style={{width:"100%",padding:13,background:C.navy,border:"none",borderRadius:12,cursor:"pointer",color:"#fff",fontWeight:700,fontSize:14}}>
                 E-mail
               </button>
-              <button type="button" onClick={()=>{setShowPdfShare(false);setPdfReportData(null);}}
+              <button type="button" onClick={()=>{setShowPdfShare(false);setPdfReportData(null);setPdfBlobCache(null);setPdfFilenameCache("");}}
                 style={{width:"100%",padding:12,background:C.subtle,border:`1px solid ${C.border}`,borderRadius:12,cursor:"pointer",color:C.text2,fontWeight:600,fontSize:14}}>
                 Fechar
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {paradaRemover!=null&&(
