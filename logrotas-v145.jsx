@@ -430,17 +430,25 @@ const DatePicker=({label,value,onChange})=>{
   const [open,setOpen]=useState(false);
   const [view,setView]=useState(()=>{if(value){const[d,m,y]=value.split("/");return new Date(y,m-1,1);}return new Date();});
   const ref=useRef();
+  const calRef=useRef();
   useEffect(()=>{const h=e=>{if(ref.current&&!ref.current.contains(e.target))setOpen(false);};document.addEventListener("mousedown",h);return()=>document.removeEventListener("mousedown",h);},[]);
+  useEffect(()=>{
+    if(!open)return;
+    const timer=setTimeout(()=>{
+      (calRef.current||ref.current)?.scrollIntoView({behavior:"smooth",block:"center",inline:"nearest"});
+    },60);
+    return()=>clearTimeout(timer);
+  },[open]);
   const y=view.getFullYear(),m=view.getMonth(),fd=new Date(y,m,1).getDay(),days=new Date(y,m+1,0).getDate();
   const sD=value?parseInt(value.split("/")[0]):null,sM=value?parseInt(value.split("/")[1])-1:null,sY=value?parseInt(value.split("/")[2]):null;
   return(
     <div ref={ref} style={{display:"flex",flexDirection:"column",gap:5,position:"relative"}}>
       {label&&<label style={{color:C.text2,fontSize:14,fontWeight:700,letterSpacing:0.4}}>{label}</label>}
-      <button onClick={()=>setOpen(o=>!o)} style={{display:"flex",alignItems:"center",gap:8,background:C.subtle,border:`1.5px solid ${open?C.orange:C.border}`,borderRadius:10,padding:"10px 12px",cursor:"pointer",color:value?C.text:C.muted,fontSize:14,textAlign:"left"}}>
+      <button type="button" onClick={()=>setOpen(o=>!o)} style={{display:"flex",alignItems:"center",gap:8,background:C.subtle,border:`1.5px solid ${open?C.orange:C.border}`,borderRadius:10,padding:"10px 12px",cursor:"pointer",color:value?C.text:C.muted,fontSize:14,textAlign:"left"}}>
         <CalendarIcon size={14} color={open?C.orange:C.muted}/>{value||"Selecionar data"}
       </button>
       {open&&(
-        <div style={{position:"absolute",top:"100%",left:0,zIndex:500,marginTop:6,background:C.surface,border:`1px solid ${C.border}`,borderRadius:14,padding:16,boxShadow:"0 8px 32px #1E3A8A18",minWidth:280}}>
+        <div ref={calRef} style={{position:"absolute",top:"100%",left:0,zIndex:500,marginTop:6,background:C.surface,border:`1px solid ${C.border}`,borderRadius:14,padding:16,boxShadow:"0 8px 32px #1E3A8A18",minWidth:280}}>
           <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
             <button onClick={()=>setView(new Date(y,m-1,1))} style={{background:C.subtle,border:"none",borderRadius:8,padding:6,cursor:"pointer",display:"flex"}}><ChevronLeftIcon size={14} color={C.text2}/></button>
             <span style={{color:C.navy,fontWeight:800,fontSize:14,fontFamily:"'Sora',sans-serif"}}>{MONTHS[m]} {y}</span>
@@ -3059,7 +3067,7 @@ const Despesas=({despesas,onAddDespesa,onUpdateDespesa,onDeleteDespesa})=>{
 
       {/* Modal registrar */}
       {showAdd&&(<ModalWrap><ModalHeader title={editingId?"Editar Despesa":"Registrar Despesa"} icon={DollarSignIcon} iconColor={C.red} onClose={()=>{setShowAdd(false);setEditingId(null);setForm({categoria:"Café da manhã",descricao:"",valor:"",date:""});}}/>
-        <div style={{display:"flex",flexDirection:"column",gap:12}}>
+        <div style={{display:"flex",flexDirection:"column",gap:12,paddingBottom:240}}>
           <div style={{display:"flex",flexDirection:"column",gap:5}}>
             <label style={{color:C.text2,fontSize:14,fontWeight:700,letterSpacing:0.4}}>Categoria</label>
             <div style={{display:"flex",flexWrap:"wrap",gap:7}}>
@@ -3299,7 +3307,7 @@ const Documentos=({docs,onAddDocumento,onDeleteDocumento})=>{
       </Card>
 
       {showAdd&&(<ModalWrap><ModalHeader title="Novo Documento" icon={FileTextIcon} iconColor={C.navy} onClose={()=>setShowAdd(false)}/>
-        <div style={{display:"flex",flexDirection:"column",gap:12}}>
+        <div style={{display:"flex",flexDirection:"column",gap:12,paddingBottom:240}}>
           <SelectField label="Tipo" value={form.type} onChange={v=>setForm(f=>({...f,type:v}))} options={["CNH","CRLV","Seguro","Tacógrafo","Licença ANTT","Outros"]}/>
           {form.type!=="CNH"&&<Field label="Veículo / Titular" value={form.vehicle} onChange={v=>setForm(f=>({...f,vehicle:v}))} placeholder="Caminhão MB 1620"/>}
           <Field label="Número / Registro" value={form.number} onChange={v=>setForm(f=>({...f,number:v}))} placeholder="ABC-1234"/>
