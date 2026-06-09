@@ -20,20 +20,19 @@ export { resolvePlaceSuggestion } from "./googlePlacesService.js";
 import { fileToImageBlob } from "./fileToImage.js";
 import {
   parseRomaneioTextToDestinations,
-  parseGeminiRomaneioResponse,
   buildParadasFromAddresses,
-  buildParadasFromGeminiItems,
+  parseDeliveryAddressesFromLabelText,
 } from "./romaneioRouting.js";
-import { cleanAddressLine, parseAddressesFromRomaneioText } from "./romaneioParser.js";
 
 export {
   parseRomaneioTextToDestinations,
-  parseGeminiRomaneioResponse,
   buildParadasFromAddresses,
-  buildParadasFromGeminiItems,
+  parseDeliveryAddressesFromLabelText,
   cleanAddressLine,
   normalizeAddressesForRouting,
 } from "./romaneioRouting.js";
+
+export { VISION_ADDRESS_EXTRACTION_INSTRUCTION } from "./romaneioParser.js";
 
 /** Valor estimado por eixo por praça de pedágio (R$). */
 export const TOLL_PER_AXLE = 3.2;
@@ -632,6 +631,8 @@ async function resolveParadaCoordForOptimization(parada) {
 }
 
 // ── Romaneio: Google Cloud Vision (TEXT_DETECTION) ───────────────────────────
+// Instrução de extração (Vision não aceita prompt nativo — aplicada no pós-processamento OCR):
+// VISION_ADDRESS_EXTRACTION_INSTRUCTION em romaneioParser.js
 
 function visionErrorMessage(res) {
   const apiMsg =
@@ -702,6 +703,9 @@ export async function extractRomaneioAddressesFromImageVision(file, options = {}
           {
             image: { content: imgBase64 },
             features: [{ type: "TEXT_DETECTION" }],
+            imageContext: {
+              languageHints: ["pt", "pt-BR"],
+            },
           },
         ],
       }),
@@ -731,7 +735,7 @@ export async function extractRomaneioAddressesFromImageVision(file, options = {}
 
     report(75, "Interpretando endereços…");
     const texto = extractVisionOcrText(res.data);
-    const addresses = parseAddressesFromRomaneioText(texto);
+    const addresses = parseDeliveryAddressesFromLabelText(texto);
     const paradas = buildParadasFromAddresses(addresses);
 
     if (!texto.trim()) {

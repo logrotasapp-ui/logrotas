@@ -4,7 +4,7 @@
  */
 import {
   parseAddressesFromRomaneioText,
-  parseGeminiRomaneioResponse,
+  parseDeliveryAddressesFromLabelText,
   normalizeAddressesForRouting,
   cleanAddressLine,
 } from "./romaneioParser.js";
@@ -12,7 +12,7 @@ import {
 export {
   cleanAddressLine,
   normalizeAddressesForRouting,
-  parseGeminiRomaneioResponse,
+  parseDeliveryAddressesFromLabelText,
 };
 
 export function parseRomaneioTextToDestinations(rawText) {
@@ -27,31 +27,4 @@ export function buildParadasFromAddresses(addresses, idBase = Date.now()) {
     id: idBase + i,
     endereco,
   }));
-}
-
-/**
- * V169 — Paradas a partir da resposta prefixada do Gemini (ok / warn).
- * @param {Array<{ confianca: string, endereco?: string|null }>} items
- */
-export function buildParadasFromGeminiItems(items, idBase = Date.now()) {
-  const paradas = [];
-  let i = 0;
-
-  for (const item of items || []) {
-    if (item.confianca === "fail") continue;
-
-    const normalized = normalizeAddressesForRouting(
-      item.endereco ? [item.endereco] : []
-    );
-    if (!normalized.length) continue;
-
-    paradas.push({
-      id: idBase + i,
-      endereco: normalized[0],
-      confianca: item.confianca === "warn" ? "warn" : "ok",
-    });
-    i += 1;
-  }
-
-  return paradas;
 }

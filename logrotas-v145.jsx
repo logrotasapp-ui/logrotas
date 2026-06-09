@@ -57,7 +57,7 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="V207";
+const APP_VERSION="V208";
 const BETA_HIDE_PLANOS=true;
 
 const OfflineRestoredBanner=({show})=>show?(
@@ -353,7 +353,7 @@ const ModalWrap=({children,maxW=480})=>(
     <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:20,width:"100%",maxWidth:maxW,padding:24,marginTop:10,marginBottom:12,boxShadow:"0 20px 60px #1E3A8A18",overflowX:"hidden",boxSizing:"border-box"}}>{children}</div>
   </div>
 );
-const ModalFormLayout=({children,footer,maxBodyHeight="min(58vh, 520px)"})=>(
+const ModalFormLayout=({children,footer,maxBodyHeight="calc(100dvh - 220px)"})=>(
   <div style={{display:"flex",flexDirection:"column",maxHeight:maxBodyHeight}}>
     <div style={{flex:1,overflowY:"auto",overflowX:"hidden",marginBottom:16,paddingRight:2,WebkitOverflowScrolling:"touch"}}>
       {children}
@@ -438,46 +438,65 @@ const SelectField=({label,value,onChange,options})=>{
 // Date Picker
 const MONTHS=["Janeiro","Fevereiro","Março","Abril","Maio","Junho","Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"];
 const DAYS_S=["Dom","Seg","Ter","Qua","Qui","Sex","Sáb"];
-const DatePicker=({label,value,onChange})=>{
+const DatePicker=({label,value,onChange,fullScreen=false})=>{
   const [open,setOpen]=useState(false);
   const [view,setView]=useState(()=>{if(value){const[d,m,y]=value.split("/");return new Date(y,m-1,1);}return new Date();});
   const ref=useRef();
   const calRef=useRef();
-  useEffect(()=>{const h=e=>{if(ref.current&&!ref.current.contains(e.target))setOpen(false);};document.addEventListener("mousedown",h);return()=>document.removeEventListener("mousedown",h);},[]);
+  useEffect(()=>{if(!fullScreen){const h=e=>{if(ref.current&&!ref.current.contains(e.target))setOpen(false);};document.addEventListener("mousedown",h);return()=>document.removeEventListener("mousedown",h);}},[fullScreen]);
   useEffect(()=>{
-    if(!open)return;
+    if(!open||fullScreen)return;
     const timer=setTimeout(()=>{
       (calRef.current||ref.current)?.scrollIntoView({behavior:"smooth",block:"center",inline:"nearest"});
     },60);
     return()=>clearTimeout(timer);
-  },[open]);
+  },[open,fullScreen]);
   const y=view.getFullYear(),m=view.getMonth(),fd=new Date(y,m,1).getDay(),days=new Date(y,m+1,0).getDate();
   const sD=value?parseInt(value.split("/")[0]):null,sM=value?parseInt(value.split("/")[1])-1:null,sY=value?parseInt(value.split("/")[2]):null;
+  const pickDay=(day)=>{onChange(`${String(day).padStart(2,"0")}/${String(m+1).padStart(2,"0")}/${y}`);setOpen(false);};
+  const calPanel=(
+    <>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:fullScreen?16:12}}>
+        <button type="button" onClick={()=>setView(new Date(y,m-1,1))} style={{background:C.subtle,border:"none",borderRadius:8,padding:fullScreen?10:6,cursor:"pointer",display:"flex"}}><ChevronLeftIcon size={fullScreen?18:14} color={C.text2}/></button>
+        <span style={{color:C.navy,fontWeight:800,fontSize:fullScreen?18:14,fontFamily:"'Sora',sans-serif"}}>{MONTHS[m]} {y}</span>
+        <button type="button" onClick={()=>setView(new Date(y,m+1,1))} style={{background:C.subtle,border:"none",borderRadius:8,padding:fullScreen?10:6,cursor:"pointer",display:"flex"}}><ChevronRightIcon size={fullScreen?18:14} color={C.text2}/></button>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:fullScreen?4:2,marginBottom:fullScreen?10:6}}>
+        {DAYS_S.map(d=><div key={d} style={{textAlign:"center",color:C.muted,fontSize:fullScreen?12:10,fontWeight:700,padding:fullScreen?"6px 0":"3px 0"}}>{d}</div>)}
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:fullScreen?4:2}}>
+        {Array.from({length:fd}).map((_,i)=><div key={`e${i}`}/>)}
+        {Array.from({length:days}).map((_,i)=>{
+          const day=i+1,isSel=day===sD&&m===sM&&y===sY,isToday=day===new Date().getDate()&&m===new Date().getMonth()&&y===new Date().getFullYear();
+          return <button type="button" key={day} onClick={()=>pickDay(day)} style={{textAlign:"center",padding:fullScreen?"12px 0":"6px 0",borderRadius:fullScreen?10:8,border:"none",cursor:"pointer",fontSize:fullScreen?15:12,fontWeight:isSel?800:400,background:isSel?C.orange:isToday?C.orangeLight:"transparent",color:isSel?"#fff":isToday?C.orange:C.text}}>{day}</button>;
+        })}
+      </div>
+      <div style={{marginTop:fullScreen?16:10,display:"flex",gap:fullScreen?8:5,justifyContent:"center",flexWrap:"wrap"}}>
+        {[y-1,y,y+1,y+2].map(yr=><button type="button" key={yr} onClick={()=>setView(new Date(yr,m,1))} style={{padding:fullScreen?"8px 14px":"3px 8px",borderRadius:fullScreen?8:6,border:"none",cursor:"pointer",background:yr===y?C.navy:C.subtle,color:yr===y?"#fff":C.text2,fontSize:fullScreen?14:12,fontWeight:600}}>{yr}</button>)}
+      </div>
+    </>
+  );
   return(
     <div ref={ref} style={{display:"flex",flexDirection:"column",gap:5,position:"relative"}}>
       {label&&<label style={{color:C.text2,fontSize:14,fontWeight:700,letterSpacing:0.4}}>{label}</label>}
       <button type="button" onClick={()=>setOpen(o=>!o)} style={{display:"flex",alignItems:"center",gap:8,background:C.subtle,border:`1.5px solid ${open?C.orange:C.border}`,borderRadius:10,padding:"10px 12px",cursor:"pointer",color:value?C.text:C.muted,fontSize:14,textAlign:"left"}}>
         <CalendarIcon size={14} color={open?C.orange:C.muted}/>{value||"Selecionar data"}
       </button>
-      {open&&(
+      {open&&!fullScreen&&(
         <div ref={calRef} style={{marginTop:6,background:C.surface,border:`1px solid ${C.border}`,borderRadius:14,padding:16,boxShadow:"0 4px 16px #1E3A8A12",minWidth:280}}>
-          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
-            <button onClick={()=>setView(new Date(y,m-1,1))} style={{background:C.subtle,border:"none",borderRadius:8,padding:6,cursor:"pointer",display:"flex"}}><ChevronLeftIcon size={14} color={C.text2}/></button>
-            <span style={{color:C.navy,fontWeight:800,fontSize:14,fontFamily:"'Sora',sans-serif"}}>{MONTHS[m]} {y}</span>
-            <button onClick={()=>setView(new Date(y,m+1,1))} style={{background:C.subtle,border:"none",borderRadius:8,padding:6,cursor:"pointer",display:"flex"}}><ChevronRightIcon size={14} color={C.text2}/></button>
-          </div>
-          <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:2,marginBottom:6}}>
-            {DAYS_S.map(d=><div key={d} style={{textAlign:"center",color:C.muted,fontSize:10,fontWeight:700,padding:"3px 0"}}>{d}</div>)}
-          </div>
-          <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:2}}>
-            {Array.from({length:fd}).map((_,i)=><div key={`e${i}`}/>)}
-            {Array.from({length:days}).map((_,i)=>{
-              const day=i+1,isSel=day===sD&&m===sM&&y===sY,isToday=day===new Date().getDate()&&m===new Date().getMonth()&&y===new Date().getFullYear();
-              return <button key={day} onClick={()=>{onChange(`${String(day).padStart(2,"0")}/${String(m+1).padStart(2,"0")}/${y}`);setOpen(false);}} style={{textAlign:"center",padding:"6px 0",borderRadius:8,border:"none",cursor:"pointer",fontSize:12,fontWeight:isSel?800:400,background:isSel?C.orange:isToday?C.orangeLight:"transparent",color:isSel?"#fff":isToday?C.orange:C.text}}>{day}</button>;
-            })}
-          </div>
-          <div style={{marginTop:10,display:"flex",gap:5,justifyContent:"center"}}>
-            {[y-1,y,y+1,y+2].map(yr=><button key={yr} onClick={()=>setView(new Date(yr,m,1))} style={{padding:"3px 8px",borderRadius:6,border:"none",cursor:"pointer",background:yr===y?C.navy:C.subtle,color:yr===y?"#fff":C.text2,fontSize:12,fontWeight:600}}>{yr}</button>)}
+          {calPanel}
+        </div>
+      )}
+      {open&&fullScreen&&(
+        <div style={{position:"fixed",inset:0,zIndex:500,background:"#1E3A8A55",display:"flex",flexDirection:"column",padding:"max(12px, env(safe-area-inset-top)) 12px max(12px, env(safe-area-inset-bottom))",boxSizing:"border-box",overflowY:"auto",WebkitOverflowScrolling:"touch"}} onMouseDown={e=>{if(e.target===e.currentTarget)setOpen(false);}}>
+          <div style={{flex:1,display:"flex",flexDirection:"column",justifyContent:"center",width:"100%",maxWidth:520,margin:"0 auto",minHeight:"min(100%, 640px)"}}>
+            <div ref={calRef} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:20,padding:fullScreen?24:16,boxShadow:"0 20px 60px #1E3A8A22",width:"100%",boxSizing:"border-box"}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:18}}>
+                <div style={{color:C.navy,fontWeight:800,fontSize:17,fontFamily:"'Sora',sans-serif"}}>Selecionar data</div>
+                <button type="button" onClick={()=>setOpen(false)} style={{background:C.subtle,border:`1px solid ${C.border}`,borderRadius:9,padding:7,cursor:"pointer",color:C.muted,display:"flex"}}><XIcon size={15}/></button>
+              </div>
+              {calPanel}
+            </div>
           </div>
         </div>
       )}
@@ -3094,7 +3113,7 @@ const Despesas=({despesas,onAddDespesa,onUpdateDespesa,onDeleteDespesa})=>{
             </div>
             <Field label="Descrição (opcional)" value={form.descricao} onChange={v=>setForm(f=>({...f,descricao:v}))} placeholder="ex: Almoço em Campinas"/>
             <Field label="Valor (R$)" value={form.valor} onChange={v=>setForm(f=>({...f,valor:v}))} placeholder="25.00" prefix="R$"/>
-            <DatePicker label="Data" value={form.date} onChange={v=>setForm(f=>({...f,date:v}))}/>
+            <DatePicker fullScreen label="Data" value={form.date} onChange={v=>setForm(f=>({...f,date:v}))}/>
           </div>
         </ModalFormLayout>
       </ModalWrap>)}
@@ -3325,7 +3344,7 @@ const Documentos=({docs,onAddDocumento,onDeleteDocumento})=>{
             <SelectField label="Tipo" value={form.type} onChange={v=>setForm(f=>({...f,type:v}))} options={["CNH","CRLV","Seguro","Tacógrafo","Licença ANTT","Outros"]}/>
             {form.type!=="CNH"&&<Field label="Veículo / Titular" value={form.vehicle} onChange={v=>setForm(f=>({...f,vehicle:v}))} placeholder="Caminhão MB 1620"/>}
             <Field label="Número / Registro" value={form.number} onChange={v=>setForm(f=>({...f,number:v}))} placeholder="ABC-1234"/>
-            <DatePicker label="Data de Vencimento" value={form.expiry} onChange={v=>setForm(f=>({...f,expiry:v}))}/>
+            <DatePicker fullScreen label="Data de Vencimento" value={form.expiry} onChange={v=>setForm(f=>({...f,expiry:v}))}/>
           </div>
         </ModalFormLayout>
       </ModalWrap>)}

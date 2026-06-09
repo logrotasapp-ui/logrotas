@@ -3,8 +3,18 @@
  * Funções puras — usadas por routingService antes do geocoding.
  */
 
+/** Instrução aplicada na pós-processamento do OCR (Vision não aceita prompt nativo). */
+export const VISION_ADDRESS_EXTRACTION_INSTRUCTION =
+  "Extraia apenas o endereço de entrega completo desta etiqueta ou romaneio, incluindo rua, número, bairro, cidade, estado e CEP. Ignore nome do destinatário, nome do remetente, código de rastreio e outros dados que não sejam o endereço de entrega.";
+
 const SKIP_LINE =
   /^(total|subtotal|pedido|nota\s*fiscal|nf-?e?|data|hora|romaneio|cliente|cpf|cnpj|pagina|página|qtd|quant|valor|frete|obs|observacao|observação|assinatura|motorista|placa|entregas?)\b/i;
+
+const SKIP_LABEL_LINE =
+  /^(destinat[aá]rio|remetente|nome|cliente|para|de|at[eé]ncia|cpf|cnpj|rg|fone|tel\.?|cel\.?|telefone|e-?mail|rastreio|c[oó]digo|rastreamento|tracking|objeto|awb|remessa|peso|volume|dimens[aã]o|altura|largura|comprimento|fr[aá]gil)\s*[:\-–]?/i;
+
+const TRACKING_CODE =
+  /\b[A-Z]{2}\s?\d{9}\s?[A-Z]{2}\b|\b\d{13,22}\b/i;
 
 const STREET_HINT =
   /(\b(r\.|rua|av\.|avenida|trav\.|travessa|alameda|rod\.|rodovia|estrada|pça|praça|praca|bc\.|beco|vl\.|vila|lg\.|largo|br-)\b)|(\d{5}-?\d{3})/i;
@@ -70,13 +80,40 @@ function normalizeLine(line) {
   return cleanAddressLine(line);
 }
 
+function looksLikePersonNameOnly(line) {
+  if (STREET_HINT.test(line) || /\d/.test(line)) return false;
+  const words = line.split(/\s+/).filter(Boolean);
+  if (words.length < 2 || words.length > 5) return false;
+  return words.every((w) => /^[A-ZÀ-Ú][a-zà-ú]{1,}$/.test(w) || /^[A-ZÀ-Ú]{2,}$/.test(w));
+}
+
 function looksLikeAddress(line) {
   if (line.length < 8 || line.length > 220) return false;
   if (ONLY_CEP.test(line)) return false;
   if (SKIP_LINE.test(line)) return false;
+  if (SKIP_LABEL_LINE.test(line)) return false;
+  if (TRACKING_CODE.test(line)) return false;
+  if (looksLikePersonNameOnly(line)) return false;
   if (!/[a-zA-ZÀ-ú]/.test(line)) return false;
   if (STREET_HINT.test(line)) return true;
   return /\d/.test(line) && /[a-zA-ZÀ-ú]{3,}/.test(line);
+}
+
+function shouldSkipOcrLine(line) {
+  if (!line || line.length < 2) return true;
+  if (SKIP_LABEL_LINE.test(line)) return true;
+  if (TRACKING_CODE.test(line)) return true;
+  if (/^\d{10,}$/.test(line.replace(/\s/g, ""))) return true;
+  if (looksLikePersonNameOnly(line)) return true;
+  return false;
+}
+
+function filterOcrTextForDeliveryAddress(rawText) {
+  return String(rawText || "")
+    .split(/\r?\n/)
+    .map(normalizeLine)
+    .filter((line) => line && !shouldSkipOcrLine(line))
+    .join("\n");
 }
 
 function startsNewAddress(line) {
@@ -157,41 +194,13 @@ export function parseAddressesFromRomaneioText(rawText) {
   return normalizeAddressesForRouting(addresses);
 }
 
-const GEMINI_PREFIX_LINE =
-  /^(OK|WARN|FAIL)\s*\|\s*(.*)$/i;
-
 /**
- * V169 — Resposta do Gemini com prefixos OK| / WARN| / FAIL|
+ * OCR de etiqueta/romaneio (Vision) — extrai só endereço de entrega.
  * @param {string} rawText
- * @returns {Array<{ confianca: 'ok'|'warn'|'fail', endereco: string|null }>}
+ * @returns {string[]}
  */
-export function parseGeminiRomaneioResponse(rawText) {
+export function parseDeliveryAddressesFromLabelText(rawText) {
   if (!rawText || !String(rawText).trim()) return [];
-
-  const items = [];
-
-  for (const rawLine of String(rawText).split(/\r?\n/)) {
-    const line = rawLine.trim();
-    if (!line) continue;
-
-    const match = line.match(GEMINI_PREFIX_LINE);
-    if (!match) continue;
-
-    const tag = match[1].toUpperCase();
-    const body = cleanAddressLine(match[2] || "");
-
-    if (tag === "FAIL" || !body) {
-      items.push({ confianca: "fail", endereco: null });
-      continue;
-    }
-
-    if (tag === "WARN") {
-      items.push({ confianca: "warn", endereco: body });
-      continue;
-    }
-
-    items.push({ confianca: "ok", endereco: body });
-  }
-
-  return items;
+  const filtered = filterOcrTextForDeliveryAddress(rawText);
+  return parseAddressesFromRomaneioText(filtered || rawText);
 }
