@@ -25,6 +25,11 @@ import { playWhooshSound } from "./src/utils/whooshSound.js";
 import DeliveryMap from "./src/components/DeliveryMap.js";
 import NavigationMap from "./src/components/NavigationMap.jsx";
 import { loadDeliveryRoutes, loadDeliveryRouteDetail, saveDeliveryRoute } from "./src/services/deliveryRouteService.js";
+import {
+  readNavigationSession,
+  writeNavigationSession,
+  clearNavigationSession,
+} from "./src/services/navigationSessionService.js";
 import { OFFLINE_KEYS, AUTH_KEYS, readOfflineCache, writeOfflineCache, clearAllLogRotasStorage, activateProTrial, readProPlanActive, readProTrialDaysLeft, readPerfilLocalFallback, writePerfilLocalCache } from "./src/services/offlineStorage.js";
 import { subscribeAuth, signInWithEmail, signUpWithEmail, signInWithGoogle, signOutUser, deleteCurrentUser, getAuthErrorMessage } from "./src/services/authService.js";
 import { saveUserProfile, loadUserProfile, ensureGoogleUserProfile, cadastroToFirestorePayload, firestoreToPerfil, perfilToFirestorePayload } from "./src/services/userProfileService.js";
@@ -59,7 +64,7 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="V210";
+const APP_VERSION="V211";
 const BETA_HIDE_PLANOS=true;
 
 const OfflineRestoredBanner=({show})=>show?(
@@ -1253,7 +1258,7 @@ function formatNowBR(){
   };
 }
 
-const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid})=>{
+const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation=false,onNavigationResumed})=>{
   const[paradas,setParadas]=useState([]);
   const[novoEndereco,setNovoEndereco]=useState("");
   const[processandoFoto,setProcessandoFoto]=useState(false);
@@ -1301,13 +1306,32 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid})=>{
 
   useEffect(()=>{
     const cached=readOfflineCache(OFFLINE_KEYS.otimizar);
-    if(cached?.paradas?.length){
+    const nav=readNavigationSession();
+    if(nav?.paradas?.length){
+      setParadas(nav.paradas);
+      if(nav.resultado)setResultado(nav.resultado);
+      if(nav.posicaoMotorista)setPosicaoMotorista(nav.posicaoMotorista);
+      if(nav.viewNav)setViewNav(nav.viewNav);
+      if(resumeNavigation||nav.modoNavegacao){
+        setModoNavegacao(true);
+        onNavigationResumed?.();
+      }
+      setOfflineRestored(true);
+      setTimeout(()=>setOfflineRestored(false),3500);
+    }else if(cached?.paradas?.length){
       setParadas(cached.paradas);
       setOfflineRestored(true);
       setTimeout(()=>setOfflineRestored(false),3500);
     }
     setOfflineHydrated(true);
   },[]);
+
+  useEffect(()=>{
+    if(!resumeNavigation)return;
+    setModoNavegacao(true);
+    setViewNav("mapa");
+    onNavigationResumed?.();
+  },[resumeNavigation,onNavigationResumed]);
 
   useEffect(()=>{
     if(!offlineHydrated)return;
@@ -1320,6 +1344,24 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid})=>{
   const todasEntregues=paradas.length>0&&pendentesCount===0;
   const paradaAtualIdx=useMemo(()=>paradas.findIndex(p=>getParadaStatus(p)==="pendente"),[paradas]);
   const paradaAtual=paradaAtualIdx>=0?paradas[paradaAtualIdx]:null;
+
+  useEffect(()=>{
+    if(!offlineHydrated)return;
+    if(showResumo||!paradas.length){
+      clearNavigationSession();
+      return;
+    }
+    if(resultado&&pendentesCount>0){
+      writeNavigationSession({
+        active:true,
+        modoNavegacao,
+        paradas,
+        resultado,
+        posicaoMotorista,
+        viewNav,
+      });
+    }
+  },[offlineHydrated,modoNavegacao,paradas,resultado,posicaoMotorista,viewNav,pendentesCount,showResumo]);
 
   const carregarHistorico=useCallback(async()=>{
     if(!uid)return;
@@ -1354,6 +1396,7 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid})=>{
       });
       setRotaSalvaId(saved.id);
       await carregarHistorico();
+      clearNavigationSession();
     }catch{/* ignore */}
     finally{setSalvandoRota(false);}
   },[uid,paradas,resultado,rotaSalvaId,carregarHistorico]);
@@ -1393,6 +1436,7 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid})=>{
     setViewNav("mapa");
     setRotaSalvaId(null);
     setConfirmNovaOtimizacao(false);
+    clearNavigationSession();
   };
 
   const aplicarInsertParada=async(modo,novaParada)=>{
@@ -1839,23 +1883,35 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid})=>{
       )}
 
       {/* Histórico de entregas */}
-      {historicoEntregas.length>0&&!modoNavegacao&&!showResumo&&(
+      {!modoNavegacao&&!showResumo&&(
         <div style={{marginBottom:14}}>
           <div style={{color:C.navy,fontWeight:700,fontSize:13,marginBottom:8}}>📋 Histórico de Entregas</div>
-          <div style={{display:"flex",flexDirection:"column",gap:8}}>
-            {historicoEntregas.slice(0,8).map(r=>(
-              <button key={r.id} type="button" onClick={async()=>{
-                const det=await loadDeliveryRouteDetail(uid,r.id);
-                if(det)setHistoricoDetalhe(det);
-              }}
-                style={{textAlign:"left",background:C.subtle,border:`1px solid ${C.border}`,borderRadius:11,padding:"12px 14px",cursor:"pointer"}}>
-                <div style={{color:C.text,fontWeight:700,fontSize:13}}>{r.date||"—"} · {r.totalParadas||0} paradas</div>
-                <div style={{color:C.muted,fontSize:12,marginTop:3}}>
-                  ✅ {r.entregues||0} entregues · ❌ {r.naoEntregues||0} não entregues
-                </div>
-              </button>
-            ))}
-          </div>
+          {!uid&&(
+            <div style={{background:C.subtle,border:`1px dashed ${C.border}`,borderRadius:11,padding:"14px",color:C.muted,fontSize:12,textAlign:"center"}}>
+              Faça login para salvar e ver rotas anteriores.
+            </div>
+          )}
+          {uid&&historicoEntregas.length===0&&(
+            <div style={{background:C.subtle,border:`1px dashed ${C.border}`,borderRadius:11,padding:"14px",color:C.muted,fontSize:12,textAlign:"center"}}>
+              Nenhuma rota concluída ainda. Finalize uma navegação para aparecer aqui.
+            </div>
+          )}
+          {uid&&historicoEntregas.length>0&&(
+            <div style={{display:"flex",flexDirection:"column",gap:8}}>
+              {historicoEntregas.slice(0,12).map(r=>(
+                <button key={r.id} type="button" onClick={async()=>{
+                  const det=await loadDeliveryRouteDetail(uid,r.id);
+                  if(det)setHistoricoDetalhe(det);
+                }}
+                  style={{textAlign:"left",background:C.subtle,border:`1px solid ${C.border}`,borderRadius:11,padding:"12px 14px",cursor:"pointer"}}>
+                  <div style={{color:C.text,fontWeight:700,fontSize:13}}>{r.date||"—"} · {r.totalParadas||0} paradas</div>
+                  <div style={{color:C.muted,fontSize:12,marginTop:3}}>
+                    ✅ {r.entregues||0} entregues · ❌ {r.naoEntregues||0} não entregues
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
@@ -1932,34 +1988,39 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid})=>{
               style={{padding:"8px 14px",background:"#fff",border:`1.5px solid ${OTIMIZAR_AZUL}`,borderRadius:10,cursor:"pointer",color:OTIMIZAR_AZUL,fontWeight:700,fontSize:13}}>
               {viewNav==="mapa"?"Ver Lista":"Continuar Navegação"}
             </button>
+            <button type="button" onClick={()=>{setModoNavegacao(false);onClose();}} aria-label="Minimizar navegação"
+              style={{padding:8,background:"#fff",border:`1px solid ${C.border}`,borderRadius:9,cursor:"pointer",display:"flex"}}>
+              <XIcon size={16} color={C.muted}/>
+            </button>
           </div>
 
           {viewNav==="mapa"?(
             <>
               <NavigationMap
+                paradas={paradas}
+                currentStopIndex={paradaAtualIdx}
                 originCoords={posicaoMotorista}
-                destinationCoords={paradaAtual.coords}
-                height="calc(100vh - 280px)"
+                height="calc(100vh - 300px)"
                 onDriverLocationUpdate={setPosicaoMotorista}
               />
               <div style={{padding:"12px 16px",borderTop:`1px solid ${C.border}`,background:C.subtle}}>
                 <div style={{color:C.muted,fontSize:11,fontWeight:700,marginBottom:4}}>ENDEREÇO ATUAL</div>
                 <div style={{color:C.text,fontSize:14,fontWeight:600,lineHeight:1.4}}>{paradaAtual.endereco}</div>
               </div>
-              <div style={{padding:"12px 16px",display:"flex",gap:10,paddingBottom:"max(12px, env(safe-area-inset-bottom))"}}>
+              <div style={{padding:"12px 16px",display:"grid",gridTemplateColumns:"1fr 1fr 52px",gap:8,paddingBottom:"max(12px, env(safe-area-inset-bottom))",borderTop:`1px solid ${C.border}`,background:"#fff"}}>
                 <button type="button" onClick={()=>confirmarParada("entregue")}
-                  style={{flex:1,padding:16,background:"#DCFCE7",border:"2px solid #22C55E",borderRadius:14,cursor:"pointer",color:"#15803D",fontWeight:800,fontSize:15}}>
+                  style={{padding:"14px 8px",background:"#DCFCE7",border:"2px solid #22C55E",borderRadius:14,cursor:"pointer",color:"#15803D",fontWeight:800,fontSize:14}}>
                   ✅ Entregue
                 </button>
                 <button type="button" onClick={()=>setShowMotivo(true)}
-                  style={{flex:1,padding:16,background:"#FEE2E2",border:"2px solid #DC2626",borderRadius:14,cursor:"pointer",color:"#B91C1C",fontWeight:800,fontSize:15}}>
+                  style={{padding:"14px 8px",background:"#FEE2E2",border:"2px solid #DC2626",borderRadius:14,cursor:"pointer",color:"#B91C1C",fontWeight:800,fontSize:14}}>
                   ❌ Não entregue
                 </button>
+                <button type="button" onClick={()=>setShowAddNavMenu(true)} title="Adicionar parada"
+                  style={{padding:0,background:OTIMIZAR_AZUL,border:"none",borderRadius:14,cursor:"pointer",color:"#fff",fontSize:22,fontWeight:700,boxShadow:"0 2px 10px #2563EB44"}}>
+                  ➕
+                </button>
               </div>
-              <button type="button" onClick={()=>setShowAddNavMenu(true)}
-                style={{position:"absolute",bottom:100,right:16,width:52,height:52,borderRadius:"50%",background:OTIMIZAR_AZUL,border:"none",color:"#fff",fontSize:24,cursor:"pointer",boxShadow:"0 4px 16px #2563EB55",zIndex:10}}>
-                ➕
-              </button>
             </>
           ):(
             <div style={{flex:1,overflowY:"auto",padding:14}}>
@@ -2959,7 +3020,7 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
 };
 
 // ── DASHBOARD ─────────────────────────────────────────────────────────────────
-const Dashboard=({onNav,setShowCalc,setCalcMode,historicoFretes,manutencoes,docs,perfil})=>{
+const Dashboard=({onNav,setShowCalc,setCalcMode,historicoFretes,manutencoes,docs,perfil,navBanner,onReturnToNavigation})=>{
   const hoje=new Date();hoje.setHours(0,0,0,0);
   const docsVencendo=(docs||[]).filter(d=>{
     if(!d.expiry)return false;
@@ -2989,8 +3050,23 @@ const Dashboard=({onNav,setShowCalc,setCalcMode,historicoFretes,manutencoes,docs
   const hora=new Date().getHours();
   const saudacao=hora<12?"Bom dia":hora<18?"Boa tarde":"Boa noite";
 
+  const paradaNav=(navBanner?.paradaAtualIdx??0)+1;
+  const totalNav=navBanner?.totalParadas||0;
+
   return(
     <div style={{display:"flex",flexDirection:"column",gap:18}}>
+      {navBanner?.active&&totalNav>0&&(
+        <button type="button" onClick={onReturnToNavigation}
+          style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,background:"linear-gradient(135deg,#2563EB,#1D4ED8)",border:"none",borderRadius:14,padding:"14px 16px",cursor:"pointer",boxShadow:"0 4px 16px #2563EB44",textAlign:"left",width:"100%"}}>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{color:"#fff",fontWeight:800,fontSize:14,fontFamily:"'Sora',sans-serif"}}>🗺️ Navegação em andamento</div>
+            <div style={{color:"#DBEAFE",fontSize:12,marginTop:3,fontWeight:600}}>Parada {paradaNav} de {totalNav}</div>
+          </div>
+          <div style={{background:"#ffffff22",border:"1px solid #ffffff33",borderRadius:10,padding:"8px 12px",color:"#fff",fontWeight:700,fontSize:12,whiteSpace:"nowrap",flexShrink:0}}>
+            Voltar ao mapa
+          </div>
+        </button>
+      )}
       <div>
         <div style={{color:C.muted,fontSize:12,marginBottom:3}}>{saudacao}, {nomeMotorista}! 👋</div>
         <h1 style={{color:C.navy,fontSize:22,fontWeight:900,fontFamily:"'Sora',sans-serif",margin:"0 0 12px"}}>LogRotas</h1>
@@ -5192,6 +5268,20 @@ export default function App(){
   const[confirmLimpar,setConfirmLimpar]=useState(false);
   const[showNotif,setShowNotif]=useState(false);
   const[showAdmin,setShowAdmin]=useState(false);
+  const[navBanner,setNavBanner]=useState(()=>{
+    const nav=readNavigationSession();
+    return nav?.active?nav:null;
+  });
+  const[resumeNav,setResumeNav]=useState(false);
+
+  useEffect(()=>{
+    const handler=(e)=>{
+      const detail=e.detail;
+      setNavBanner(detail?.active?detail:null);
+    };
+    window.addEventListener("logrotas-nav-update",handler);
+    return()=>window.removeEventListener("logrotas-nav-update",handler);
+  },[]);
 
   const NAV=[
     {id:"dashboard",  label:"Início",     icon:HomeIcon},
@@ -5289,7 +5379,7 @@ export default function App(){
         );})}
       </div>
       <div style={{maxWidth:820,margin:"0 auto",padding:`20px 14px ${plan==="free"?"120px":"80px"}`}}>
-        {page==="dashboard"   &&<Dashboard onNav={setPage} setShowCalc={setShowCalc} setCalcMode={setCalcMode} historicoFretes={historicoFretes} manutencoes={manutencoes} docs={docs} perfil={perfil}/>}
+        {page==="dashboard"   &&<Dashboard onNav={setPage} setShowCalc={setShowCalc} setCalcMode={setCalcMode} historicoFretes={historicoFretes} manutencoes={manutencoes} docs={docs} perfil={perfil} navBanner={navBanner} onReturnToNavigation={()=>{setResumeNav(true);setShowCalc(true);setCalcMode("otimizar");}}/>}
         {page==="financeiro"  &&<Financeiro historicoFretes={historicoFretes} manutencoes={manutencoes} despesas={despesas}/>}
         {page==="despesas"    &&<Despesas despesas={despesas} onAddDespesa={handleAddDespesa} onUpdateDespesa={handleUpdateDespesa} onDeleteDespesa={handleDeleteDespesa}/>}
         {page==="comparador"  &&<Comparador historicoFretes={historicoFretes} onAddFrete={handleAddFrete} onUpdateFrete={handleUpdateFrete} onDeleteFrete={handleDeleteFrete}/>}
@@ -5342,7 +5432,7 @@ export default function App(){
         onClose={()=>setShowCalc(false)}/>}
       {showCalc&&calcMode==="viagem"&&<TripCalcModal onClose={()=>{setShowCalc(false);setCalcMode(null);}} vehicles={vehicles}/>}
       {showCalc&&calcMode==="frete"&&<RouteCalcModal onClose={()=>{setShowCalc(false);setCalcMode(null);}} vehicles={vehicles} valorKmPadrao={valorKm} adicionalPadrao={adicionalFixo} onSalvarHistorico={handleAddFrete}/>}
-      {showCalc&&calcMode==="otimizar"&&<OtimizarEntregasModal uid={firebaseUser?.uid} onClose={()=>{setShowCalc(false);setCalcMode(null);}} perfil={perfil} plan={plan} onUpgrade={()=>{setShowCalc(false);setCalcMode(null);setPage("assinatura");}}/>}
+      {showCalc&&calcMode==="otimizar"&&<OtimizarEntregasModal uid={firebaseUser?.uid} resumeNavigation={resumeNav} onNavigationResumed={()=>setResumeNav(false)} onClose={()=>{setShowCalc(false);setCalcMode(null);setResumeNav(false);}} perfil={perfil} plan={plan} onUpgrade={()=>{setShowCalc(false);setCalcMode(null);setResumeNav(false);setPage("assinatura");}}/>}
 
       {/* Banner de anúncio */}
       <AdBanner plan={plan} onUpgrade={()=>setPage("assinatura")}/>

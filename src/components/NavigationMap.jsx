@@ -2,30 +2,116 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { API_KEYS } from "../services/apiConfig.js";
 import { waitForGoogleMaps } from "../services/googleMapsLoader.js";
 import { getDriverGeolocation } from "../services/routingService.js";
+import {
+  createNumberedStopMarker,
+  createDriverTriangleMarker,
+  packageCountAtCoords,
+  buildStopInfoHtml,
+} from "../services/mapMarkers.js";
 
 const DEFAULT_CENTER = { lat: -23.5505, lng: -46.6333 };
 
+function resolveStatus(p) {
+  if (p?.status) return p.status;
+  if (p?.entregue) return "entregue";
+  return "pendente";
+}
+
 /**
- * Mapa embutido com rota Google Directions até a parada atual.
- * @param {{ originCoords?: [number,number]|null, destinationCoords?: [number,number]|null, height?: string|number, onDriverLocationUpdate?: (c:[number,number])=>void }} props
+ * Mapa de navegação — bolinhas numeradas, motorista laranja, rota azul até parada atual.
  */
 export default function NavigationMap({
+  paradas = [],
+  currentStopIndex = 0,
   originCoords = null,
-  destinationCoords = null,
   height = "100%",
   onDriverLocationUpdate,
 }) {
   const containerRef = useRef(null);
   const mapRef = useRef(null);
   const rendererRef = useRef(null);
+  const stopMarkersRef = useRef([]);
+  const driverMarkerRef = useRef(null);
+  const infoWindowRef = useRef(null);
   const [ready, setReady] = useState(false);
   const [hint, setHint] = useState("Carregando mapa…");
   const [locating, setLocating] = useState(false);
   const driverRef = useRef(originCoords);
 
+  const currentParada = paradas[currentStopIndex] || null;
+  const destinationCoords = currentParada?.coords?.length >= 2 ? currentParada.coords : null;
+
   useEffect(() => {
     driverRef.current = originCoords;
   }, [originCoords]);
+
+  const clearStopMarkers = useCallback(() => {
+    stopMarkersRef.current.forEach((m) => m.setMap(null));
+    stopMarkersRef.current = [];
+  }, []);
+
+  const updateDriverMarker = useCallback((map, coords) => {
+    if (driverMarkerRef.current) {
+      driverMarkerRef.current.setMap(null);
+      driverMarkerRef.current = null;
+    }
+    if (!map || !coords?.length) return;
+    const [lng, lat] = coords;
+    driverMarkerRef.current = createDriverTriangleMarker(lng, lat);
+    driverMarkerRef.current.setMap(map);
+  }, []);
+
+  const renderStopMarkers = useCallback(
+    (map) => {
+      clearStopMarkers();
+      if (!map) return;
+
+      if (!infoWindowRef.current) {
+        infoWindowRef.current = new window.google.maps.InfoWindow({ maxWidth: 280 });
+      }
+
+      paradas.forEach((p, i) => {
+        if (!p?.coords?.length) return;
+        const [lng, lat] = p.coords;
+        const status = resolveStatus(p);
+        const entregue = status === "entregue" || status === "nao_entregue";
+        const isCurrent = i === currentStopIndex && status === "pendente";
+        const marker = createNumberedStopMarker(lng, lat, i + 1, {
+          entregue: status === "entregue",
+          isCurrent,
+        });
+
+        if (status === "nao_entregue") {
+          marker.setIcon({
+            path: window.google.maps.SymbolPath.CIRCLE,
+            scale: 16,
+            fillColor: "#FCA5A5",
+            fillOpacity: 1,
+            strokeColor: "#ffffff",
+            strokeWeight: 2,
+          });
+        }
+
+        marker.addListener("click", () => {
+          const pacotes = packageCountAtCoords(paradas, lng, lat);
+          infoWindowRef.current.setContent(
+            buildStopInfoHtml({
+              endereco: p.endereco,
+              paradaNum: i + 1,
+              pacotes,
+              status,
+              motivo: p.motivo,
+            })
+          );
+          infoWindowRef.current.open({ anchor: marker, map });
+        });
+
+        marker.setMap(map);
+        stopMarkersRef.current.push(marker);
+      });
+    },
+    [paradas, currentStopIndex, clearStopMarkers]
+  );
 
   useEffect(() => {
     if (!API_KEYS.googleMaps) {
@@ -49,7 +135,7 @@ export default function NavigationMap({
         mapRef.current = map;
         rendererRef.current = new window.google.maps.DirectionsRenderer({
           map,
-          suppressMarkers: false,
+          suppressMarkers: true,
           polylineOptions: {
             strokeColor: "#2563EB",
             strokeWeight: 5,
@@ -65,17 +151,24 @@ export default function NavigationMap({
 
     return () => {
       cancelled = true;
+      clearStopMarkers();
+      if (driverMarkerRef.current) {
+        driverMarkerRef.current.setMap(null);
+        driverMarkerRef.current = null;
+      }
       rendererRef.current?.setMap(null);
       rendererRef.current = null;
       mapRef.current = null;
       setReady(false);
     };
-  }, []);
+  }, [clearStopMarkers]);
 
   const drawRoute = useCallback(async () => {
     const map = mapRef.current;
     const renderer = rendererRef.current;
     if (!map || !renderer || !ready) return;
+
+    renderStopMarkers(map);
 
     let origin = driverRef.current;
     if (!origin?.length) {
@@ -87,6 +180,8 @@ export default function NavigationMap({
         onDriverLocationUpdate?.(origin);
       }
     }
+
+    updateDriverMarker(map, origin);
 
     if (!destinationCoords?.length) {
       setHint("Parada sem coordenadas no mapa.");
@@ -114,15 +209,22 @@ export default function NavigationMap({
           setHint("Não foi possível traçar a rota.");
           return;
         }
+        renderer.setMap(map);
         renderer.setDirections(result);
         setHint("");
       }
     );
-  }, [destinationCoords, ready, onDriverLocationUpdate]);
+  }, [
+    destinationCoords,
+    ready,
+    onDriverLocationUpdate,
+    renderStopMarkers,
+    updateDriverMarker,
+  ]);
 
   useEffect(() => {
     drawRoute();
-  }, [drawRoute, originCoords, destinationCoords]);
+  }, [drawRoute, originCoords, destinationCoords, paradas, currentStopIndex]);
 
   const handleLocate = async () => {
     if (locating) return;
