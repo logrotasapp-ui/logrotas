@@ -8,6 +8,7 @@ import {
   packageCountAtCoords,
   buildStopInfoHtml,
 } from "../services/mapMarkers.js";
+import GoogleLocationIcon from "./GoogleLocationIcon.jsx";
 
 const DEFAULT_CENTER = { lat: -23.5505, lng: -46.6333 };
 
@@ -289,21 +290,26 @@ export default function NavigationMap({
         onClick={handleLocate}
         disabled={locating}
         aria-label="Minha localização"
+        title="Minha localização"
         style={{
           position: "absolute",
-          bottom: 16,
-          right: 12,
-          width: 44,
-          height: 44,
+          bottom: 96,
+          right: 10,
+          zIndex: 10,
+          width: 40,
+          height: 40,
           borderRadius: "50%",
           border: "none",
-          background: "#fff",
-          boxShadow: "0 2px 8px #00000033",
+          background: locating ? "#F1F3F4" : "#fff",
+          boxShadow: "0 1px 4px rgba(0,0,0,0.3)",
           cursor: locating ? "wait" : "pointer",
-          fontSize: 18,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          padding: 0,
         }}
       >
-        📍
+        <GoogleLocationIcon />
       </button>
     </div>
   );

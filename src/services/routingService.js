@@ -389,6 +389,26 @@ export async function openGoogleMapsDirections(stops) {
   window.open(`https://www.google.com/maps/dir/?${params.toString()}`, "_blank");
 }
 
+/**
+ * Google Maps — navegação por voz até uma parada (Otimizador / navegação embutida).
+ * @param {{ endereco?: string, v?: string, coords?: number[] }} stop
+ */
+export function openGoogleMapsNavigationToStop(stop) {
+  const addr = String(stop?.endereco || stop?.v || "").trim();
+  const coords = stop?.coords;
+  const params = new URLSearchParams({ api: "1", travelmode: "driving" });
+
+  if (coords?.length >= 2) {
+    params.set("destination", `${coords[1]},${coords[0]}`);
+  } else if (addr) {
+    params.set("destination", addr);
+  } else {
+    return;
+  }
+
+  window.open(`https://www.google.com/maps/dir/?${params.toString()}`, "_blank");
+}
+
 /** Paradas com endereço preenchido (calculadoras / entregas). */
 export function filterNavigationStops(stops) {
   return (stops || []).filter((s) => String(s?.v || s?.endereco || "").trim());

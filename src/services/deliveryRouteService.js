@@ -10,6 +10,31 @@ import { db } from "../firebase.js";
 
 export const ENTREGAS_COLLECTION = "entregas";
 
+function sanitizeResultado(resultado) {
+  if (!resultado) return null;
+  return {
+    kmOriginal: resultado.kmOriginal ?? null,
+    kmOtimizado: resultado.kmOtimizado ?? null,
+    economiaKm: resultado.economiaKm ?? null,
+    economiaCusto: resultado.economiaCusto ?? null,
+    tempoEstimado: resultado.tempoEstimado ?? null,
+    custoTotal: resultado.custoTotal ?? null,
+  };
+}
+
+function normalizeRouteDoc(id, data) {
+  const paradas = data.paradas || [];
+  return {
+    id,
+    ...data,
+    totalParadas: data.totalParadas ?? paradas.length,
+    entregues:
+      data.entregues ?? paradas.filter((p) => p.status === "entregue").length,
+    naoEntregues:
+      data.naoEntregues ?? paradas.filter((p) => p.status === "nao_entregue").length,
+  };
+}
+
 function colRef(uid) {
   return collection(db, "users", uid, ENTREGAS_COLLECTION);
 }
@@ -35,7 +60,7 @@ export async function loadDeliveryRoutes(uid, max = 50) {
   if (!uid) return [];
   const snap = await getDocs(colRef(uid));
   return sortRoutesDesc(
-    snap.docs.map((d) => ({ id: d.id, ...d.data() }))
+    snap.docs.map((d) => normalizeRouteDoc(d.id, d.data()))
   ).slice(0, max);
 }
 
@@ -48,7 +73,7 @@ export async function loadDeliveryRouteDetail(uid, routeId) {
   const ref = doc(db, "users", uid, ENTREGAS_COLLECTION, routeId);
   const snap = await getDoc(ref);
   if (!snap.exists()) return null;
-  return { id: snap.id, ...snap.data() };
+  return normalizeRouteDoc(snap.id, snap.data());
 }
 
 /**
@@ -81,9 +106,9 @@ export async function saveDeliveryRoute(uid, routeData) {
       motivo: p.motivo || null,
       horario: p.horario || "",
       data: p.data || routeData.date || "",
-      coords: p.coords || null,
+      coords: Array.isArray(p.coords) && p.coords.length >= 2 ? p.coords : null,
     })),
-    resultado: routeData.resultado || null,
+    resultado: sanitizeResultado(routeData.resultado),
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   };

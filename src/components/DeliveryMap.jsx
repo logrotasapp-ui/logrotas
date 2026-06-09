@@ -4,6 +4,7 @@ import { API_KEYS } from "../services/apiConfig.js";
 import { buildDeliveryMapFeatures } from "../services/mapDisplayService.js";
 import { waitForGoogleMaps } from "../services/googleMapsLoader.js";
 import { getDriverGeolocation } from "../services/routingService.js";
+import GoogleLocationIcon from "./GoogleLocationIcon.jsx";
 
 const DEFAULT_CENTER = { lat: -23.5505, lng: -46.6333 };
 
@@ -50,21 +51,6 @@ function createNumberedMarker(lng, lat, order, entregue = false) {
       fontWeight: "700",
     },
   });
-}
-
-function GoogleLocationIcon() {
-  return (
-    <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true">
-      <circle cx="12" cy="12" r="2.5" fill="#4285F4" />
-      <circle cx="12" cy="12" r="7" fill="none" stroke="#4285F4" strokeWidth="2" />
-      <path
-        d="M12 2v3M12 19v3M2 12h3M19 12h3"
-        stroke="#4285F4"
-        strokeWidth="2"
-        strokeLinecap="round"
-      />
-    </svg>
-  );
 }
 
 function buildDeliveryPopupHtml(packageCount, orders) {

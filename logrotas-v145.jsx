@@ -15,6 +15,7 @@ import {
   resolveManualAddress,
   buildCalculatorStopSearchBias,
   openGoogleMapsDirections,
+  openGoogleMapsNavigationToStop,
   openWazeDirections,
   openWazeStopDeepLink,
   filterNavigationStops,
@@ -64,7 +65,7 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="V211";
+const APP_VERSION="V212";
 const BETA_HIDE_PLANOS=true;
 
 const OfflineRestoredBanner=({show})=>show?(
@@ -1291,6 +1292,10 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
   const[historicoDetalhe,setHistoricoDetalhe]=useState(null);
   const[salvandoRota,setSalvandoRota]=useState(false);
   const[rotaSalvaId,setRotaSalvaId]=useState(null);
+  const[resumoFinal,setResumoFinal]=useState(null);
+  const[erroHistoricoSave,setErroHistoricoSave]=useState("");
+  const[showConfirmExitNav,setShowConfirmExitNav]=useState(false);
+  const[aposConclusao,setAposConclusao]=useState(false);
 
   const isPro=plan==="pro";
   const LIMITE=isPro?Infinity:10;
@@ -1328,8 +1333,10 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
 
   useEffect(()=>{
     if(!resumeNavigation)return;
+    const nav=readNavigationSession();
+    if(nav?.viewNav)setViewNav(nav.viewNav);
+    else setViewNav("mapa");
     setModoNavegacao(true);
-    setViewNav("mapa");
     onNavigationResumed?.();
   },[resumeNavigation,onNavigationResumed]);
 
@@ -1375,30 +1382,52 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
 
   const finalizarRota=useCallback(async(listaParadas)=>{
     const lista=listaParadas||paradas;
+    const stats={
+      total:lista.length,
+      entregues:lista.filter(p=>getParadaStatus(p)==="entregue").length,
+      naoEntregues:lista.filter(p=>getParadaStatus(p)==="nao_entregue").length,
+      motivos:lista.filter(p=>getParadaStatus(p)==="nao_entregue").map(p=>({
+        id:p.id,
+        endereco:p.endereco,
+        motivo:p.motivo||"—",
+      })),
+    };
+
     setModoNavegacao(false);
     setViewNav("mapa");
+    setResumoFinal(stats);
+    setParadas([]);
+    setResultado(null);
+    setAposConclusao(true);
+    clearNavigationSession();
+    writeOfflineCache(OFFLINE_KEYS.otimizar,{paradas:[]});
     setShowResumo(true);
+
     if(!uid||rotaSalvaId)return;
+
     setSalvandoRota(true);
+    setErroHistoricoSave("");
     try{
       const {data}=formatNowBR();
       const saved=await saveDeliveryRoute(uid,{
         date:data,
         paradas:lista.map(p=>({
-          endereco:p.endereco,
+          endereco:p.endereco||"",
           status:getParadaStatus(p),
           motivo:p.motivo||null,
           horario:p.horario||"",
           data:p.data||data,
-          coords:p.coords||null,
+          coords:Array.isArray(p.coords)&&p.coords.length>=2?p.coords:null,
         })),
         resultado,
       });
       setRotaSalvaId(saved.id);
       await carregarHistorico();
-      clearNavigationSession();
-    }catch{/* ignore */}
-    finally{setSalvandoRota(false);}
+    }catch{
+      setErroHistoricoSave("Não foi possível salvar no histórico. Verifique sua conexão e login.");
+    }finally{
+      setSalvandoRota(false);
+    }
   },[uid,paradas,resultado,rotaSalvaId,carregarHistorico]);
 
   useEffect(()=>{
@@ -1432,11 +1461,20 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
     setParadas([]);
     setResultado(null);
     setShowResumo(false);
+    setResumoFinal(null);
+    setErroHistoricoSave("");
     setModoNavegacao(false);
     setViewNav("mapa");
     setRotaSalvaId(null);
     setConfirmNovaOtimizacao(false);
+    setAposConclusao(true);
     clearNavigationSession();
+    writeOfflineCache(OFFLINE_KEYS.otimizar,{paradas:[]});
+  };
+
+  const encerrarNavegacao=()=>{
+    setModoNavegacao(false);
+    setShowConfirmExitNav(false);
   };
 
   const aplicarInsertParada=async(modo,novaParada)=>{
@@ -1526,6 +1564,7 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
     try{
       const geocoded=await geocodeRomaneioExtractedAddresses(novas);
       setParadas(p=>[...p,...geocoded]);
+      setAposConclusao(false);
     }catch{
       setErroFoto("Erro ao localizar endereços no mapa. Tente de novo.");
     }finally{
@@ -1546,6 +1585,7 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
       setParadas(p=>[...p,{id:Date.now(),endereco:out.endereco,coords:out.coords}]);
       setNovoEndereco("");
       setResultado(null);
+      setAposConclusao(false);
     }catch{
       setErroManual("Não foi possível validar o endereço. Verifique sua conexão e tente de novo.");
     }finally{
@@ -1577,6 +1617,7 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
     if(out.motoristaCoords)setPosicaoMotorista(out.motoristaCoords);
     setParadas(out.paradasOtimizadas);
     setResultado(out.resultado);
+    setAposConclusao(false);
   };
 
   return(
@@ -1833,7 +1874,9 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
           style={{width:"100%",padding:"15px",background:otimizando?"#94A3B8":`linear-gradient(135deg,${OTIMIZAR_AZUL},${OTIMIZAR_AZUL_MID})`,border:"none",borderRadius:14,cursor:otimizando?"not-allowed":"pointer",color:"#fff",fontWeight:800,fontSize:15,fontFamily:"'Sora',sans-serif",display:"flex",alignItems:"center",justifyContent:"center",gap:9,boxShadow:`0 4px 20px ${OTIMIZAR_AZUL}44`,marginBottom:14}}>
           {otimizando
             ?<><span style={{fontSize:16}}>⏳</span> Calculando rota perfeita...</>
-            :<><ZapIcon size={18}/> Otimizar Rota Perfeita</>}
+            :aposConclusao
+              ?<><RouteIcon size={18}/> Nova Rota</>
+              :<><ZapIcon size={18}/> Otimizar Rota Perfeita</>}
         </button>
       )}
 
@@ -1936,18 +1979,20 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
       )}
 
       {/* Tela resumo final */}
-      {showResumo&&(
+      {showResumo&&resumoFinal&&(
         <div style={{position:"fixed",inset:0,zIndex:680,background:C.surface,display:"flex",flexDirection:"column",padding:"20px 16px",overflowY:"auto"}}>
           <div style={{textAlign:"center",marginBottom:20}}>
             <div style={{fontSize:48,marginBottom:8}}>🏁</div>
             <div style={{color:C.navy,fontWeight:900,fontSize:20,fontFamily:"'Sora',sans-serif"}}>Rota concluída!</div>
             {salvandoRota&&<div style={{color:C.muted,fontSize:12,marginTop:6}}>Salvando no histórico…</div>}
+            {erroHistoricoSave&&<div style={{color:C.red,fontSize:12,marginTop:6,fontWeight:600}}>{erroHistoricoSave}</div>}
+            {!salvandoRota&&!erroHistoricoSave&&uid&&rotaSalvaId&&<div style={{color:C.green,fontSize:12,marginTop:6}}>✅ Salvo no histórico</div>}
           </div>
           <div style={{background:C.subtle,borderRadius:14,padding:16,marginBottom:16}}>
             {[
-              {label:"Total de paradas",valor:paradas.length},
-              {label:"Entregues",valor:entreguesCount,cor:C.green},
-              {label:"Não entregues",valor:naoEntreguesCount,cor:C.red},
+              {label:"Total de paradas",valor:resumoFinal.total},
+              {label:"Entregues",valor:resumoFinal.entregues,cor:C.green},
+              {label:"Não entregues",valor:resumoFinal.naoEntregues,cor:C.red},
             ].map((r,i)=>(
               <div key={i} style={{display:"flex",justifyContent:"space-between",padding:"8px 0",borderBottom:i<2?`1px solid ${C.border}`:"none"}}>
                 <span style={{color:C.text2,fontSize:14}}>{r.label}</span>
@@ -1955,12 +2000,12 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
               </div>
             ))}
           </div>
-          {naoEntreguesCount>0&&(
+          {resumoFinal.naoEntregues>0&&(
             <div style={{marginBottom:16}}>
               <div style={{color:C.navy,fontWeight:700,fontSize:13,marginBottom:8}}>Motivos</div>
-              {paradas.filter(p=>getParadaStatus(p)==="nao_entregue").map(p=>(
+              {resumoFinal.motivos.map(p=>(
                 <div key={p.id} style={{fontSize:12,color:C.text2,marginBottom:6,padding:"8px 10px",background:"#FFF5F5",borderRadius:8}}>
-                  {p.endereco} — <b>{p.motivo||"—"}</b>
+                  {p.endereco} — <b>{p.motivo}</b>
                 </div>
               ))}
             </div>
@@ -1968,7 +2013,7 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
           <button onClick={reiniciarRota} style={{width:"100%",padding:14,background:`linear-gradient(135deg,${OTIMIZAR_AZUL},${OTIMIZAR_AZUL_MID})`,border:"none",borderRadius:12,color:"#fff",fontWeight:800,fontSize:15,cursor:"pointer"}}>
             Nova Rota
           </button>
-          <button onClick={()=>{setShowResumo(false);onClose();}} style={{width:"100%",padding:12,marginTop:10,background:C.subtle,border:`1px solid ${C.border}`,borderRadius:12,cursor:"pointer",color:C.text2,fontWeight:600}}>
+          <button onClick={()=>{reiniciarRota();onClose();}} style={{width:"100%",padding:12,marginTop:10,background:C.subtle,border:`1px solid ${C.border}`,borderRadius:12,cursor:"pointer",color:C.text2,fontWeight:600}}>
             Fechar
           </button>
         </div>
@@ -1988,7 +2033,7 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
               style={{padding:"8px 14px",background:"#fff",border:`1.5px solid ${OTIMIZAR_AZUL}`,borderRadius:10,cursor:"pointer",color:OTIMIZAR_AZUL,fontWeight:700,fontSize:13}}>
               {viewNav==="mapa"?"Ver Lista":"Continuar Navegação"}
             </button>
-            <button type="button" onClick={()=>{setModoNavegacao(false);onClose();}} aria-label="Minimizar navegação"
+            <button type="button" onClick={()=>setShowConfirmExitNav(true)} aria-label="Sair da navegação"
               style={{padding:8,background:"#fff",border:`1px solid ${C.border}`,borderRadius:9,cursor:"pointer",display:"flex"}}>
               <XIcon size={16} color={C.muted}/>
             </button>
@@ -2000,12 +2045,16 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
                 paradas={paradas}
                 currentStopIndex={paradaAtualIdx}
                 originCoords={posicaoMotorista}
-                height="calc(100vh - 300px)"
+                height="calc(100vh - 340px)"
                 onDriverLocationUpdate={setPosicaoMotorista}
               />
               <div style={{padding:"12px 16px",borderTop:`1px solid ${C.border}`,background:C.subtle}}>
                 <div style={{color:C.muted,fontSize:11,fontWeight:700,marginBottom:4}}>ENDEREÇO ATUAL</div>
-                <div style={{color:C.text,fontSize:14,fontWeight:600,lineHeight:1.4}}>{paradaAtual.endereco}</div>
+                <div style={{color:C.text,fontSize:14,fontWeight:600,lineHeight:1.4,marginBottom:10}}>{paradaAtual.endereco}</div>
+                <button type="button" onClick={()=>openGoogleMapsNavigationToStop(paradaAtual)}
+                  style={{width:"100%",padding:"12px 14px",background:"#fff",border:`2px solid ${OTIMIZAR_AZUL}`,borderRadius:12,cursor:"pointer",color:OTIMIZAR_AZUL,fontWeight:800,fontSize:14,display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
+                  🗺️ Navegar
+                </button>
               </div>
               <div style={{padding:"12px 16px",display:"grid",gridTemplateColumns:"1fr 1fr 52px",gap:8,paddingBottom:"max(12px, env(safe-area-inset-bottom))",borderTop:`1px solid ${C.border}`,background:"#fff"}}>
                 <button type="button" onClick={()=>confirmarParada("entregue")}
@@ -2047,6 +2096,25 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
               ))}
             </div>
           )}
+        </div>
+      )}
+
+      {showConfirmExitNav&&(
+        <div style={{position:"fixed",inset:0,zIndex:720,background:"#1E3A8A66",display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+          <div style={{background:C.surface,borderRadius:18,width:"100%",maxWidth:360,padding:24,boxShadow:"0 12px 40px #00000033",textAlign:"center"}}>
+            <div style={{color:C.navy,fontWeight:800,fontSize:17,fontFamily:"'Sora',sans-serif",marginBottom:8}}>Deseja encerrar a navegação?</div>
+            <div style={{color:C.muted,fontSize:13,marginBottom:20,lineHeight:1.5}}>Você voltará para o Otimizador e poderá retomar depois pelo banner.</div>
+            <div style={{display:"flex",flexDirection:"column",gap:10}}>
+              <button type="button" onClick={encerrarNavegacao}
+                style={{width:"100%",padding:13,background:C.red,border:"none",borderRadius:12,cursor:"pointer",color:"#fff",fontWeight:700,fontSize:14}}>
+                Sim, encerrar
+              </button>
+              <button type="button" onClick={()=>setShowConfirmExitNav(false)}
+                style={{width:"100%",padding:13,background:C.subtle,border:`1px solid ${C.border}`,borderRadius:12,cursor:"pointer",color:C.text2,fontWeight:600,fontSize:14}}>
+                Não, continuar
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -3020,7 +3088,7 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
 };
 
 // ── DASHBOARD ─────────────────────────────────────────────────────────────────
-const Dashboard=({onNav,setShowCalc,setCalcMode,historicoFretes,manutencoes,docs,perfil,navBanner,onReturnToNavigation})=>{
+const Dashboard=({onNav,setShowCalc,setCalcMode,historicoFretes,manutencoes,docs,perfil})=>{
   const hoje=new Date();hoje.setHours(0,0,0,0);
   const docsVencendo=(docs||[]).filter(d=>{
     if(!d.expiry)return false;
@@ -3050,23 +3118,8 @@ const Dashboard=({onNav,setShowCalc,setCalcMode,historicoFretes,manutencoes,docs
   const hora=new Date().getHours();
   const saudacao=hora<12?"Bom dia":hora<18?"Boa tarde":"Boa noite";
 
-  const paradaNav=(navBanner?.paradaAtualIdx??0)+1;
-  const totalNav=navBanner?.totalParadas||0;
-
   return(
     <div style={{display:"flex",flexDirection:"column",gap:18}}>
-      {navBanner?.active&&totalNav>0&&(
-        <button type="button" onClick={onReturnToNavigation}
-          style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,background:"linear-gradient(135deg,#2563EB,#1D4ED8)",border:"none",borderRadius:14,padding:"14px 16px",cursor:"pointer",boxShadow:"0 4px 16px #2563EB44",textAlign:"left",width:"100%"}}>
-          <div style={{flex:1,minWidth:0}}>
-            <div style={{color:"#fff",fontWeight:800,fontSize:14,fontFamily:"'Sora',sans-serif"}}>🗺️ Navegação em andamento</div>
-            <div style={{color:"#DBEAFE",fontSize:12,marginTop:3,fontWeight:600}}>Parada {paradaNav} de {totalNav}</div>
-          </div>
-          <div style={{background:"#ffffff22",border:"1px solid #ffffff33",borderRadius:10,padding:"8px 12px",color:"#fff",fontWeight:700,fontSize:12,whiteSpace:"nowrap",flexShrink:0}}>
-            Voltar ao mapa
-          </div>
-        </button>
-      )}
       <div>
         <div style={{color:C.muted,fontSize:12,marginBottom:3}}>{saudacao}, {nomeMotorista}! 👋</div>
         <h1 style={{color:C.navy,fontSize:22,fontWeight:900,fontFamily:"'Sora',sans-serif",margin:"0 0 12px"}}>LogRotas</h1>
@@ -5283,6 +5336,16 @@ export default function App(){
     return()=>window.removeEventListener("logrotas-nav-update",handler);
   },[]);
 
+  const handleReturnToNavigation=useCallback(()=>{
+    setShowCalc(true);
+    setCalcMode("otimizar");
+    setResumeNav(false);
+    requestAnimationFrame(()=>setResumeNav(true));
+  },[]);
+
+  const showNavActiveBanner=navBanner?.active&&!navBanner?.modoNavegacao&&(navBanner?.totalParadas||0)>0;
+  const navBannerBottom=plan==="free"?72:0;
+
   const NAV=[
     {id:"dashboard",  label:"Início",     icon:HomeIcon},
     {id:"financeiro", label:"Financeiro",  icon:BarChart3Icon},
@@ -5378,8 +5441,8 @@ export default function App(){
           </button>
         );})}
       </div>
-      <div style={{maxWidth:820,margin:"0 auto",padding:`20px 14px ${plan==="free"?"120px":"80px"}`}}>
-        {page==="dashboard"   &&<Dashboard onNav={setPage} setShowCalc={setShowCalc} setCalcMode={setCalcMode} historicoFretes={historicoFretes} manutencoes={manutencoes} docs={docs} perfil={perfil} navBanner={navBanner} onReturnToNavigation={()=>{setResumeNav(true);setShowCalc(true);setCalcMode("otimizar");}}/>}
+      <div style={{maxWidth:820,margin:"0 auto",padding:`20px 14px ${showNavActiveBanner?(plan==="free"?"168px":"128px"):plan==="free"?"120px":"80px"}`}}>
+        {page==="dashboard"   &&<Dashboard onNav={setPage} setShowCalc={setShowCalc} setCalcMode={setCalcMode} historicoFretes={historicoFretes} manutencoes={manutencoes} docs={docs} perfil={perfil}/>}
         {page==="financeiro"  &&<Financeiro historicoFretes={historicoFretes} manutencoes={manutencoes} despesas={despesas}/>}
         {page==="despesas"    &&<Despesas despesas={despesas} onAddDespesa={handleAddDespesa} onUpdateDespesa={handleUpdateDespesa} onDeleteDespesa={handleDeleteDespesa}/>}
         {page==="comparador"  &&<Comparador historicoFretes={historicoFretes} onAddFrete={handleAddFrete} onUpdateFrete={handleUpdateFrete} onDeleteFrete={handleDeleteFrete}/>}
@@ -5433,6 +5496,22 @@ export default function App(){
       {showCalc&&calcMode==="viagem"&&<TripCalcModal onClose={()=>{setShowCalc(false);setCalcMode(null);}} vehicles={vehicles}/>}
       {showCalc&&calcMode==="frete"&&<RouteCalcModal onClose={()=>{setShowCalc(false);setCalcMode(null);}} vehicles={vehicles} valorKmPadrao={valorKm} adicionalPadrao={adicionalFixo} onSalvarHistorico={handleAddFrete}/>}
       {showCalc&&calcMode==="otimizar"&&<OtimizarEntregasModal uid={firebaseUser?.uid} resumeNavigation={resumeNav} onNavigationResumed={()=>setResumeNav(false)} onClose={()=>{setShowCalc(false);setCalcMode(null);setResumeNav(false);}} perfil={perfil} plan={plan} onUpgrade={()=>{setShowCalc(false);setCalcMode(null);setResumeNav(false);setPage("assinatura");}}/>}
+
+      {showNavActiveBanner&&(
+        <div style={{position:"fixed",bottom:navBannerBottom,left:0,right:0,zIndex:880,background:"linear-gradient(135deg,#1E3A8A,#2563EB)",boxShadow:"0 -4px 20px #1E3A8A44",padding:"12px 14px"}}>
+          <div style={{maxWidth:820,margin:"0 auto",display:"flex",alignItems:"center",justifyContent:"space-between",gap:12}}>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{color:"#fff",fontWeight:800,fontSize:14,fontFamily:"'Sora',sans-serif"}}>
+                🧭 Navegação em andamento — Parada {(navBanner.paradaAtualIdx??0)+1} de {navBanner.totalParadas}
+              </div>
+            </div>
+            <button type="button" onClick={handleReturnToNavigation}
+              style={{flexShrink:0,background:"#fff",border:"none",borderRadius:10,padding:"9px 14px",color:OTIMIZAR_AZUL,fontWeight:800,fontSize:12,cursor:"pointer",whiteSpace:"nowrap"}}>
+              Voltar ao mapa
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Banner de anúncio */}
       <AdBanner plan={plan} onUpgrade={()=>setPage("assinatura")}/>
