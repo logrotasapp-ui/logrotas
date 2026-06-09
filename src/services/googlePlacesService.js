@@ -1,29 +1,42 @@
 /**
- * V173 — Google Places Autocomplete (country=br + strict bounds SP nas calculadoras).
+ * Google Places Autocomplete (Brasil + viés SP nas calculadoras).
+ * Com loading=async, a biblioteca places deve ser carregada via importLibrary().
  */
 
 import { API_KEYS } from "./apiConfig.js";
-import { waitForGoogleMaps } from "./googleMapsLoader.js";
+import {
+  waitForGoogleMaps,
+  importGoogleMapsLibrary,
+} from "./googleMapsLoader.js";
 
+let placesLibPromise = null;
 let placesDetailsService = null;
+
+async function getPlacesLibrary() {
+  if (!placesLibPromise) {
+    placesLibPromise = importGoogleMapsLibrary("places");
+  }
+  return placesLibPromise;
+}
+
+async function ensurePlacesDetailsService() {
+  if (!placesDetailsService) {
+    const { PlacesService } = await getPlacesLibrary();
+    placesDetailsService = new PlacesService(document.createElement("div"));
+  }
+}
 
 /**
  * Aguarda o script do Google Maps (index.html) e a biblioteca `places`.
  */
 export async function waitForGooglePlaces(timeoutMs = 15000) {
-  await waitForGoogleMaps(timeoutMs);
-  if (!window.google?.maps?.places) {
-    throw new Error("Google Places não carregou. Verifique VITE_GOOGLE_MAPS_KEY.");
-  }
-  ensurePlacesDetailsService();
-}
-
-function ensurePlacesDetailsService() {
-  if (!placesDetailsService && window.google?.maps?.places) {
-    placesDetailsService = new window.google.maps.places.PlacesService(
-      document.createElement("div")
+  const lib = await getPlacesLibrary();
+  if (!lib?.AutocompleteService) {
+    throw new Error(
+      "Google Places não carregou. Verifique VITE_GOOGLE_MAPS_KEY e se a Places API está ativa."
     );
   }
+  await ensurePlacesDetailsService();
 }
 
 /** Bounds aproximados da Grande São Paulo (viés de autocomplete). */
@@ -45,8 +58,10 @@ export async function fetchGooglePlacePredictions(query, options = {}) {
   const proximityLngLat = options.proximityLngLat ?? null;
   const bounds = options.bounds ?? null;
 
-  await waitForGooglePlaces();
-  const autocomplete = new window.google.maps.places.AutocompleteService();
+  await waitForGoogleMaps();
+  const { AutocompleteService, PlacesServiceStatus } =
+    await getPlacesLibrary();
+  const autocomplete = new AutocompleteService();
 
   /** @type {google.maps.places.AutocompletionRequest} */
   const request = {
@@ -64,8 +79,7 @@ export async function fetchGooglePlacePredictions(query, options = {}) {
   }
 
   const biasLngLat =
-    proximityLngLat ||
-    (bounds ? [-46.6333, -23.5505] : null);
+    proximityLngLat || (bounds ? [-46.6333, -23.5505] : null);
 
   if (biasLngLat) {
     const [lng, lat] = biasLngLat;
@@ -76,7 +90,7 @@ export async function fetchGooglePlacePredictions(query, options = {}) {
   return new Promise((resolve) => {
     autocomplete.getPlacePredictions(request, (predictions, status) => {
       if (
-        status !== window.google.maps.places.PlacesServiceStatus.OK ||
+        status !== PlacesServiceStatus.OK ||
         !predictions?.length
       ) {
         resolve([]);
@@ -100,15 +114,15 @@ export async function fetchGooglePlacePredictions(query, options = {}) {
 export async function fetchGooglePlaceDetails(placeId) {
   if (!placeId || !API_KEYS.googleMaps) return null;
 
-  await waitForGooglePlaces();
-  ensurePlacesDetailsService();
+  const { PlacesServiceStatus } = await getPlacesLibrary();
+  await ensurePlacesDetailsService();
 
   return new Promise((resolve) => {
     placesDetailsService.getDetails(
       { placeId, fields: ["geometry", "formatted_address"] },
       (place, status) => {
         if (
-          status !== window.google.maps.places.PlacesServiceStatus.OK ||
+          status !== PlacesServiceStatus.OK ||
           !place?.geometry?.location
         ) {
           resolve(null);
