@@ -1,4 +1,4 @@
-﻿import { useState, useRef, useEffect, useCallback } from "react";
+﻿import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import {
   calculateRouteCosts,
   calculateFreteQuote,
@@ -23,6 +23,8 @@ import { calculateTripCosts } from "./src/services/tripCalcService.js";
 import ScannerModule from "./src/components/ScannerModule.js";
 import { playWhooshSound } from "./src/utils/whooshSound.js";
 import DeliveryMap from "./src/components/DeliveryMap.js";
+import NavigationMap from "./src/components/NavigationMap.jsx";
+import { loadDeliveryRoutes, loadDeliveryRouteDetail, saveDeliveryRoute } from "./src/services/deliveryRouteService.js";
 import { OFFLINE_KEYS, AUTH_KEYS, readOfflineCache, writeOfflineCache, clearAllLogRotasStorage, activateProTrial, readProPlanActive, readProTrialDaysLeft, readPerfilLocalFallback, writePerfilLocalCache } from "./src/services/offlineStorage.js";
 import { subscribeAuth, signInWithEmail, signUpWithEmail, signInWithGoogle, signOutUser, deleteCurrentUser, getAuthErrorMessage } from "./src/services/authService.js";
 import { saveUserProfile, loadUserProfile, ensureGoogleUserProfile, cadastroToFirestorePayload, firestoreToPerfil, perfilToFirestorePayload } from "./src/services/userProfileService.js";
@@ -57,7 +59,7 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="V209";
+const APP_VERSION="V210";
 const BETA_HIDE_PLANOS=true;
 
 const OfflineRestoredBanner=({show})=>show?(
@@ -1234,8 +1236,24 @@ const CalcSelector=({onFrete,onViagem,onOtimizar,onClose})=>(
 // ── OTIMIZAR ENTREGAS (V166 — origem GPS do motorista na otimização) ───────────
 const OTIMIZAR_AZUL="#3B82F6";
 const OTIMIZAR_AZUL_MID="#2563EB";
+const MOTIVOS_NAO_ENTREGUE=["Cliente ausente","Endereço não encontrado","Cliente recusou","Outro"];
 
-const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade})=>{
+function getParadaStatus(p){
+  if(p?.status)return p.status;
+  if(p?.entregue)return "entregue";
+  return "pendente";
+}
+
+function formatNowBR(){
+  const d=new Date();
+  const pad=n=>String(n).padStart(2,"0");
+  return {
+    horario:`${pad(d.getHours())}:${pad(d.getMinutes())}`,
+    data:`${pad(d.getDate())}/${pad(d.getMonth()+1)}/${d.getFullYear()}`,
+  };
+}
+
+const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid})=>{
   const[paradas,setParadas]=useState([]);
   const[novoEndereco,setNovoEndereco]=useState("");
   const[processandoFoto,setProcessandoFoto]=useState(false);
@@ -1253,6 +1271,21 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade})=>{
   const[confirmNovaOtimizacao,setConfirmNovaOtimizacao]=useState(false);
   const[offlineHydrated,setOfflineHydrated]=useState(false);
   const[offlineRestored,setOfflineRestored]=useState(false);
+  const[modoNavegacao,setModoNavegacao]=useState(false);
+  const[viewNav,setViewNav]=useState("mapa");
+  const[showMotivo,setShowMotivo]=useState(false);
+  const[showResumo,setShowResumo]=useState(false);
+  const[showAddNavMenu,setShowAddNavMenu]=useState(false);
+  const[showInsertOpcoes,setShowInsertOpcoes]=useState(false);
+  const[paradaPendenteInsert,setParadaPendenteInsert]=useState(null);
+  const[novoEnderecoNav,setNovoEnderecoNav]=useState("");
+  const[erroNavAdd,setErroNavAdd]=useState("");
+  const[adicionandoNav,setAdicionandoNav]=useState(false);
+  const[reotimizando,setReotimizando]=useState(false);
+  const[historicoEntregas,setHistoricoEntregas]=useState([]);
+  const[historicoDetalhe,setHistoricoDetalhe]=useState(null);
+  const[salvandoRota,setSalvandoRota]=useState(false);
+  const[rotaSalvaId,setRotaSalvaId]=useState(null);
 
   const isPro=plan==="pro";
   const LIMITE=isPro?Infinity:10;
@@ -1281,12 +1314,151 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade})=>{
     writeOfflineCache(OFFLINE_KEYS.otimizar,{paradas});
   },[offlineHydrated,paradas]);
 
-  const entreguesCount=paradas.filter(p=>p.entregue).length;
-  const pendentesCount=paradas.length-entreguesCount;
+  const entreguesCount=paradas.filter(p=>getParadaStatus(p)==="entregue").length;
+  const naoEntreguesCount=paradas.filter(p=>getParadaStatus(p)==="nao_entregue").length;
+  const pendentesCount=paradas.filter(p=>getParadaStatus(p)==="pendente").length;
   const todasEntregues=paradas.length>0&&pendentesCount===0;
+  const paradaAtualIdx=useMemo(()=>paradas.findIndex(p=>getParadaStatus(p)==="pendente"),[paradas]);
+  const paradaAtual=paradaAtualIdx>=0?paradas[paradaAtualIdx]:null;
 
-  const marcarEntregue=(id)=>{
-    setParadas(p=>p.map(x=>x.id===id?{...x,entregue:true}:x));
+  const carregarHistorico=useCallback(async()=>{
+    if(!uid)return;
+    try{
+      const rotas=await loadDeliveryRoutes(uid);
+      setHistoricoEntregas(rotas);
+    }catch{/* ignore */}
+  },[uid]);
+
+  useEffect(()=>{carregarHistorico();},[carregarHistorico]);
+
+  const finalizarRota=useCallback(async(listaParadas)=>{
+    const lista=listaParadas||paradas;
+    setModoNavegacao(false);
+    setViewNav("mapa");
+    setShowResumo(true);
+    if(!uid||rotaSalvaId)return;
+    setSalvandoRota(true);
+    try{
+      const {data}=formatNowBR();
+      const saved=await saveDeliveryRoute(uid,{
+        date:data,
+        paradas:lista.map(p=>({
+          endereco:p.endereco,
+          status:getParadaStatus(p),
+          motivo:p.motivo||null,
+          horario:p.horario||"",
+          data:p.data||data,
+          coords:p.coords||null,
+        })),
+        resultado,
+      });
+      setRotaSalvaId(saved.id);
+      await carregarHistorico();
+    }catch{/* ignore */}
+    finally{setSalvandoRota(false);}
+  },[uid,paradas,resultado,rotaSalvaId,carregarHistorico]);
+
+  useEffect(()=>{
+    if(!modoNavegacao||!paradas.length||showResumo)return;
+    if(pendentesCount===0)finalizarRota(paradas);
+  },[modoNavegacao,pendentesCount,paradas,showResumo,finalizarRota]);
+
+  const confirmarParada=(status,motivo=null)=>{
+    if(paradaAtualIdx<0)return;
+    const ts=formatNowBR();
+    setParadas(p=>p.map((x,i)=>i===paradaAtualIdx?{
+      ...x,
+      status,
+      motivo:status==="nao_entregue"?motivo:null,
+      horario:ts.horario,
+      data:ts.data,
+      entregue:status==="entregue",
+    }:x));
+    setShowMotivo(false);
+  };
+
+  const iniciarNavegacao=()=>{
+    if(!resultado||paradas.length<1)return;
+    setRotaSalvaId(null);
+    setShowResumo(false);
+    setModoNavegacao(true);
+    setViewNav("mapa");
+  };
+
+  const reiniciarRota=()=>{
+    setParadas([]);
+    setResultado(null);
+    setShowResumo(false);
+    setModoNavegacao(false);
+    setViewNav("mapa");
+    setRotaSalvaId(null);
+    setConfirmNovaOtimizacao(false);
+  };
+
+  const aplicarInsertParada=async(modo,novaParada)=>{
+    setShowInsertOpcoes(false);
+    setParadaPendenteInsert(null);
+    if(!novaParada)return;
+    if(modo==="proxima"){
+      setParadas(prev=>{
+        const idx=paradaAtualIdx>=0?paradaAtualIdx+1:prev.length;
+        const next=[...prev];
+        next.splice(idx,0,novaParada);
+        return next;
+      });
+      return;
+    }
+    if(modo==="final"){
+      setParadas(prev=>[...prev,novaParada]);
+      return;
+    }
+    if(modo==="eficiente"){
+      setReotimizando(true);
+      try{
+        const concluidas=paradas.filter(p=>getParadaStatus(p)!=="pendente");
+        const pendentes=paradas.filter(p=>getParadaStatus(p)==="pendente");
+        pendentes.push(novaParada);
+        if(pendentes.length<2){
+          setParadas([...concluidas,...pendentes]);
+          return;
+        }
+        const out=await optimizeDeliveryRoute(pendentes,{
+          consumoKmL:perfil?.consumo,
+          precoCombustivel:5.89,
+        });
+        if(out.ok)setParadas([...concluidas,...out.paradasOtimizadas]);
+        else setParadas(prev=>{const idx=paradaAtualIdx>=0?paradaAtualIdx+1:prev.length;const next=[...prev];next.splice(idx,0,novaParada);return next;});
+      }finally{setReotimizando(false);}
+    }
+  };
+
+  const handleNavScannerSuccess=async(novasParadas,meta)=>{
+    setErroNavAdd("");
+    const novas=Array.isArray(novasParadas)?novasParadas:[];
+    if(!novas.length){setErroNavAdd("Nenhum endereço válido na foto.");return;}
+    setAdicionandoNav(true);
+    try{
+      const geocoded=await geocodeRomaneioExtractedAddresses(novas);
+      if(geocoded[0])setParadaPendenteInsert(geocoded[0]);
+      setShowInsertOpcoes(true);
+      setShowAddNavMenu(false);
+    }catch{setErroNavAdd("Erro ao localizar endereço.");}
+    finally{setAdicionandoNav(false);}
+  };
+
+  const handleNavManualAdd=async()=>{
+    if(!novoEnderecoNav.trim()||adicionandoNav)return;
+    setErroNavAdd("");
+    setAdicionandoNav(true);
+    try{
+      const out=await resolveManualAddress(novoEnderecoNav);
+      if(!out.ok){setErroNavAdd(out.error);return;}
+      setParadaPendenteInsert({id:Date.now(),endereco:out.endereco,coords:out.coords,status:"pendente"});
+      setNovoEnderecoNav("");
+      setShowInsertOpcoes(true);
+      setShowAddNavMenu(false);
+    }catch{setErroNavAdd("Não foi possível validar o endereço.");}
+    finally{setAdicionandoNav(false);}
   };
 
   // Geocoding Google com proximity (GPS + cadeia) p/ endereços do OCR (Vision)
@@ -1341,10 +1513,6 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade})=>{
     setParadas(p=>p.filter(x=>x.id!==id));
     setResultado(null);
   };
-
-  // V149 — Navegação
-  const handleNavegarWaze=()=>openWazeDirections(paradas);
-  const handleNavegarGoogleMaps=()=>openGoogleMapsDirections(paradas);
 
   // V166 — geocoding → GPS como origin → todas paradas como waypoints otimizáveis
   const handleOtimizarRota=async()=>{
@@ -1555,7 +1723,10 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade})=>{
         <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:14}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
             <span style={{color:C.navy,fontWeight:700,fontSize:13}}>
-              {paradas.length} endereço{paradas.length!==1?"s":""} · {entreguesCount} entregue{entreguesCount!==1?"s":""} · {pendentesCount} pendente{pendentesCount!==1?"s":""} {resultado?"— rota otimizada ✅":""}
+              {paradas.length} endereço{paradas.length!==1?"s":""} · {entreguesCount} entregue{entreguesCount!==1?"s":""} · {pendentesCount} pendente{pendentesCount!==1?"s":""}
+              {resultado&&!modoNavegacao&&(
+                <span style={{marginLeft:6,color:OTIMIZAR_AZUL,fontWeight:600}}>— rota otimizada ✅</span>
+              )}
             </span>
             <div style={{display:"flex",alignItems:"center",gap:8}}>
               {!isPro&&(
@@ -1572,19 +1743,21 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade})=>{
           {paradas.map((p,i)=>(
             <div key={p.id} style={{
               display:"flex",flexDirection:"column",gap:8,
-              background:p.entregue?"#F1F5F9":p.confianca==="warn"?"#FFFBEB":C.subtle,
-              border:`1.5px solid ${p.entregue?"#E2E8F0":p.confianca==="warn"?"#FDE68A":C.border}`,
+              background:getParadaStatus(p)==="entregue"?"#F1F5F9":getParadaStatus(p)==="nao_entregue"?"#FFF5F5":p.confianca==="warn"?"#FFFBEB":C.subtle,
+              border:`1.5px solid ${getParadaStatus(p)!=="pendente"?"#E2E8F0":p.confianca==="warn"?"#FDE68A":C.border}`,
               borderRadius:11,padding:"10px 13px",transition:"all .3s",position:"relative",
             }}>
               <div style={{display:"flex",alignItems:"flex-start",gap:10,paddingRight:36}}>
-                <div style={{width:24,height:24,borderRadius:"50%",background:p.entregue?"#94A3B8":p.confianca==="warn"?"#F59E0B":resultado?"#22C55E":"#3B82F6",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,marginTop:1}}>
+                <div style={{width:24,height:24,borderRadius:"50%",background:getParadaStatus(p)!=="pendente"?"#94A3B8":p.confianca==="warn"?"#F59E0B":resultado?"#22C55E":"#3B82F6",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,marginTop:1}}>
                   <span style={{color:"#fff",fontWeight:800,fontSize:11}}>{i+1}</span>
                 </div>
                 <div style={{flex:1,minWidth:0}}>
-                  <div style={{color:p.entregue?"#94A3B8":C.text,fontSize:13,textDecoration:p.entregue?"line-through":"none",lineHeight:1.4}}>
+                  <div style={{color:getParadaStatus(p)!=="pendente"?"#94A3B8":C.text,fontSize:13,textDecoration:getParadaStatus(p)!=="pendente"?"line-through":"none",lineHeight:1.4}}>
                     {p.endereco}
                   </div>
-                  {!p.entregue&&!resultado&&(
+                  {getParadaStatus(p)==="entregue"&&<div style={{color:C.green,fontSize:11,marginTop:4}}>✅ Entregue · {p.horario||""}</div>}
+                  {getParadaStatus(p)==="nao_entregue"&&<div style={{color:C.red,fontSize:11,marginTop:4}}>❌ {p.motivo||"Não entregue"}</div>}
+                  {getParadaStatus(p)==="pendente"&&!resultado&&(
                     <span style={{display:"inline-block",marginTop:4,color:OTIMIZAR_AZUL,fontSize:11,fontWeight:700}}>📦 1 pacote</span>
                   )}
                 </div>
@@ -1593,13 +1766,7 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade})=>{
                 style={{position:"absolute",top:10,right:10,background:C.redLight,border:"none",borderRadius:7,padding:5,cursor:"pointer",color:C.red,display:"flex",flexShrink:0}}>
                 <Trash2Icon size={13}/>
               </button>
-              {!p.entregue&&resultado&&(
-                <button type="button" onClick={()=>marcarEntregue(p.id)}
-                  style={{width:"100%",padding:"10px 14px",background:"#EBF3FF",border:"1.5px solid #1A56DB",borderRadius:10,cursor:"pointer",color:"#1A56DB",fontWeight:700,fontSize:13,display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
-                  ✅ Confirmar entrega
-                </button>
-              )}
-              {p.confianca==="warn"&&!p.entregue&&(
+              {p.confianca==="warn"&&getParadaStatus(p)==="pendente"&&(
                 <div style={{color:"#92400E",fontSize:11,fontWeight:600,paddingLeft:34,marginTop:-4}}>
                   ⚠️ Verifique este endereço
                 </div>
@@ -1657,14 +1824,231 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade})=>{
             ))}
           </div>
 
-          {/* Botões de navegação — lado a lado */}
-          <BotoesNavegacao onWaze={handleNavegarWaze} onMaps={handleNavegarGoogleMaps}/>
+          {/* Iniciar navegação embutida */}
+          <button onClick={iniciarNavegacao}
+            style={{width:"100%",padding:"16px",background:`linear-gradient(135deg,${OTIMIZAR_AZUL},${OTIMIZAR_AZUL_MID})`,border:"none",borderRadius:14,cursor:"pointer",color:"#fff",fontWeight:800,fontSize:16,fontFamily:"'Sora',sans-serif",display:"flex",alignItems:"center",justifyContent:"center",gap:9,boxShadow:`0 4px 20px ${OTIMIZAR_AZUL}44`}}>
+            <NavigationIcon size={20}/> {pendentesCount<paradas.length?"Continuar Navegação":"Iniciar Navegação"}
+          </button>
 
           {/* Refazer */}
           <button onClick={()=>setConfirmNovaOtimizacao(true)}
             style={{width:"100%",padding:"12px",background:C.subtle,border:`1.5px solid ${C.border}`,borderRadius:12,cursor:"pointer",color:C.text2,fontWeight:600,fontSize:13}}>
             🔄 Nova otimização
           </button>
+        </div>
+      )}
+
+      {/* Histórico de entregas */}
+      {historicoEntregas.length>0&&!modoNavegacao&&!showResumo&&(
+        <div style={{marginBottom:14}}>
+          <div style={{color:C.navy,fontWeight:700,fontSize:13,marginBottom:8}}>📋 Histórico de Entregas</div>
+          <div style={{display:"flex",flexDirection:"column",gap:8}}>
+            {historicoEntregas.slice(0,8).map(r=>(
+              <button key={r.id} type="button" onClick={async()=>{
+                const det=await loadDeliveryRouteDetail(uid,r.id);
+                if(det)setHistoricoDetalhe(det);
+              }}
+                style={{textAlign:"left",background:C.subtle,border:`1px solid ${C.border}`,borderRadius:11,padding:"12px 14px",cursor:"pointer"}}>
+                <div style={{color:C.text,fontWeight:700,fontSize:13}}>{r.date||"—"} · {r.totalParadas||0} paradas</div>
+                <div style={{color:C.muted,fontSize:12,marginTop:3}}>
+                  ✅ {r.entregues||0} entregues · ❌ {r.naoEntregues||0} não entregues
+                </div>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {historicoDetalhe&&(
+        <div style={{position:"fixed",inset:0,zIndex:650,background:"#1E3A8A55",display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+          <div style={{background:C.surface,borderRadius:18,width:"100%",maxWidth:440,maxHeight:"85vh",overflowY:"auto",padding:20}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+              <div style={{color:C.navy,fontWeight:800,fontSize:16}}>Rota · {historicoDetalhe.date}</div>
+              <button type="button" onClick={()=>setHistoricoDetalhe(null)} style={{background:C.subtle,border:"none",borderRadius:8,padding:6,cursor:"pointer"}}><XIcon size={16}/></button>
+            </div>
+            {(historicoDetalhe.paradas||[]).map((p,i)=>(
+              <div key={i} style={{padding:"10px 0",borderBottom:i<historicoDetalhe.paradas.length-1?`1px solid ${C.border}`:"none"}}>
+                <div style={{color:C.text,fontSize:13,fontWeight:600}}>{i+1}. {p.endereco}</div>
+                <div style={{color:p.status==="entregue"?C.green:C.red,fontSize:12,marginTop:4}}>
+                  {p.status==="entregue"?"✅ Entregue":`❌ Não entregue${p.motivo?` — ${p.motivo}`:""}`}
+                  {p.horario?` · ${p.horario}`:""}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Tela resumo final */}
+      {showResumo&&(
+        <div style={{position:"fixed",inset:0,zIndex:680,background:C.surface,display:"flex",flexDirection:"column",padding:"20px 16px",overflowY:"auto"}}>
+          <div style={{textAlign:"center",marginBottom:20}}>
+            <div style={{fontSize:48,marginBottom:8}}>🏁</div>
+            <div style={{color:C.navy,fontWeight:900,fontSize:20,fontFamily:"'Sora',sans-serif"}}>Rota concluída!</div>
+            {salvandoRota&&<div style={{color:C.muted,fontSize:12,marginTop:6}}>Salvando no histórico…</div>}
+          </div>
+          <div style={{background:C.subtle,borderRadius:14,padding:16,marginBottom:16}}>
+            {[
+              {label:"Total de paradas",valor:paradas.length},
+              {label:"Entregues",valor:entreguesCount,cor:C.green},
+              {label:"Não entregues",valor:naoEntreguesCount,cor:C.red},
+            ].map((r,i)=>(
+              <div key={i} style={{display:"flex",justifyContent:"space-between",padding:"8px 0",borderBottom:i<2?`1px solid ${C.border}`:"none"}}>
+                <span style={{color:C.text2,fontSize:14}}>{r.label}</span>
+                <span style={{color:r.cor||C.navy,fontWeight:800,fontSize:15}}>{r.valor}</span>
+              </div>
+            ))}
+          </div>
+          {naoEntreguesCount>0&&(
+            <div style={{marginBottom:16}}>
+              <div style={{color:C.navy,fontWeight:700,fontSize:13,marginBottom:8}}>Motivos</div>
+              {paradas.filter(p=>getParadaStatus(p)==="nao_entregue").map(p=>(
+                <div key={p.id} style={{fontSize:12,color:C.text2,marginBottom:6,padding:"8px 10px",background:"#FFF5F5",borderRadius:8}}>
+                  {p.endereco} — <b>{p.motivo||"—"}</b>
+                </div>
+              ))}
+            </div>
+          )}
+          <button onClick={reiniciarRota} style={{width:"100%",padding:14,background:`linear-gradient(135deg,${OTIMIZAR_AZUL},${OTIMIZAR_AZUL_MID})`,border:"none",borderRadius:12,color:"#fff",fontWeight:800,fontSize:15,cursor:"pointer"}}>
+            Nova Rota
+          </button>
+          <button onClick={()=>{setShowResumo(false);onClose();}} style={{width:"100%",padding:12,marginTop:10,background:C.subtle,border:`1px solid ${C.border}`,borderRadius:12,cursor:"pointer",color:C.text2,fontWeight:600}}>
+            Fechar
+          </button>
+        </div>
+      )}
+
+      {/* Navegação embutida */}
+      {modoNavegacao&&paradaAtual&&(
+        <div style={{position:"fixed",inset:0,zIndex:700,background:"#fff",display:"flex",flexDirection:"column"}}>
+          <div style={{padding:"12px 14px",borderBottom:`1px solid ${C.border}`,display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,background:"#EFF6FF"}}>
+            <div>
+              <div style={{color:OTIMIZAR_AZUL,fontWeight:900,fontSize:16,fontFamily:"'Sora',sans-serif"}}>
+                Parada {paradaAtualIdx+1} de {paradas.length}
+              </div>
+              {reotimizando&&<div style={{color:C.muted,fontSize:11}}>Reotimizando rota…</div>}
+            </div>
+            <button type="button" onClick={()=>setViewNav(v=>v==="mapa"?"lista":"mapa")}
+              style={{padding:"8px 14px",background:"#fff",border:`1.5px solid ${OTIMIZAR_AZUL}`,borderRadius:10,cursor:"pointer",color:OTIMIZAR_AZUL,fontWeight:700,fontSize:13}}>
+              {viewNav==="mapa"?"Ver Lista":"Continuar Navegação"}
+            </button>
+          </div>
+
+          {viewNav==="mapa"?(
+            <>
+              <NavigationMap
+                originCoords={posicaoMotorista}
+                destinationCoords={paradaAtual.coords}
+                height="calc(100vh - 280px)"
+                onDriverLocationUpdate={setPosicaoMotorista}
+              />
+              <div style={{padding:"12px 16px",borderTop:`1px solid ${C.border}`,background:C.subtle}}>
+                <div style={{color:C.muted,fontSize:11,fontWeight:700,marginBottom:4}}>ENDEREÇO ATUAL</div>
+                <div style={{color:C.text,fontSize:14,fontWeight:600,lineHeight:1.4}}>{paradaAtual.endereco}</div>
+              </div>
+              <div style={{padding:"12px 16px",display:"flex",gap:10,paddingBottom:"max(12px, env(safe-area-inset-bottom))"}}>
+                <button type="button" onClick={()=>confirmarParada("entregue")}
+                  style={{flex:1,padding:16,background:"#DCFCE7",border:"2px solid #22C55E",borderRadius:14,cursor:"pointer",color:"#15803D",fontWeight:800,fontSize:15}}>
+                  ✅ Entregue
+                </button>
+                <button type="button" onClick={()=>setShowMotivo(true)}
+                  style={{flex:1,padding:16,background:"#FEE2E2",border:"2px solid #DC2626",borderRadius:14,cursor:"pointer",color:"#B91C1C",fontWeight:800,fontSize:15}}>
+                  ❌ Não entregue
+                </button>
+              </div>
+              <button type="button" onClick={()=>setShowAddNavMenu(true)}
+                style={{position:"absolute",bottom:100,right:16,width:52,height:52,borderRadius:"50%",background:OTIMIZAR_AZUL,border:"none",color:"#fff",fontSize:24,cursor:"pointer",boxShadow:"0 4px 16px #2563EB55",zIndex:10}}>
+                ➕
+              </button>
+            </>
+          ):(
+            <div style={{flex:1,overflowY:"auto",padding:14}}>
+              <button type="button" onClick={()=>setViewNav("mapa")}
+                style={{width:"100%",padding:12,marginBottom:12,background:OTIMIZAR_AZUL,border:"none",borderRadius:12,color:"#fff",fontWeight:800,fontSize:14,cursor:"pointer"}}>
+                Continuar Navegação
+              </button>
+              {paradas.map((p,i)=>(
+                <div key={p.id} style={{
+                  padding:"12px",marginBottom:8,borderRadius:11,
+                  background:getParadaStatus(p)==="pendente"?C.subtle:getParadaStatus(p)==="entregue"?"#F0FDF4":"#FFF5F5",
+                  border:`1.5px solid ${i===paradaAtualIdx?OTIMIZAR_AZUL:C.border}`,
+                }}>
+                  <div style={{display:"flex",gap:10,alignItems:"flex-start"}}>
+                    <span style={{width:24,height:24,borderRadius:"50%",background:i===paradaAtualIdx?OTIMIZAR_AZUL:"#94A3B8",color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:800,flexShrink:0}}>{i+1}</span>
+                    <div style={{flex:1}}>
+                      <div style={{color:C.text,fontSize:13,lineHeight:1.4}}>{p.endereco}</div>
+                      {getParadaStatus(p)==="entregue"&&<div style={{color:C.green,fontSize:11,marginTop:4}}>✅ Entregue · {p.horario}</div>}
+                      {getParadaStatus(p)==="nao_entregue"&&<div style={{color:C.red,fontSize:11,marginTop:4}}>❌ {p.motivo}</div>}
+                      {i===paradaAtualIdx&&getParadaStatus(p)==="pendente"&&<div style={{color:OTIMIZAR_AZUL,fontSize:11,fontWeight:700,marginTop:4}}>→ Parada atual</div>}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {showMotivo&&(
+        <div style={{position:"fixed",inset:0,zIndex:750,background:"#1E3A8A66",display:"flex",alignItems:"flex-end",justifyContent:"center",padding:16}}>
+          <div style={{background:C.surface,borderRadius:18,width:"100%",maxWidth:420,padding:20}}>
+            <div style={{color:C.navy,fontWeight:800,fontSize:16,marginBottom:14}}>Motivo da não entrega</div>
+            {MOTIVOS_NAO_ENTREGUE.map(m=>(
+              <button key={m} type="button" onClick={()=>confirmarParada("nao_entregue",m)}
+                style={{width:"100%",textAlign:"left",padding:"12px 14px",marginBottom:8,background:C.subtle,border:`1px solid ${C.border}`,borderRadius:10,cursor:"pointer",color:C.text,fontWeight:600,fontSize:14}}>
+                {m}
+              </button>
+            ))}
+            <button type="button" onClick={()=>setShowMotivo(false)} style={{width:"100%",padding:10,marginTop:4,background:"transparent",border:"none",cursor:"pointer",color:C.muted}}>Cancelar</button>
+          </div>
+        </div>
+      )}
+
+      {showAddNavMenu&&(
+        <div style={{position:"fixed",inset:0,zIndex:760,background:"#1E3A8A66",display:"flex",alignItems:"flex-end",justifyContent:"center",padding:16}} onMouseDown={e=>{if(e.target===e.currentTarget)setShowAddNavMenu(false);}}>
+          <div style={{background:C.surface,borderRadius:18,width:"100%",maxWidth:420,padding:20,maxHeight:"80vh",overflowY:"auto"}}>
+            <div style={{color:C.navy,fontWeight:800,fontSize:16,marginBottom:12}}>Adicionar parada</div>
+            {erroNavAdd&&<div style={{color:C.red,fontSize:12,marginBottom:10}}>{erroNavAdd}</div>}
+            <ScannerModule
+              disabled={adicionandoNav||reotimizando}
+              maxToAdd={1}
+              onSuccess={handleNavScannerSuccess}
+              onError={setErroNavAdd}
+              onProcessingChange={setAdicionandoNav}
+              accentColor={OTIMIZAR_AZUL}
+              accentDark={OTIMIZAR_AZUL_MID}
+              accentLight="#EEF4FF"
+              accentBorder="#BFDBFE"
+            />
+            <div style={{marginTop:12}}>
+              <AddressInput value={novoEnderecoNav} onChange={setNovoEnderecoNav} placeholder="Digitar endereço manualmente" dotColor={OTIMIZAR_AZUL} disabled={adicionandoNav}/>
+              <button type="button" onClick={handleNavManualAdd} disabled={adicionandoNav} style={{width:"100%",marginTop:8,padding:12,background:OTIMIZAR_AZUL,border:"none",borderRadius:10,color:"#fff",fontWeight:700,cursor:"pointer"}}>
+                Adicionar manual
+              </button>
+            </div>
+            <button type="button" onClick={()=>setShowAddNavMenu(false)} style={{width:"100%",padding:10,marginTop:10,background:C.subtle,border:"none",borderRadius:10,cursor:"pointer",color:C.muted}}>Fechar</button>
+          </div>
+        </div>
+      )}
+
+      {showInsertOpcoes&&paradaPendenteInsert&&(
+        <div style={{position:"fixed",inset:0,zIndex:770,background:"#1E3A8A66",display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+          <div style={{background:C.surface,borderRadius:18,width:"100%",maxWidth:380,padding:22}}>
+            <div style={{color:C.navy,fontWeight:800,fontSize:15,marginBottom:8}}>Onde inserir?</div>
+            <div style={{color:C.muted,fontSize:12,marginBottom:14,lineHeight:1.4}}>{paradaPendenteInsert.endereco}</div>
+            {[
+              {id:"proxima",label:"Próxima parada",desc:"Logo após a parada atual"},
+              {id:"final",label:"Final da rota",desc:"Última parada da lista"},
+              {id:"eficiente",label:"Posição mais eficiente",desc:"Reotimiza paradas restantes"},
+            ].map(op=>(
+              <button key={op.id} type="button" disabled={reotimizando} onClick={()=>aplicarInsertParada(op.id,{...paradaPendenteInsert,id:Date.now()})}
+                style={{width:"100%",textAlign:"left",padding:"12px 14px",marginBottom:8,background:C.subtle,border:`1px solid ${C.border}`,borderRadius:10,cursor:reotimizando?"wait":"pointer"}}>
+                <div style={{color:C.text,fontWeight:700,fontSize:14}}>{op.label}</div>
+                <div style={{color:C.muted,fontSize:11,marginTop:2}}>{op.desc}</div>
+              </button>
+            ))}
+            <button type="button" onClick={()=>{setShowInsertOpcoes(false);setParadaPendenteInsert(null);}} style={{width:"100%",padding:10,marginTop:4,background:"transparent",border:"none",cursor:"pointer",color:C.muted}}>Cancelar</button>
+          </div>
         </div>
       )}
 
@@ -1681,7 +2065,7 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade})=>{
           message="Tem certeza? Isso vai apagar todos os endereços e começar do zero."
           confirmLabel="Sim"
           onCancel={()=>setConfirmNovaOtimizacao(false)}
-          onConfirm={()=>{setResultado(null);setParadas([]);setConfirmNovaOtimizacao(false);}}
+          onConfirm={reiniciarRota}
         />
       )}
       {confirmLimpar&&(
@@ -4958,7 +5342,7 @@ export default function App(){
         onClose={()=>setShowCalc(false)}/>}
       {showCalc&&calcMode==="viagem"&&<TripCalcModal onClose={()=>{setShowCalc(false);setCalcMode(null);}} vehicles={vehicles}/>}
       {showCalc&&calcMode==="frete"&&<RouteCalcModal onClose={()=>{setShowCalc(false);setCalcMode(null);}} vehicles={vehicles} valorKmPadrao={valorKm} adicionalPadrao={adicionalFixo} onSalvarHistorico={handleAddFrete}/>}
-      {showCalc&&calcMode==="otimizar"&&<OtimizarEntregasModal onClose={()=>{setShowCalc(false);setCalcMode(null);}} perfil={perfil} plan={plan} onUpgrade={()=>{setShowCalc(false);setCalcMode(null);setPage("assinatura");}}/>}
+      {showCalc&&calcMode==="otimizar"&&<OtimizarEntregasModal uid={firebaseUser?.uid} onClose={()=>{setShowCalc(false);setCalcMode(null);}} perfil={perfil} plan={plan} onUpgrade={()=>{setShowCalc(false);setCalcMode(null);setPage("assinatura");}}/>}
 
       {/* Banner de anúncio */}
       <AdBanner plan={plan} onUpgrade={()=>setPage("assinatura")}/>
