@@ -22,7 +22,13 @@ import {
   openWazeStopDeepLink,
   filterNavigationStops,
 } from "./src/services/routingService.js";
-import { calculateTripCosts } from "./src/services/tripCalcService.js";
+import {
+  formatMoeda,
+  formatMoedaKm,
+  formatKm,
+  roundFreteCostsForSave,
+  roundMoney,
+} from "./src/services/formatUtils.js";
 import ScannerModule from "./src/components/ScannerModule.js";
 import { playWhooshSound } from "./src/utils/whooshSound.js";
 import DeliveryMap from "./src/components/DeliveryMap.js";
@@ -73,7 +79,7 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="V225";
+const APP_VERSION="V226";
 const BETA_HIDE_PLANOS=true;
 
 const OfflineRestoredBanner=({show})=>show?(
@@ -305,16 +311,19 @@ const CardHeader=({title,action})=>(
     {action}
   </div>
 );
-const Metric=({label,value,sub,trend,icon:Icon,color,bg})=>(
-  <div style={{background:bg||C.navyLight,border:`1px solid ${color}22`,borderRadius:14,padding:"16px 18px"}}>
+const Metric=({label,value,sub,trend,icon:Icon,color,bg})=>{
+  const valStr=String(value||"");
+  const valSize=valStr.length>14?16:valStr.length>11?18:21;
+  return(
+  <div style={{background:bg||C.navyLight,border:`1px solid ${color}22`,borderRadius:14,padding:"16px 18px",minWidth:0}}>
     <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:8}}>
       <div style={{background:color+"22",borderRadius:8,padding:5}}><Icon size={14} color={color}/></div>
       <span style={{color:C.text2,fontSize:11,fontWeight:700,letterSpacing:0.5,textTransform:"uppercase"}}>{label}</span>
     </div>
-    <div style={{color:C.text,fontSize:21,fontWeight:900,fontFamily:"'Sora',sans-serif",lineHeight:1}}>{value}</div>
+    <div style={{color:C.text,fontSize:valSize,fontWeight:900,fontFamily:"'Sora',sans-serif",lineHeight:1,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{value}</div>
     {sub&&<div style={{color:trend==="up"?C.green:trend==="down"?C.red:C.muted,fontSize:12,marginTop:5}}>{sub}</div>}
   </div>
-);
+);};
 const PrimaryBtn=({children,onClick,variant="orange",disabled,small,style:s={}})=>{
   const v={orange:{bg:C.orange,color:"#fff",sh:C.orange},navy:{bg:C.navy,color:"#fff",sh:C.navy},red:{bg:C.red,color:"#fff",sh:C.red},electric:{bg:C.electric,color:"#fff",sh:C.electric},green:{bg:C.green,color:"#fff",sh:C.green}}[variant]||{bg:C.orange,color:"#fff",sh:C.orange};
   return <button type="button" onClick={onClick} disabled={disabled} style={{display:"flex",alignItems:"center",justifyContent:"center",gap:6,background:disabled?C.border:v.bg,color:disabled?C.muted:v.color,border:"none",borderRadius:11,padding:small?"8px 14px":"11px 18px",cursor:disabled?"not-allowed":"pointer",fontWeight:700,fontSize:small?12:13,fontFamily:"'Sora',sans-serif",boxShadow:disabled?"none":`0 3px 10px ${v.sh}44`,...s}}>{children}</button>;
@@ -3275,7 +3284,7 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
                     const quote=calculateFreteQuote(result,{valorPorKm:metaLocal,adicionalFixo:freight,valorMinimoSaida:valorMinSaida,kmInclusosMinimo:kmInclusosMin});
                     const minV=parseFloat(valorMinSaida)||0;
                     const kmInc=parseFloat(kmInclusosMin)||0;
-                    setPendingSave({origin:stops[0]?.v||"Origem",dest:stops[stops.length-1]?.v||"Destino",paradas:paradasMid,date:new Date().toLocaleDateString("pt-BR"),hora:new Date().toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"}),distance:result.tot,veiculo:vehicles.find(v=>v.id===vehicleId)?.label||"",cargo,observacao,vkm:metaLocal,adicional:freight,energyCost:result.energyCost||0,tollCost:result.tollCost||0,arlaCost:result.arlaCost||0,custoTotal:result.total,freteSugerido:freteSug,lucro:lucroFinal,valorMinSaida:minV,kmInclusosMin:kmInc,kmExcedente:quote.kmExcedente||0,usedMinimum:!!quote.usedMinimum});
+                    setPendingSave(roundFreteCostsForSave({origin:stops[0]?.v||"Origem",dest:stops[stops.length-1]?.v||"Destino",paradas:paradasMid,date:new Date().toLocaleDateString("pt-BR"),hora:new Date().toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"}),distance:result.tot,veiculo:vehicles.find(v=>v.id===vehicleId)?.label||"",cargo,observacao,vkm:metaLocal,adicional:freight,energyCost:result.energyCost||0,tollCost:result.tollCost||0,arlaCost:result.arlaCost||0,custoTotal:result.total,freteSugerido:freteSug,lucro:lucroFinal,valorMinSaida:minV,kmInclusosMin:kmInc,kmExcedente:quote.kmExcedente||0,usedMinimum:!!quote.usedMinimum}));
                     setShowStatusModal(true);
                   }} style={{width:"100%",padding:"13px",background:C.navy,border:"none",borderRadius:12,cursor:"pointer",color:"#fff",fontWeight:700,fontSize:14,fontFamily:"'Sora',sans-serif",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
                     <SaveIcon size={15}/> Salvar no Histórico de Fretes
@@ -3600,8 +3609,8 @@ const freteCustoBreakdown=(f)=>{
   const custoTotal=Number(f.custoTotal||0)||(hasBreakdown?somaPartes:0);
   return{combVal,pedNum,arla,showComb,showPed,showArla,hasBreakdown,custoTotal};
 };
-const freteMoeda=(n)=>`R$ ${Number(n||0).toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2})}`;
-const freteMoedaKm=(n)=>`${freteMoeda(n)}/km`;
+const freteMoeda=formatMoeda;
+const freteMoedaKm=formatMoedaKm;
 const freteParseData=(f)=>{
   const parts=(f?.date||"").split("/");
   if(parts.length!==3)return null;
@@ -3661,8 +3670,8 @@ const freteAgruparPorMes=(fretes)=>{
   return groups.map(g=>({
     ...g,
     qtd:g.items.length,
-    totalFat:g.items.reduce((s,f)=>s+(f.freteSugerido||0),0),
-    totalLucro:g.items.reduce((s,f)=>s+(f.lucro||0),0),
+    totalFat:roundMoney(g.items.reduce((s,f)=>s+(f.freteSugerido||0),0)),
+    totalLucro:roundMoney(g.items.reduce((s,f)=>s+(f.lucro||0),0)),
   }));
 };
 const FRETE_FILTRO_OPTS=[
@@ -3788,8 +3797,8 @@ const Comparador=({historicoFretes,onAddFrete,onUpdateFrete,onDeleteFrete})=>{
           <div key={grupo.key}>
             <div style={{marginBottom:10}}>
               <div style={{color:C.navy,fontWeight:800,fontSize:14,fontFamily:"'Sora',sans-serif",letterSpacing:0.6,paddingBottom:8,borderBottom:`1px solid ${C.border}`}}>{grupo.label}</div>
-              <div style={{color:C.muted,fontSize:12,marginTop:8,lineHeight:1.45}}>
-                {grupo.qtd} frete{grupo.qtd!==1?"s":""} · Faturamento {freteMoeda(grupo.totalFat)} · Lucro {freteMoeda(grupo.totalLucro)}
+              <div style={{color:"#374151",fontSize:13,fontWeight:600,marginTop:8,lineHeight:1.45}}>
+                {grupo.qtd} frete{grupo.qtd!==1?"s":""} · Faturamento {formatMoeda(grupo.totalFat)} · Lucro {formatMoeda(grupo.totalLucro)}
               </div>
             </div>
             <div style={{display:"flex",flexDirection:"column",gap:10}}>
@@ -4043,7 +4052,7 @@ const Despesas=({despesas,onAddDespesa,onUpdateDespesa,onDeleteDespesa})=>{
       {despesas.length>0&&(
         <div style={{background:"linear-gradient(135deg,#FFF1F2,#FECDD3)",border:`1px solid #FECDD3`,borderRadius:14,padding:"14px 18px",boxShadow:"0 2px 8px #FCA5A522"}}>
           <div style={{color:"#BE123C",fontSize:12,fontWeight:700,letterSpacing:0.4,textTransform:"uppercase",marginBottom:4,opacity:0.85}}>Total de Despesas</div>
-          <div style={{color:"#9F1239",fontWeight:800,fontSize:24,fontFamily:"'Sora',sans-serif",lineHeight:1}}>R$ {total.toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
+          <div style={{color:"#9F1239",fontWeight:800,fontSize:24,fontFamily:"'Sora',sans-serif",lineHeight:1}}>{formatMoeda(total)}</div>
           <div style={{color:"#BE123C",fontSize:11,marginTop:4,opacity:0.75}}>{despesas.length} registro(s) · entram no Financeiro como saída</div>
         </div>
       )}
@@ -4058,14 +4067,22 @@ const Despesas=({despesas,onAddDespesa,onUpdateDespesa,onDeleteDespesa})=>{
 
       {/* Por categoria */}
       {porCat.map(({cat,items})=>(
-        <Card key={cat}>
-          <CardHeader title={cat} action={<span style={{color:C.red,fontWeight:700,fontSize:14}}>- R$ {items.reduce((a,i)=>a+(i.valor||0),0).toFixed(2)}</span>}/>
-          {items.map((item,i)=>(
-            <DespesaItem key={item.id} item={item} last={i===items.length-1}
-              onEdit={()=>{setForm({categoria:item.categoria,descricao:item.descricao||"",valor:String(item.valor||""),date:item.date||""});setEditingId(item.id);setShowAdd(true);}}
-              onDelete={()=>setDel(item)}/>
-          ))}
-        </Card>
+        items.length===1?(
+          <Card key={cat}>
+            <DespesaItem item={items[0]} last
+              onEdit={()=>{setForm({categoria:items[0].categoria,descricao:items[0].descricao||"",valor:String(items[0].valor||""),date:items[0].date||""});setEditingId(items[0].id);setShowAdd(true);}}
+              onDelete={()=>setDel(items[0])}/>
+          </Card>
+        ):(
+          <Card key={cat}>
+            <CardHeader title={cat} action={<span style={{color:C.red,fontWeight:700,fontSize:14}}>- {formatMoeda(items.reduce((a,i)=>a+(i.valor||0),0))}</span>}/>
+            {items.map((item,i)=>(
+              <DespesaItem key={item.id} item={item} last={i===items.length-1}
+                onEdit={()=>{setForm({categoria:item.categoria,descricao:item.descricao||"",valor:String(item.valor||""),date:item.date||""});setEditingId(item.id);setShowAdd(true);}}
+                onDelete={()=>setDel(item)}/>
+            ))}
+          </Card>
+        )
       ))}
 
       {/* Modal registrar */}
@@ -4117,7 +4134,7 @@ const Despesas=({despesas,onAddDespesa,onUpdateDespesa,onDeleteDespesa})=>{
         </div>
       </ModalWrap>)}
 
-      {del&&<DeleteConfirm message={`Excluir despesa "${del.descricao||del.categoria}" de R$ ${(del.valor||0).toFixed(2)}?`} onConfirm={async()=>{await onDeleteDespesa?.(del.id);setDel(null);}} onCancel={()=>setDel(null)}/>}
+      {del&&<DeleteConfirm message={`Excluir despesa "${del.descricao||del.categoria}" de ${formatMoeda(del.valor||0)}?`} onConfirm={async()=>{await onDeleteDespesa?.(del.id);setDel(null);}} onCancel={()=>setDel(null)}/>}
     </div>
   );
 };
@@ -4129,7 +4146,7 @@ const DespesaItem=({item,last,onEdit,onDelete})=>(
       <div style={{color:C.muted,fontSize:12,marginTop:2}}>{item.date||"—"}</div>
     </div>
     <div style={{display:"flex",alignItems:"center",gap:8}}>
-      <span style={{color:C.red,fontWeight:800,fontSize:15}}>R$ {(item.valor||0).toFixed(2)}</span>
+      <span style={{color:C.red,fontWeight:800,fontSize:15}}>{formatMoeda(item.valor||0)}</span>
       <button onClick={onEdit} style={{background:C.orangeLight,border:"none",borderRadius:8,padding:6,cursor:"pointer",color:C.orange,display:"flex"}}><EditIcon size={13}/></button>
       <button onClick={onDelete} style={{background:C.redLight,border:"none",borderRadius:8,padding:6,cursor:"pointer",color:C.red,display:"flex"}}><Trash2Icon size={13}/></button>
     </div>
@@ -4137,6 +4154,13 @@ const DespesaItem=({item,last,onEdit,onDelete})=>(
 );
 
 // ── MANUTENÇÃO ────────────────────────────────────────────────────────────────
+const maintMetaParts=(item)=>{
+  const parts=[];
+  if(item.vehicle?.trim())parts.push(item.vehicle.trim());
+  if(item.date?.trim())parts.push(item.date.trim());
+  if(item.km!=null&&String(item.km).trim()!=="")parts.push(`${formatKm(item.km)} km`);
+  return parts;
+};
 const Manutencao=({manutencoes:items,onAddManutencao,onDeleteManutencao})=>{
   const[stypes,setStypes]=useState(INIT_STYPE);const[showAdd,setShowAdd]=useState(false);const[showManage,setShowManage]=useState(false);const[del,setDel]=useState(null);const[editTIdx,setEditTIdx]=useState(null);const[editTVal,setEditTVal]=useState("");const[newType,setNewType]=useState("");const[form,setForm]=useState({type:"",vehicle:"",km:"",cost:"",nextKm:"",date:""});
   const alerts=items.filter(i=>i.status!=="ok").length;
@@ -4148,7 +4172,7 @@ const Manutencao=({manutencoes:items,onAddManutencao,onDeleteManutencao})=>{
       {items.length>0&&(
         <div style={{background:"linear-gradient(135deg,#FFFBEB,#FEF3C7)",border:`1px solid ${C.amber}44`,borderRadius:14,padding:"14px 18px",boxShadow:"0 2px 8px #F59E0B18"}}>
           <div style={{color:"#B45309",fontSize:12,fontWeight:700,letterSpacing:0.4,textTransform:"uppercase",marginBottom:4,opacity:0.9}}>Total de Manutenções</div>
-          <div style={{color:"#92400E",fontWeight:800,fontSize:24,fontFamily:"'Sora',sans-serif",lineHeight:1}}>R$ {totalManut.toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
+          <div style={{color:"#92400E",fontWeight:800,fontSize:24,fontFamily:"'Sora',sans-serif",lineHeight:1}}>{formatMoeda(totalManut)}</div>
           <div style={{color:"#B45309",fontSize:11,marginTop:4,opacity:0.8}}>{items.length} registro(s)</div>
         </div>
       )}
@@ -4166,9 +4190,12 @@ const Manutencao=({manutencoes:items,onAddManutencao,onDeleteManutencao})=>{
         <div key={item.id} style={{padding:"14px 20px",borderBottom:i<items.length-1?`1px solid ${C.border}`:"none",display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
           <div style={{display:"flex",alignItems:"center",gap:11}}>
             <div style={{width:38,height:38,borderRadius:10,background:C.amberLight,display:"flex",alignItems:"center",justifyContent:"center"}}><WrenchIcon size={16} color={C.amber}/></div>
-            <div><div style={{color:C.navy,fontWeight:700,fontSize:14}}>{item.type}</div><div style={{color:C.muted,fontSize:12,marginTop:2}}>{item.vehicle} · {item.date} · {item.km} km</div><div style={{color:C.muted,fontSize:11}}>Próxima: {item.nextKm} km</div></div>
+            <div><div style={{color:C.navy,fontWeight:700,fontSize:14}}>{item.type}</div>
+              {maintMetaParts(item).length>0&&<div style={{color:C.muted,fontSize:12,marginTop:2}}>{maintMetaParts(item).join(" · ")}</div>}
+              {item.nextKm!=null&&String(item.nextKm).trim()!==""&&<div style={{color:C.muted,fontSize:11}}>Próxima em {formatKm(item.nextKm)} km</div>}
+            </div>
           </div>
-          <div style={{display:"flex",alignItems:"center",gap:9}}><div style={{color:C.red,fontWeight:700,fontSize:14}}>- R$ {item.cost.toLocaleString("pt-BR")}</div><Tag label={s.label} color={s.color} bg={s.bg}/><button onClick={()=>setDel(item)} style={{background:C.redLight,border:"none",borderRadius:8,padding:6,cursor:"pointer",color:C.red,display:"flex"}}><Trash2Icon size={14}/></button></div>
+          <div style={{display:"flex",alignItems:"center",gap:9}}><div style={{color:C.red,fontWeight:700,fontSize:14}}>- {formatMoeda(item.cost||0)}</div><Tag label={s.label} color={s.color} bg={s.bg}/><button onClick={()=>setDel(item)} style={{background:C.redLight,border:"none",borderRadius:8,padding:6,cursor:"pointer",color:C.red,display:"flex"}}><Trash2Icon size={14}/></button></div>
         </div>
       );})}
       </Card>
@@ -4340,7 +4367,6 @@ const Financeiro=({historicoFretes,manutencoes,despesas=[]})=>{
   const hoje=new Date();
   const[mesSel,setMesSel]=useState(hoje.getMonth());
   const[anoSel,setAnoSel]=useState(hoje.getFullYear());
-  const[showCalPicker,setShowCalPicker]=useState(false);
   const[periodoGraf,setPeriodoGraf]=useState("6");
   const[dataIni,setDataIni]=useState("");
   const[dataFim,setDataFim]=useState("");
@@ -4348,40 +4374,49 @@ const Financeiro=({historicoFretes,manutencoes,despesas=[]})=>{
   const prevMes=()=>{if(mesSel===0){setMesSel(11);setAnoSel(a=>a-1);}else setMesSel(m=>m-1);};
   const nextMes=()=>{if(mesSel===11){setMesSel(0);setAnoSel(a=>a+1);}else setMesSel(m=>m+1);}
 
-  // Filtrar fretes do mês selecionado
-  const fretesMes=historicoFretes.filter(f=>{
-    if(!f.date)return false;
-    const parts=f.date.split("/");
+  const filtrarPorMes=(arr,m,a)=>arr.filter(x=>{
+    if(!x.date)return false;
+    const parts=x.date.split("/");
     if(parts.length<3)return false;
-    return parseInt(parts[1])-1===mesSel&&parseInt(parts[2])===anoSel;
+    return parseInt(parts[1])-1===m&&parseInt(parts[2])===a;
   });
+
+  const calcSaldoMes=(m,a)=>{
+    const fM=filtrarPorMes(historicoFretes,m,a);
+    const mM=filtrarPorMes(manutencoes||[],m,a);
+    const dM=filtrarPorMes(despesas||[],m,a);
+    const lucro=roundMoney(fM.reduce((s,f)=>s+(f.lucro||0),0));
+    const maint=roundMoney(mM.reduce((s,mn)=>s+(mn.cost||0),0));
+    const desp=roundMoney(dM.reduce((s,d)=>s+(d.valor||0),0));
+    return roundMoney(lucro-maint-desp);
+  };
+
+  // Filtrar fretes do mês selecionado
+  const fretesMes=filtrarPorMes(historicoFretes,mesSel,anoSel);
 
   // Filtrar manutenções do mês
-  const maintMes=manutencoes.filter(m=>{
-    if(!m.date)return false;
-    const parts=m.date.split("/");
-    if(parts.length<3)return false;
-    return parseInt(parts[1])-1===mesSel&&parseInt(parts[2])===anoSel;
-  });
+  const maintMes=filtrarPorMes(manutencoes||[],mesSel,anoSel);
 
   // Filtrar despesas do mês
-  const despMes=(despesas||[]).filter(d=>{
-    if(!d.date)return false;
-    const parts=d.date.split("/");
-    if(parts.length<3)return false;
-    return parseInt(parts[1])-1===mesSel&&parseInt(parts[2])===anoSel;
-  });
+  const despMes=filtrarPorMes(despesas||[],mesSel,anoSel);
 
-  // Cálculos reais
-  const totalReceita=fretesMes.reduce((a,f)=>a+(f.freteSugerido||0),0);
-  const totalCusto=fretesMes.reduce((a,f)=>a+(f.custoTotal||0),0);
-  const totalLucro=fretesMes.reduce((a,f)=>a+(f.lucro||0),0);
+  // Cálculos reais (componentes já arredondados no save)
+  const totalReceita=roundMoney(fretesMes.reduce((a,f)=>a+(f.freteSugerido||0),0));
+  const totalCusto=roundMoney(fretesMes.reduce((a,f)=>a+(f.custoTotal||0),0));
+  const totalLucro=roundMoney(fretesMes.reduce((a,f)=>a+(f.lucro||0),0));
   const totalKm=fretesMes.reduce((a,f)=>a+(f.distance||0),0);
-  const totalMaint=maintMes.reduce((a,m)=>a+(m.cost||0),0);
-  const totalDesp=despMes.reduce((a,d)=>a+(d.valor||0),0);
-  const saldoLiquido=totalLucro-totalMaint-totalDesp;
-  const receitaKm=totalKm>0?(totalReceita/totalKm):0;
-  const lucroKm=totalKm>0?(saldoLiquido/totalKm):0;
+  const totalMaint=roundMoney(maintMes.reduce((a,m)=>a+(m.cost||0),0));
+  const totalDesp=roundMoney(despMes.reduce((a,d)=>a+(d.valor||0),0));
+  const saldoLiquido=roundMoney(totalLucro-totalMaint-totalDesp);
+  const receitaKm=totalKm>0?roundMoney(totalReceita/totalKm):0;
+  const lucroKm=totalKm>0?roundMoney(saldoLiquido/totalKm):0;
+  const margemPct=totalReceita>0?roundMoney((saldoLiquido/totalReceita)*100):null;
+
+  const prevMesIdx=mesSel===0?11:mesSel-1;
+  const prevAno=mesSel===0?anoSel-1:anoSel;
+  const hasPrevData=[historicoFretes,manutencoes||[],despesas||[]].some(arr=>filtrarPorMes(arr,prevMesIdx,prevAno).length>0);
+  const saldoMesAnterior=calcSaldoMes(prevMesIdx,prevAno);
+  const diffSaldo=roundMoney(saldoLiquido-saldoMesAnterior);
 
   // Gráfico — período escolhido pelo usuário
   const getMesesGrafico=()=>{
@@ -4422,33 +4457,7 @@ const Financeiro=({historicoFretes,manutencoes,despesas=[]})=>{
       {/* Cabeçalho */}
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
         <h1 style={{color:C.navy,fontSize:22,fontWeight:900,fontFamily:"'Sora',sans-serif",margin:0}}>Financeiro</h1>
-        <button onClick={()=>setShowCalPicker(v=>!v)}
-          style={{background:C.orangeLight,border:`1px solid ${C.orange}44`,borderRadius:10,padding:"6px 12px",cursor:"pointer",color:C.orange,fontSize:12,fontWeight:700,display:"flex",alignItems:"center",gap:5}}>
-          <CalendarIcon size={13}/> {MESES_PT[mesSel].slice(0,3)} {anoSel}
-        </button>
       </div>
-
-      {/* Seletor de mês */}
-      {showCalPicker&&(
-        <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:14,padding:"16px",boxShadow:"0 8px 32px #1E3A8A14"}}>
-          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
-            <button onClick={()=>setAnoSel(a=>a-1)} style={{background:C.subtle,border:"none",borderRadius:8,padding:6,cursor:"pointer",display:"flex"}}><ChevronLeftIcon size={14} color={C.text2}/></button>
-            <span style={{color:C.navy,fontWeight:800,fontSize:15,fontFamily:"'Sora',sans-serif"}}>{anoSel}</span>
-            <button onClick={()=>setAnoSel(a=>a+1)} style={{background:C.subtle,border:"none",borderRadius:8,padding:6,cursor:"pointer",display:"flex"}}><ChevronRightIcon size={14} color={C.text2}/></button>
-          </div>
-          <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8}}>
-            {MESES_PT.map((m,i)=>{
-              const sel=i===mesSel&&anoSel===anoSel;
-              return(
-                <button key={i} onClick={()=>{setMesSel(i);setShowCalPicker(false);}}
-                  style={{background:i===mesSel?C.orange:C.subtle,border:`1px solid ${i===mesSel?C.orange:C.border}`,borderRadius:9,padding:"8px 4px",cursor:"pointer",color:i===mesSel?"#fff":C.text,fontWeight:i===mesSel?700:400,fontSize:12}}>
-                  {m.slice(0,3)}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      )}
 
       {/* Gráfico de evolução do lucro */}
       <Card>
@@ -4581,31 +4590,37 @@ const Financeiro=({historicoFretes,manutencoes,despesas=[]})=>{
         <>
           {/* Cards principais */}
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:11}}>
-            <Metric label="Receita bruta" value={`R$ ${totalReceita.toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2})}`} sub={`${fretesMes.length} frete(s)`} trend="up" icon={TrendingUpIcon} color={C.green} bg={C.greenLight}/>
-            <Metric label="Custo das viagens" value={`R$ ${(totalCusto||0).toFixed(2)}`} sub="combustível + pedágio" trend="down" icon={TrendingDownIcon} color={C.red} bg={C.redLight}/>
+            <Metric label="Receita bruta" value={formatMoeda(totalReceita)} sub={`${fretesMes.length} frete(s)`} trend="up" icon={TrendingUpIcon} color={C.green} bg={C.greenLight}/>
+            <Metric label="Custo das viagens" value={formatMoeda(totalCusto)} sub="combustível + pedágio + ARLA" trend="down" icon={TrendingDownIcon} color={C.red} bg={C.redLight}/>
           </div>
 
           {totalMaint>0&&(
             <div style={{background:C.amberLight,border:`1px solid ${C.amber}33`,borderRadius:13,padding:"13px 16px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
               <div style={{display:"flex",alignItems:"center",gap:8}}><WrenchIcon size={15} color={C.amber}/><div><div style={{color:C.amber,fontWeight:700,fontSize:14}}>Manutenções do mês</div><div style={{color:C.amber,fontSize:12,opacity:0.8}}>{maintMes.length} registro(s)</div></div></div>
-              <span style={{color:C.amber,fontWeight:800,fontSize:18,fontFamily:"'Sora',sans-serif"}}>- R$ {(totalMaint||0).toFixed(2)}</span>
+              <span style={{color:C.amber,fontWeight:800,fontSize:18,fontFamily:"'Sora',sans-serif",whiteSpace:"nowrap"}}>- {formatMoeda(totalMaint)}</span>
             </div>
           )}
           {totalDesp>0&&(
             <div style={{background:C.redLight,border:`1px solid ${C.red}33`,borderRadius:13,padding:"13px 16px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
               <div style={{display:"flex",alignItems:"center",gap:8}}><DollarSignIcon size={15} color={C.red}/><div><div style={{color:C.red,fontWeight:700,fontSize:14}}>Despesas do mês</div><div style={{color:C.red,fontSize:12,opacity:0.8}}>{despMes.length} registro(s)</div></div></div>
-              <span style={{color:C.red,fontWeight:800,fontSize:18,fontFamily:"'Sora',sans-serif"}}>- R$ {(totalDesp||0).toFixed(2)}</span>
+              <span style={{color:C.red,fontWeight:800,fontSize:18,fontFamily:"'Sora',sans-serif",whiteSpace:"nowrap"}}>- {formatMoeda(totalDesp)}</span>
             </div>
           )}
 
           {/* Saldo líquido */}
           <div style={{background:saldoLiquido>=0?`linear-gradient(135deg,${C.green},#16A34A)`:`linear-gradient(135deg,${C.red},#B91C1C)`,borderRadius:16,padding:"20px 22px",boxShadow:`0 6px 20px ${saldoLiquido>=0?C.green:C.red}44`}}>
             <div style={{color:"rgba(255,255,255,0.75)",fontSize:14,fontWeight:700,letterSpacing:0.5,textTransform:"uppercase",marginBottom:6}}>Saldo Líquido do Mês</div>
-            <div style={{color:"#fff",fontWeight:900,fontSize:32,fontFamily:"'Sora',sans-serif",lineHeight:1}}>
-              {saldoLiquido>=0?"":"- "}R$ {Math.abs(saldoLiquido).toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2})}
+            <div style={{color:"#fff",fontWeight:900,fontSize:32,fontFamily:"'Sora',sans-serif",lineHeight:1,whiteSpace:"nowrap"}}>
+              {saldoLiquido>=0?"":"- "}{formatMoeda(Math.abs(saldoLiquido))}
             </div>
-            <div style={{color:"rgba(255,255,255,0.7)",fontSize:12,marginTop:6}}>
-              {saldoLiquido>=0?"✓ Mês positivo":"⚠ Despesas superaram receitas"} · {totalKm.toLocaleString()} km rodados
+            <div style={{color:"rgba(255,255,255,0.7)",fontSize:12,marginTop:6,display:"flex",flexDirection:"column",gap:4}}>
+              <span>{saldoLiquido>=0?"✓ Mês positivo":"⚠ Despesas superaram receitas"} · {formatKm(totalKm)} km rodados</span>
+              {margemPct!=null&&<span>Margem: {margemPct.toLocaleString("pt-BR",{minimumFractionDigits:1,maximumFractionDigits:1})}%</span>}
+              {hasPrevData&&(
+                <span style={{color:diffSaldo>=0?"#BBF7D0":"#FECACA",fontWeight:700}}>
+                  {diffSaldo>=0?"▲":"▼"} {diffSaldo>=0?"+":""}{formatMoeda(Math.abs(diffSaldo))} vs {MESES_PT[prevMesIdx]}
+                </span>
+              )}
             </div>
           </div>
 
@@ -4613,12 +4628,12 @@ const Financeiro=({historicoFretes,manutencoes,despesas=[]})=>{
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:11}}>
             <div style={{background:C.navyLight,border:`1px solid ${C.navy}22`,borderRadius:14,padding:"14px 16px"}}>
               <div style={{color:C.text2,fontSize:11,fontWeight:700,letterSpacing:0.5,textTransform:"uppercase",marginBottom:6}}>Receita por km</div>
-              <div style={{color:C.navy,fontWeight:900,fontSize:20,fontFamily:"'Sora',sans-serif",lineHeight:1}}>R$ {(receitaKm||0).toFixed(2)}<span style={{fontSize:12,fontWeight:500}}>/km</span></div>
-              <div style={{color:C.muted,fontSize:10,marginTop:4}}>{totalKm} km no mês</div>
+              <div style={{color:C.navy,fontWeight:900,fontSize:20,fontFamily:"'Sora',sans-serif",lineHeight:1,whiteSpace:"nowrap"}}>{formatMoedaKm(receitaKm)}</div>
+              <div style={{color:C.muted,fontSize:10,marginTop:4}}>{formatKm(totalKm)} km no mês</div>
             </div>
             <div style={{background:lucroKm>=0?C.greenLight:C.redLight,border:`1px solid ${lucroKm>=0?C.green:C.red}22`,borderRadius:14,padding:"14px 16px"}}>
               <div style={{color:C.text2,fontSize:11,fontWeight:700,letterSpacing:0.5,textTransform:"uppercase",marginBottom:6}}>Lucro por km</div>
-              <div style={{color:lucroKm>=0?C.green:C.red,fontWeight:900,fontSize:20,fontFamily:"'Sora',sans-serif",lineHeight:1}}>R$ {(lucroKm||0).toFixed(2)}<span style={{fontSize:12,fontWeight:500}}>/km</span></div>
+              <div style={{color:lucroKm>=0?C.green:C.red,fontWeight:900,fontSize:20,fontFamily:"'Sora',sans-serif",lineHeight:1,whiteSpace:"nowrap"}}>{formatMoedaKm(lucroKm)}</div>
               <div style={{color:C.muted,fontSize:10,marginTop:4}}>{lucroKm>=0?"Positivo":"Negativo"}</div>
             </div>
           </div>
@@ -4628,8 +4643,8 @@ const Financeiro=({historicoFretes,manutencoes,despesas=[]})=>{
             <Card>
               <CardHeader title={`Fretes — ${MESES_PT[mesSel]}`}/>
               <div style={{padding:"16px 20px"}}>
-                <div style={{color:C.green,fontWeight:900,fontSize:22,fontFamily:"'Sora',sans-serif",lineHeight:1}}>
-                  R$ {totalReceita.toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2})}
+                <div style={{color:C.green,fontWeight:900,fontSize:22,fontFamily:"'Sora',sans-serif",lineHeight:1,whiteSpace:"nowrap"}}>
+                  {formatMoeda(totalReceita)}
                 </div>
                 <div style={{color:C.muted,fontSize:13,marginTop:6}}>{fretesMes.length} frete{fretesMes.length!==1?"s":""}</div>
               </div>
@@ -5583,7 +5598,8 @@ export default function App(){
     const uid=firebaseUser?.uid;
     if(!uid)return;
     try{
-      const saved=await addFreteWithFinanceiro(uid,item);
+      const rounded=roundFreteCostsForSave(item);
+      const saved=await addFreteWithFinanceiro(uid,rounded);
       setHistoricoFretes(h=>[saved,...h]);
     }catch{/* ignore */}
   },[firebaseUser?.uid]);
@@ -5592,7 +5608,8 @@ export default function App(){
     const uid=firebaseUser?.uid;
     if(!uid||!item?.id)return;
     try{
-      const saved=await updateFreteWithFinanceiro(uid,item.id,item);
+      const rounded=roundFreteCostsForSave(item);
+      const saved=await updateFreteWithFinanceiro(uid,item.id,rounded);
       setHistoricoFretes(h=>h.map(x=>x.id===item.id?saved:x));
     }catch{/* ignore */}
   },[firebaseUser?.uid]);
