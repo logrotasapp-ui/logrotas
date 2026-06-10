@@ -73,7 +73,7 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="V220";
+const APP_VERSION="V222";
 const BETA_HIDE_PLANOS=true;
 
 const OfflineRestoredBanner=({show})=>show?(
@@ -3600,6 +3600,21 @@ const freteDataHora=(f)=>{
   const d=f.date||"—";
   return f.hora?`${d} · ${f.hora}`:d;
 };
+const freteDetalheRotas=(f)=>{
+  const lines=[{label:"Origem",rua:freteRuaResumida(f.origin)}];
+  (f.paradas||[]).forEach((p,i)=>lines.push({label:`Parada ${i+2}`,rua:freteRuaResumida(p)}));
+  lines.push({label:"Destino Final",rua:freteRuaResumida(f.dest)});
+  return lines;
+};
+const FRETE_DET_L={color:"#4B5563",fontSize:13,fontWeight:600};
+const FRETE_DET_V={color:C.text,fontWeight:600,fontSize:14,textAlign:"right"};
+const FRETE_DET_ROW={display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 0",borderBottom:`1px solid ${C.border}`,gap:10};
+const FreteDetRow=({label,value,valueStyle={}})=>(
+  <div style={FRETE_DET_ROW}>
+    <span style={FRETE_DET_L}>{label}</span>
+    <span style={{...FRETE_DET_V,...valueStyle}}>{value}</span>
+  </div>
+);
 const Comparador=({historicoFretes,onAddFrete,onUpdateFrete,onDeleteFrete})=>{
   const[del,setDel]=useState(null);
   const[detalhe,setDetalhe]=useState(null);
@@ -3690,15 +3705,21 @@ const Comparador=({historicoFretes,onAddFrete,onUpdateFrete,onDeleteFrete})=>{
       {/* Modal de detalhes */}
       {detalhe&&(
         <ModalWrap maxW={440}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:18}}>
-            <div style={{display:"flex",alignItems:"center",gap:10}}>
+          <div style={{position:"relative",marginBottom:16}}>
+            <button onClick={()=>setDetalhe(null)} style={{position:"absolute",top:0,right:0,background:C.subtle,border:`1px solid ${C.border}`,borderRadius:9,padding:7,cursor:"pointer",color:C.muted,display:"flex",zIndex:1}}><XIcon size={15}/></button>
+            <div style={{textAlign:"center",padding:"0 36px"}}>
               <span style={{fontSize:22,lineHeight:1}}>🔄</span>
-              <div>
-                <div style={{color:C.text,fontWeight:800,fontSize:15,fontFamily:"'Sora',sans-serif"}}>Detalhes do Frete</div>
-                <div style={{color:"#1F2937",fontWeight:600,fontSize:13,marginTop:3,lineHeight:1.35}}>{freteRuaResumida(detalhe.origin)} → {freteRuaResumida(detalhe.dest)}</div>
-              </div>
+              <div style={{color:C.text,fontWeight:800,fontSize:16,fontFamily:"'Sora',sans-serif",marginTop:6}}>Detalhes do Frete</div>
             </div>
-            <button onClick={()=>setDetalhe(null)} style={{background:C.subtle,border:`1px solid ${C.border}`,borderRadius:9,padding:7,cursor:"pointer",color:C.muted,display:"flex"}}><XIcon size={15}/></button>
+            <div style={{marginTop:16,textAlign:"left"}}>
+              {freteDetalheRotas(detalhe).map((item,i)=>(
+                <div key={i}>
+                  {i>0&&<div style={{color:"#9CA3AF",fontSize:13,padding:"5px 0 5px 2px",lineHeight:1}}>→</div>}
+                  <div style={{color:"#6B7280",fontSize:11,fontWeight:700,textTransform:"uppercase",letterSpacing:0.4}}>{item.label}</div>
+                  <div style={{color:"#1F2937",fontWeight:600,fontSize:14,marginTop:2,lineHeight:1.35}}>{item.rua}</div>
+                </div>
+              ))}
+            </div>
           </div>
 
           {/* Informações */}
@@ -3708,15 +3729,11 @@ const Comparador=({historicoFretes,onAddFrete,onUpdateFrete,onDeleteFrete})=>{
               {l:"Distância",v:`${detalhe.distance||0} km`},
               {l:"Veículo",v:detalhe.veiculo||"—"},
               {l:"Carga",v:detalhe.cargo||"—"},
-              detalhe.paradas?.length>0&&{l:"Paradas",v:detalhe.paradas.join(" → ")},
               detalhe.observacao&&{l:"Observação",v:detalhe.observacao},
               {l:"Valor por km",v:detalhe.vkm?`R$ ${detalhe.vkm}/km`:"—"},
               {l:"Adicional fixo",v:detalhe.adicional?`R$ ${detalhe.adicional}`:"—"},
             ].filter(Boolean).map((r,i)=>(
-              <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"9px 0",borderBottom:`1px solid ${C.border}`}}>
-                <span style={{color:C.muted,fontSize:12}}>{r.l}</span>
-                <span style={{color:C.text,fontWeight:600,fontSize:14,textAlign:"right",maxWidth:"58%"}}>{r.v}</span>
-              </div>
+              <FreteDetRow key={i} label={r.l} value={r.v} valueStyle={r.l==="Observação"?{maxWidth:"58%"}:{}}/>
             ))}
           </div>
 
@@ -3724,64 +3741,42 @@ const Comparador=({historicoFretes,onAddFrete,onUpdateFrete,onDeleteFrete})=>{
           {(()=>{
             const{combVal,pedNum,arla,showPed,showArla,hasBreakdown,custoTotal}=freteCustoBreakdown(detalhe);
             return(
-              <div style={{background:"#F8FAFC",borderRadius:12,padding:"4px 14px",marginTop:12,display:"flex",flexDirection:"column"}}>
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 0",borderBottom:`1px solid ${C.border}`}}>
-                  <span style={{color:C.text2,fontSize:13}}>Combustível</span>
-                  <span style={{color:C.text,fontWeight:600,fontSize:14}}>{hasBreakdown?`R$ ${combVal.toFixed(2)}`:"—"}</span>
-                </div>
-                {showPed&&(
-                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 0",borderBottom:`1px solid ${C.border}`}}>
-                    <span style={{color:C.text2,fontSize:13}}>Pedágio</span>
-                    <span style={{color:C.text,fontWeight:600,fontSize:14}}>R$ {pedNum.toFixed(2)}</span>
-                  </div>
-                )}
-                {showArla&&(
-                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 0",borderBottom:`1px solid ${C.border}`}}>
-                    <span style={{color:C.text2,fontSize:13}}>ARLA 32</span>
-                    <span style={{color:"#6D28D9",fontWeight:600,fontSize:14}}>R$ {arla.toFixed(2)}</span>
-                  </div>
-                )}
-                <div style={{background:C.redLight,borderRadius:10,padding:"11px 0",margin:"6px 0",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                  <span style={{color:C.text2,fontSize:13,fontWeight:600}}>🔴 Custo Total da Viagem</span>
-                  <span style={{color:C.red,fontWeight:900,fontSize:16,fontFamily:"'Sora',sans-serif"}}>R$ {custoTotal.toFixed(2)}</span>
+              <div style={{background:"#F8FAFC",borderRadius:12,padding:"0 14px",marginTop:12,display:"flex",flexDirection:"column"}}>
+                <FreteDetRow label="Combustível" value={hasBreakdown?`R$ ${combVal.toFixed(2)}`:"—"}/>
+                {showPed&&<FreteDetRow label="Pedágio" value={`R$ ${pedNum.toFixed(2)}`}/>}
+                {showArla&&<FreteDetRow label="ARLA 32" value={`R$ ${arla.toFixed(2)}`} valueStyle={{color:"#6D28D9"}}/>}
+                <div style={{...FRETE_DET_ROW,borderBottom:"none",background:C.redLight,borderRadius:10,margin:"4px -4px 6px",padding:"10px 12px"}}>
+                  <span style={{...FRETE_DET_L,color:"#991B1B"}}>Custo Total da Viagem</span>
+                  <span style={{...FRETE_DET_V,color:C.red,fontWeight:700}}>R$ {custoTotal.toFixed(2)}</span>
                 </div>
               </div>
             );
           })()}
 
           {/* Resultado */}
-          <div style={{display:"flex",flexDirection:"column",gap:8,marginTop:12}}>
-            <div style={{background:C.navyLight,borderRadius:10,padding:"11px 14px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-              <span style={{color:C.text2,fontSize:12}}>Frete Cobrado</span>
-              <span style={{color:C.navy,fontWeight:700,fontSize:14}}>R$ {(detalhe.freteSugerido||0).toFixed(2)}</span>
-            </div>
-            <div style={{background:(detalhe.lucro||0)>=0?C.greenLight:C.redLight,borderRadius:10,padding:"11px 14px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-              <span style={{color:C.text2,fontSize:12}}>🟢 Meu Lucro</span>
-              <span style={{color:(detalhe.lucro||0)>=0?C.green:C.red,fontWeight:900,fontSize:18,fontFamily:"'Sora',sans-serif"}}>R$ {(detalhe.lucro||0).toFixed(2)}</span>
-            </div>
+          <div style={{display:"flex",flexDirection:"column",gap:0,marginTop:12,background:"#F8FAFC",borderRadius:12,padding:"0 14px"}}>
+            <FreteDetRow label="Frete Cobrado" value={`R$ ${(detalhe.freteSugerido||0).toFixed(2)}`} valueStyle={{color:C.navy}}/>
+            <FreteDetRow label="🟢 Meu Lucro" value={`R$ ${(detalhe.lucro||0).toFixed(2)}`} valueStyle={{color:(detalhe.lucro||0)>=0?C.green:C.red,fontWeight:700}}/>
             {detalhe.distance>0&&(
               <>
-                <div style={{background:C.navyLight,borderRadius:10,padding:"11px 14px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                  <span style={{color:C.text2,fontSize:12}}>Receita por km</span>
-                  <span style={{color:C.navy,fontWeight:700,fontSize:14}}>R$ {((detalhe.freteSugerido||0)/detalhe.distance).toFixed(2)}/km</span>
-                </div>
-                <div style={{background:(detalhe.lucro||0)>=0?C.greenLight:C.redLight,borderRadius:10,padding:"11px 14px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                  <span style={{color:C.text2,fontSize:12}}>Lucro por km</span>
-                  <span style={{color:(detalhe.lucro||0)>=0?C.green:C.red,fontWeight:700,fontSize:14}}>R$ {((detalhe.lucro||0)/detalhe.distance).toFixed(2)}/km</span>
-                </div>
+                <FreteDetRow label="Receita por km" value={`R$ ${((detalhe.freteSugerido||0)/detalhe.distance).toFixed(2)}/km`} valueStyle={{color:C.navy}}/>
+                <FreteDetRow label="Lucro por km" value={`R$ ${((detalhe.lucro||0)/detalhe.distance).toFixed(2)}/km`} valueStyle={{color:(detalhe.lucro||0)>=0?C.green:C.red}}/>
               </>
             )}
           </div>
           <div style={{display:"flex",gap:9,marginTop:16}}>
             <button onClick={()=>{setDel(detalhe);setDetalhe(null);}}
-              style={{flex:1,padding:"10px 0",background:C.redLight,border:`1px solid ${C.red}33`,borderRadius:11,cursor:"pointer",color:C.red,fontWeight:700,fontSize:14,display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
+              style={{flex:1,minHeight:44,padding:"12px 8px",background:C.redLight,border:`1px solid ${C.red}33`,borderRadius:11,cursor:"pointer",color:C.red,fontWeight:700,fontSize:13,display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
               <Trash2Icon size={13}/> Excluir
             </button>
             <button onClick={()=>startEdit(detalhe)}
-              style={{flex:1,padding:"10px 0",background:C.navyLight,border:`1px solid ${C.navy}33`,borderRadius:11,cursor:"pointer",color:C.navy,fontWeight:700,fontSize:14,display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
+              style={{flex:1,minHeight:44,padding:"12px 8px",background:C.navyLight,border:`1px solid ${C.navy}33`,borderRadius:11,cursor:"pointer",color:C.navy,fontWeight:700,fontSize:13,display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
               <EditIcon size={13}/> Editar
             </button>
-            <PrimaryBtn onClick={()=>setDetalhe(null)} style={{flex:2}}>Fechar</PrimaryBtn>
+            <button onClick={()=>setDetalhe(null)}
+              style={{flex:1,minHeight:44,padding:"12px 8px",background:C.orange,border:"none",borderRadius:11,cursor:"pointer",color:"#fff",fontWeight:700,fontSize:13,display:"flex",alignItems:"center",justifyContent:"center",gap:6,boxShadow:`0 3px 10px ${C.orange}44`,fontFamily:"'Sora',sans-serif"}}>
+              Fechar
+            </button>
           </div>
           {/* Compartilhar pelo WhatsApp */}
           {(()=>{
