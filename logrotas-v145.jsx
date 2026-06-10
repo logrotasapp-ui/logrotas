@@ -73,7 +73,7 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="V218";
+const APP_VERSION="V219";
 const BETA_HIDE_PLANOS=true;
 
 const OfflineRestoredBanner=({show})=>show?(
@@ -3266,7 +3266,7 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
                 ):(
                   <button onClick={()=>{
                     const paradasMid=stops.slice(1,-1).map(s=>s.v).filter(Boolean);
-                    setPendingSave({origin:stops[0]?.v||"Origem",dest:stops[stops.length-1]?.v||"Destino",paradas:paradasMid,date:new Date().toLocaleDateString("pt-BR"),distance:result.tot,veiculo:vehicles.find(v=>v.id===vehicleId)?.label||"",cargo,observacao,vkm:metaLocal,adicional:freight,custoTotal:result.total,freteSugerido:freteSug,lucro:lucroFinal});
+                    setPendingSave({origin:stops[0]?.v||"Origem",dest:stops[stops.length-1]?.v||"Destino",paradas:paradasMid,date:new Date().toLocaleDateString("pt-BR"),hora:new Date().toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"}),distance:result.tot,veiculo:vehicles.find(v=>v.id===vehicleId)?.label||"",cargo,observacao,vkm:metaLocal,adicional:freight,energyCost:result.energyCost||0,tollCost:result.tollCost||0,arlaCost:result.arlaCost||0,custoTotal:result.total,freteSugerido:freteSug,lucro:lucroFinal});
                     setShowStatusModal(true);
                   }} style={{width:"100%",padding:"13px",background:C.navy,border:"none",borderRadius:12,cursor:"pointer",color:"#fff",fontWeight:700,fontSize:14,fontFamily:"'Sora',sans-serif",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
                     <SaveIcon size={15}/> Salvar no Histórico de Fretes
@@ -3578,12 +3578,21 @@ const freteRuaResumida=(endereco)=>{
   return s||endereco.split(",")[0].trim()||endereco;
 };
 const freteCustoBreakdown=(f)=>{
-  const comb=f.energyCost??f.custoComb??f.combustivelCost;
-  const ped=f.tollCost??f.pedagio??f.pedagioTotal;
+  const hasBreakdown=f.energyCost!=null||f.custoComb!=null||f.combustivelCost!=null
+    ||f.tollCost!=null||f.pedagio!=null||f.pedagioTotal!=null||Number(f.arlaCost||0)>0;
+  const combVal=hasBreakdown?Number(f.energyCost??f.custoComb??f.combustivelCost??0):null;
+  const pedRaw=f.tollCost??f.pedagio??f.pedagioTotal;
+  const pedNum=pedRaw!=null&&pedRaw!==""?Number(pedRaw):null;
   const arla=Number(f.arlaCost||0);
-  const pedNum=ped!=null&&ped!==""?Number(ped):null;
-  const combVal=comb!=null&&comb!==""?Number(comb):null;
-  return{combVal,pedNum,arla,showPed:pedNum!=null&&!Number.isNaN(pedNum),showArla:arla>0};
+  const showPed=pedNum!=null&&!Number.isNaN(pedNum);
+  const showArla=arla>0;
+  const somaPartes=(combVal??0)+(showPed?pedNum:0)+(showArla?arla:0);
+  const custoTotal=Number(f.custoTotal||0)||(hasBreakdown?somaPartes:0);
+  return{combVal,pedNum,arla,showPed,showArla,hasBreakdown,custoTotal};
+};
+const freteDataHora=(f)=>{
+  const d=f.date||"—";
+  return f.hora?`${d} · ${f.hora}`:d;
 };
 const Comparador=({historicoFretes,onAddFrete,onUpdateFrete,onDeleteFrete})=>{
   const[del,setDel]=useState(null);
@@ -3593,7 +3602,10 @@ const Comparador=({historicoFretes,onAddFrete,onUpdateFrete,onDeleteFrete})=>{
   const[form,setForm]=useState({origin:"",dest:"",date:"",distance:"",freteSugerido:"",custoTotal:"",lucro:"",vkm:"",adicional:"",veiculo:"",cargo:""});
 
   const add=async()=>{
+    const now=new Date();
     const item={...form,
+      date:form.date||now.toLocaleDateString("pt-BR"),
+      hora:now.toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"}),
       freteSugerido:parseFloat(form.freteSugerido)||0,
       custoTotal:parseFloat(form.custoTotal)||0,
       lucro:parseFloat(form.lucro)||0,
@@ -3641,17 +3653,19 @@ const Comparador=({historicoFretes,onAddFrete,onUpdateFrete,onDeleteFrete})=>{
         </div>
       )}
 
-      <Card>
-        {historicoFretes.map((h,i)=>{
+      {historicoFretes.length>0&&(
+        <div style={{display:"flex",flexDirection:"column",gap:10}}>
+        {historicoFretes.map((h)=>{
           const lucro=h.lucro||0;
           return(
-            <button key={h.id} onClick={()=>setDetalhe(h)}
-              style={{width:"100%",background:"none",border:"none",cursor:"pointer",padding:"14px 20px",borderBottom:i<historicoFretes.length-1?`1px solid ${C.border}`:"none",textAlign:"left",display:"block"}}>
+            <div key={h.id} style={{border:`1px solid ${C.border}`,borderRadius:12,background:C.surface,overflow:"hidden"}}>
+            <button onClick={()=>setDetalhe(h)}
+              style={{width:"100%",background:"none",border:"none",cursor:"pointer",padding:"14px 16px",textAlign:"left",display:"block"}}>
               <div style={{color:C.navy,fontWeight:700,fontSize:14,lineHeight:1.35}}>
                 👍 {freteRuaResumida(h.origin)} → {freteRuaResumida(h.dest)}
               </div>
               <div style={{color:C.muted,fontSize:12,marginTop:4}}>
-                {h.date||"—"} · {h.distance||0} km{h.veiculo?` · ${h.veiculo}`:""}
+                {freteDataHora(h)} · {h.distance||0} km{h.veiculo?` · ${h.veiculo}`:""}
               </div>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginTop:8,gap:10}}>
                 <div style={{color:C.green,fontWeight:800,fontSize:15,fontFamily:"'Sora',sans-serif"}}>R$ {(h.freteSugerido||0).toFixed(2)}</div>
@@ -3661,9 +3675,11 @@ const Comparador=({historicoFretes,onAddFrete,onUpdateFrete,onDeleteFrete})=>{
                 Lucro: R$ {(lucro||0).toFixed(2)}
               </div>
             </button>
+            </div>
           );
         })}
-      </Card>
+        </div>
+      )}
 
       {/* Modal de detalhes */}
       {detalhe&&(
@@ -3673,7 +3689,7 @@ const Comparador=({historicoFretes,onAddFrete,onUpdateFrete,onDeleteFrete})=>{
               <span style={{fontSize:22,lineHeight:1}}>🔄</span>
               <div>
                 <div style={{color:C.text,fontWeight:800,fontSize:15,fontFamily:"'Sora',sans-serif"}}>Detalhes do Frete</div>
-                <div style={{color:C.muted,fontSize:12,marginTop:2}}>{freteRuaResumida(detalhe.origin)} → {freteRuaResumida(detalhe.dest)}</div>
+                <div style={{color:"#1F2937",fontWeight:600,fontSize:13,marginTop:3,lineHeight:1.35}}>{freteRuaResumida(detalhe.origin)} → {freteRuaResumida(detalhe.dest)}</div>
               </div>
             </div>
             <button onClick={()=>setDetalhe(null)} style={{background:C.subtle,border:`1px solid ${C.border}`,borderRadius:9,padding:7,cursor:"pointer",color:C.muted,display:"flex"}}><XIcon size={15}/></button>
@@ -3682,7 +3698,7 @@ const Comparador=({historicoFretes,onAddFrete,onUpdateFrete,onDeleteFrete})=>{
           {/* Informações */}
           <div style={{display:"flex",flexDirection:"column",gap:0}}>
             {[
-              {l:"Data",v:detalhe.date||"—"},
+              {l:"Data",v:freteDataHora(detalhe)},
               {l:"Distância",v:`${detalhe.distance||0} km`},
               {l:"Veículo",v:detalhe.veiculo||"—"},
               {l:"Carga",v:detalhe.cargo||"—"},
@@ -3700,13 +3716,12 @@ const Comparador=({historicoFretes,onAddFrete,onUpdateFrete,onDeleteFrete})=>{
 
           {/* Custos */}
           {(()=>{
-            const{combVal,pedNum,arla,showPed,showArla}=freteCustoBreakdown(detalhe);
-            const combDisplay=combVal!=null&&!Number.isNaN(combVal)?combVal:(showPed||showArla?null:(detalhe.custoTotal||0));
+            const{combVal,pedNum,arla,showPed,showArla,hasBreakdown,custoTotal}=freteCustoBreakdown(detalhe);
             return(
               <div style={{background:"#F8FAFC",borderRadius:12,padding:"4px 14px",marginTop:12,display:"flex",flexDirection:"column"}}>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 0",borderBottom:`1px solid ${C.border}`}}>
                   <span style={{color:C.text2,fontSize:13}}>Combustível</span>
-                  <span style={{color:C.text,fontWeight:600,fontSize:14}}>{combDisplay!=null?`R$ ${Number(combDisplay).toFixed(2)}`:"—"}</span>
+                  <span style={{color:C.text,fontWeight:600,fontSize:14}}>{hasBreakdown?`R$ ${combVal.toFixed(2)}`:"—"}</span>
                 </div>
                 {showPed&&(
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 0",borderBottom:`1px solid ${C.border}`}}>
@@ -3722,7 +3737,7 @@ const Comparador=({historicoFretes,onAddFrete,onUpdateFrete,onDeleteFrete})=>{
                 )}
                 <div style={{background:C.redLight,borderRadius:10,padding:"11px 0",margin:"6px 0",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                   <span style={{color:C.text2,fontSize:13,fontWeight:600}}>🔴 Custo Total da Viagem</span>
-                  <span style={{color:C.red,fontWeight:900,fontSize:16,fontFamily:"'Sora',sans-serif"}}>R$ {(detalhe.custoTotal||0).toFixed(2)}</span>
+                  <span style={{color:C.red,fontWeight:900,fontSize:16,fontFamily:"'Sora',sans-serif"}}>R$ {custoTotal.toFixed(2)}</span>
                 </div>
               </div>
             );
