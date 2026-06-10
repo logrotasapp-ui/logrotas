@@ -73,7 +73,7 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="V222";
+const APP_VERSION="V223";
 const BETA_HIDE_PLANOS=true;
 
 const OfflineRestoredBanner=({show})=>show?(
@@ -3606,11 +3606,11 @@ const freteDetalheRotas=(f)=>{
   lines.push({label:"Destino Final",rua:freteRuaResumida(f.dest)});
   return lines;
 };
-const FRETE_DET_L={color:"#4B5563",fontSize:13,fontWeight:600};
-const FRETE_DET_V={color:C.text,fontWeight:600,fontSize:14,textAlign:"right"};
+const FRETE_DET_L={color:"#4B5563",fontSize:15,fontWeight:600};
+const FRETE_DET_V={color:C.text,fontWeight:600,fontSize:15,textAlign:"right"};
 const FRETE_DET_ROW={display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 0",borderBottom:`1px solid ${C.border}`,gap:10};
-const FreteDetRow=({label,value,valueStyle={}})=>(
-  <div style={FRETE_DET_ROW}>
+const FreteDetRow=({label,value,valueStyle={},rowStyle={}})=>(
+  <div style={{...FRETE_DET_ROW,...rowStyle}}>
     <span style={FRETE_DET_L}>{label}</span>
     <span style={{...FRETE_DET_V,...valueStyle}}>{value}</span>
   </div>
@@ -3716,7 +3716,7 @@ const Comparador=({historicoFretes,onAddFrete,onUpdateFrete,onDeleteFrete})=>{
                 <div key={i}>
                   {i>0&&<div style={{color:"#9CA3AF",fontSize:13,padding:"5px 0 5px 2px",lineHeight:1}}>→</div>}
                   <div style={{color:"#6B7280",fontSize:11,fontWeight:700,textTransform:"uppercase",letterSpacing:0.4}}>{item.label}</div>
-                  <div style={{color:"#1F2937",fontWeight:600,fontSize:14,marginTop:2,lineHeight:1.35}}>{item.rua}</div>
+                  <div style={{color:"#1F2937",fontWeight:600,fontSize:15,marginTop:2,lineHeight:1.35}}>{item.rua}</div>
                 </div>
               ))}
             </div>
@@ -3740,41 +3740,61 @@ const Comparador=({historicoFretes,onAddFrete,onUpdateFrete,onDeleteFrete})=>{
           {/* Custos */}
           {(()=>{
             const{combVal,pedNum,arla,showPed,showArla,hasBreakdown,custoTotal}=freteCustoBreakdown(detalhe);
+            const lucroPos=(detalhe.lucro||0)>=0;
             return(
-              <div style={{background:"#F8FAFC",borderRadius:12,padding:"0 14px",marginTop:12,display:"flex",flexDirection:"column"}}>
+              <>
                 <FreteDetRow label="Combustível" value={hasBreakdown?`R$ ${combVal.toFixed(2)}`:"—"}/>
                 {showPed&&<FreteDetRow label="Pedágio" value={`R$ ${pedNum.toFixed(2)}`}/>}
-                {showArla&&<FreteDetRow label="ARLA 32" value={`R$ ${arla.toFixed(2)}`} valueStyle={{color:"#6D28D9"}}/>}
-                <div style={{...FRETE_DET_ROW,borderBottom:"none",background:C.redLight,borderRadius:10,margin:"4px -4px 6px",padding:"10px 12px"}}>
-                  <span style={{...FRETE_DET_L,color:"#991B1B"}}>Custo Total da Viagem</span>
-                  <span style={{...FRETE_DET_V,color:C.red,fontWeight:700}}>R$ {custoTotal.toFixed(2)}</span>
-                </div>
-              </div>
+                {showArla&&<FreteDetRow label="ARLA 32" value={`R$ ${arla.toFixed(2)}`}/>}
+                <FreteDetRow
+                  label="Custo Total da Viagem"
+                  value={`R$ ${custoTotal.toFixed(2)}`}
+                  valueStyle={{color:C.red,fontWeight:800}}
+                  rowStyle={{background:C.redLight,borderRadius:10,borderBottom:"none",padding:"11px 0",marginTop:4}}
+                />
+
+                <FreteDetRow
+                  label="Frete Cobrado"
+                  value={`R$ ${(detalhe.freteSugerido||0).toFixed(2)}`}
+                  valueStyle={{color:C.navy}}
+                  rowStyle={{background:C.navyLight,borderRadius:10,borderBottom:"none",padding:"11px 0",marginTop:12}}
+                />
+                <FreteDetRow
+                  label="🟢 Meu Lucro"
+                  value={`R$ ${(detalhe.lucro||0).toFixed(2)}`}
+                  valueStyle={{color:lucroPos?C.green:C.red,fontWeight:800}}
+                  rowStyle={{background:lucroPos?C.greenLight:C.redLight,borderRadius:10,borderBottom:"none",padding:"11px 0",marginTop:8}}
+                />
+                {detalhe.distance>0&&(
+                  <>
+                    <FreteDetRow
+                      label="Receita por km"
+                      value={`R$ ${((detalhe.freteSugerido||0)/detalhe.distance).toFixed(2)}/km`}
+                      valueStyle={{color:C.navy}}
+                      rowStyle={{background:C.navyLight,borderRadius:10,borderBottom:"none",padding:"11px 0",marginTop:8}}
+                    />
+                    <FreteDetRow
+                      label="Lucro por km"
+                      value={`R$ ${((detalhe.lucro||0)/detalhe.distance).toFixed(2)}/km`}
+                      valueStyle={{color:lucroPos?C.green:C.red,fontWeight:600}}
+                      rowStyle={{background:lucroPos?C.greenLight:C.redLight,borderRadius:10,borderBottom:"none",padding:"11px 0",marginTop:8}}
+                    />
+                  </>
+                )}
+              </>
             );
           })()}
-
-          {/* Resultado */}
-          <div style={{display:"flex",flexDirection:"column",gap:0,marginTop:12,background:"#F8FAFC",borderRadius:12,padding:"0 14px"}}>
-            <FreteDetRow label="Frete Cobrado" value={`R$ ${(detalhe.freteSugerido||0).toFixed(2)}`} valueStyle={{color:C.navy}}/>
-            <FreteDetRow label="🟢 Meu Lucro" value={`R$ ${(detalhe.lucro||0).toFixed(2)}`} valueStyle={{color:(detalhe.lucro||0)>=0?C.green:C.red,fontWeight:700}}/>
-            {detalhe.distance>0&&(
-              <>
-                <FreteDetRow label="Receita por km" value={`R$ ${((detalhe.freteSugerido||0)/detalhe.distance).toFixed(2)}/km`} valueStyle={{color:C.navy}}/>
-                <FreteDetRow label="Lucro por km" value={`R$ ${((detalhe.lucro||0)/detalhe.distance).toFixed(2)}/km`} valueStyle={{color:(detalhe.lucro||0)>=0?C.green:C.red}}/>
-              </>
-            )}
-          </div>
           <div style={{display:"flex",gap:9,marginTop:16}}>
             <button onClick={()=>{setDel(detalhe);setDetalhe(null);}}
-              style={{flex:1,minHeight:44,padding:"12px 8px",background:C.redLight,border:`1px solid ${C.red}33`,borderRadius:11,cursor:"pointer",color:C.red,fontWeight:700,fontSize:13,display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
+              style={{flex:1,minHeight:44,padding:"12px 8px",background:C.redLight,border:`1px solid ${C.red}33`,borderRadius:11,cursor:"pointer",color:C.red,fontWeight:700,fontSize:15,display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
               <Trash2Icon size={13}/> Excluir
             </button>
             <button onClick={()=>startEdit(detalhe)}
-              style={{flex:1,minHeight:44,padding:"12px 8px",background:C.navyLight,border:`1px solid ${C.navy}33`,borderRadius:11,cursor:"pointer",color:C.navy,fontWeight:700,fontSize:13,display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
+              style={{flex:1,minHeight:44,padding:"12px 8px",background:C.navyLight,border:`1px solid ${C.navy}33`,borderRadius:11,cursor:"pointer",color:C.navy,fontWeight:700,fontSize:15,display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
               <EditIcon size={13}/> Editar
             </button>
             <button onClick={()=>setDetalhe(null)}
-              style={{flex:1,minHeight:44,padding:"12px 8px",background:C.orange,border:"none",borderRadius:11,cursor:"pointer",color:"#fff",fontWeight:700,fontSize:13,display:"flex",alignItems:"center",justifyContent:"center",gap:6,boxShadow:`0 3px 10px ${C.orange}44`,fontFamily:"'Sora',sans-serif"}}>
+              style={{flex:1,minHeight:44,padding:"12px 8px",background:C.orange,border:"none",borderRadius:11,cursor:"pointer",color:"#fff",fontWeight:700,fontSize:15,display:"flex",alignItems:"center",justifyContent:"center",gap:6,boxShadow:`0 3px 10px ${C.orange}44`,fontFamily:"'Sora',sans-serif"}}>
               Fechar
             </button>
           </div>
@@ -5734,7 +5754,7 @@ export default function App(){
         <div style={{position:"fixed",inset:0,background:"#00000044",zIndex:200,display:"flex",alignItems:"flex-start",justifyContent:"flex-end",padding:"58px 12px 0"}} onClick={()=>setShowNotif(false)}>
           <div style={{background:"#fff",borderRadius:16,width:300,maxHeight:400,overflowY:"auto",boxShadow:"0 8px 32px #00000033",padding:"16px 0"}} onClick={e=>e.stopPropagation()}>
             <div style={{color:C.navy,fontWeight:800,fontSize:15,padding:"0 16px 12px",borderBottom:`1px solid ${C.border}`,fontFamily:"'Sora',sans-serif"}}>🔔 Notificações</div>
-            {docsVencidos.length===0&&docsVencendo30.length===0&&docsVencendo.length===0&&historicoFretes.length===0?(
+            {docsVencidos.length===0&&docsVencendo30.length===0&&docsVencendo.length===0?(
               <div style={{padding:"24px 16px",textAlign:"center",color:C.muted,fontSize:13}}>
                 <div style={{fontSize:32,marginBottom:8}}>✅</div>
                 Tudo em dia! Sem alertas no momento.
@@ -5751,12 +5771,6 @@ export default function App(){
                   <div key={i} onClick={()=>{setPage("documentos");setShowNotif(false);}} style={{padding:"12px 16px",borderBottom:`1px solid ${C.border}`,cursor:"pointer",display:"flex",gap:10,alignItems:"flex-start"}}>
                     <span style={{fontSize:18}}>⚠️</span>
                     <div><div style={{color:C.amber,fontWeight:700,fontSize:13}}>Vence em breve!</div><div style={{color:C.muted,fontSize:12,marginTop:1}}>{d.type} — {d.vehicle||"seu veículo"}</div></div>
-                  </div>
-                ))}
-                {historicoFretes.slice(0,2).map((f,i)=>(
-                  <div key={i} onClick={()=>{setPage("comparador");setShowNotif(false);}} style={{padding:"12px 16px",borderBottom:`1px solid ${C.border}`,cursor:"pointer",display:"flex",gap:10,alignItems:"flex-start"}}>
-                    <span style={{fontSize:18}}>🚛</span>
-                    <div><div style={{color:C.green,fontWeight:700,fontSize:13}}>Frete salvo</div><div style={{color:C.muted,fontSize:12,marginTop:1}}>{f.origin} → {f.dest}</div></div>
                   </div>
                 ))}
               </div>
