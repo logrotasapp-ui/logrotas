@@ -73,7 +73,7 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="V217";
+const APP_VERSION="V218";
 const BETA_HIDE_PLANOS=true;
 
 const OfflineRestoredBanner=({show})=>show?(
@@ -3570,6 +3570,21 @@ const Agenda=()=>{
 };
 
 // ── COMPARADOR ────────────────────────────────────────────────────────────────
+const freteRuaResumida=(endereco)=>{
+  if(!endereco||typeof endereco!=="string")return endereco||"—";
+  let s=endereco.split(",")[0].trim();
+  s=s.replace(/\s+\d+\s*[A-Za-z0-9\-]*$/,"").trim();
+  s=s.replace(/^\d+[,\s\-]+/,"").trim();
+  return s||endereco.split(",")[0].trim()||endereco;
+};
+const freteCustoBreakdown=(f)=>{
+  const comb=f.energyCost??f.custoComb??f.combustivelCost;
+  const ped=f.tollCost??f.pedagio??f.pedagioTotal;
+  const arla=Number(f.arlaCost||0);
+  const pedNum=ped!=null&&ped!==""?Number(ped):null;
+  const combVal=comb!=null&&comb!==""?Number(comb):null;
+  return{combVal,pedNum,arla,showPed:pedNum!=null&&!Number.isNaN(pedNum),showArla:arla>0};
+};
 const Comparador=({historicoFretes,onAddFrete,onUpdateFrete,onDeleteFrete})=>{
   const[del,setDel]=useState(null);
   const[detalhe,setDetalhe]=useState(null);
@@ -3631,22 +3646,19 @@ const Comparador=({historicoFretes,onAddFrete,onUpdateFrete,onDeleteFrete})=>{
           const lucro=h.lucro||0;
           return(
             <button key={h.id} onClick={()=>setDetalhe(h)}
-              style={{width:"100%",background:"none",border:"none",cursor:"pointer",padding:"14px 20px",borderBottom:i<historicoFretes.length-1?`1px solid ${C.border}`:"none",display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,textAlign:"left"}}>
-              <div style={{display:"flex",alignItems:"center",gap:12}}>
-                <div style={{width:40,height:40,borderRadius:11,background:lucro>=0?C.greenLight:C.redLight,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
-                  {lucro>=0?<ThumbsUpIcon size={16} color={C.green}/>:<ThumbsDownIcon size={16} color={C.red}/>}
-                </div>
-                <div>
-                  <div style={{color:C.navy,fontWeight:700,fontSize:14}}>{h.origin||"Origem"} → {h.dest||"Destino"}</div>
-                  {h.paradas?.length>0&&<div style={{color:C.orange,fontSize:12,marginTop:1}}>Via: {h.paradas.join(" → ")}</div>}
-                  <div style={{color:C.muted,fontSize:12,marginTop:2}}>{h.date||"—"} · {h.distance||0} km{h.veiculo?` · ${h.veiculo}`:""}</div>
-                  {h.cargo&&<div style={{color:C.muted,fontSize:11}}>{h.cargo}</div>}
-                </div>
+              style={{width:"100%",background:"none",border:"none",cursor:"pointer",padding:"14px 20px",borderBottom:i<historicoFretes.length-1?`1px solid ${C.border}`:"none",textAlign:"left",display:"block"}}>
+              <div style={{color:C.navy,fontWeight:700,fontSize:14,lineHeight:1.35}}>
+                👍 {freteRuaResumida(h.origin)} → {freteRuaResumida(h.dest)}
               </div>
-              <div style={{textAlign:"right",flexShrink:0}}>
+              <div style={{color:C.muted,fontSize:12,marginTop:4}}>
+                {h.date||"—"} · {h.distance||0} km{h.veiculo?` · ${h.veiculo}`:""}
+              </div>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginTop:8,gap:10}}>
                 <div style={{color:C.green,fontWeight:800,fontSize:15,fontFamily:"'Sora',sans-serif"}}>R$ {(h.freteSugerido||0).toFixed(2)}</div>
-                <div style={{color:lucro>=0?C.green:C.red,fontSize:12,fontWeight:600,marginTop:2}}>Lucro: R$ {(lucro||0).toFixed(2)}</div>
-                <div style={{color:C.muted,fontSize:10,marginTop:2}}>Toque para detalhes →</div>
+                <div style={{color:C.muted,fontSize:11,flexShrink:0}}>Toque para detalhes →</div>
+              </div>
+              <div style={{color:lucro>=0?C.green:C.red,fontSize:12,fontWeight:600,marginTop:4}}>
+                Lucro: R$ {(lucro||0).toFixed(2)}
               </div>
             </button>
           );
@@ -3656,34 +3668,88 @@ const Comparador=({historicoFretes,onAddFrete,onUpdateFrete,onDeleteFrete})=>{
       {/* Modal de detalhes */}
       {detalhe&&(
         <ModalWrap maxW={440}>
-          <ModalHeader title="Detalhes do Frete" sub={`${detalhe.origin||"Origem"} → ${detalhe.dest||"Destino"}`} icon={RouteIcon} iconColor={C.orange} onClose={()=>setDetalhe(null)}/>
-          <div style={{display:"flex",flexDirection:"column",gap:8}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:18}}>
+            <div style={{display:"flex",alignItems:"center",gap:10}}>
+              <span style={{fontSize:22,lineHeight:1}}>🔄</span>
+              <div>
+                <div style={{color:C.text,fontWeight:800,fontSize:15,fontFamily:"'Sora',sans-serif"}}>Detalhes do Frete</div>
+                <div style={{color:C.muted,fontSize:12,marginTop:2}}>{freteRuaResumida(detalhe.origin)} → {freteRuaResumida(detalhe.dest)}</div>
+              </div>
+            </div>
+            <button onClick={()=>setDetalhe(null)} style={{background:C.subtle,border:`1px solid ${C.border}`,borderRadius:9,padding:7,cursor:"pointer",color:C.muted,display:"flex"}}><XIcon size={15}/></button>
+          </div>
+
+          {/* Informações */}
+          <div style={{display:"flex",flexDirection:"column",gap:0}}>
             {[
               {l:"Data",v:detalhe.date||"—"},
               {l:"Distância",v:`${detalhe.distance||0} km`},
               {l:"Veículo",v:detalhe.veiculo||"—"},
               {l:"Carga",v:detalhe.cargo||"—"},
+              detalhe.paradas?.length>0&&{l:"Paradas",v:detalhe.paradas.join(" → ")},
               detalhe.observacao&&{l:"Observação",v:detalhe.observacao},
               {l:"Valor por km",v:detalhe.vkm?`R$ ${detalhe.vkm}/km`:"—"},
               {l:"Adicional fixo",v:detalhe.adicional?`R$ ${detalhe.adicional}`:"—"},
-              {l:"Custo Total da Viagem",v:`R$ ${(detalhe.custoTotal||0).toFixed(2)}`,c:C.red,bg:C.redLight},
-              {l:"Frete Cobrado",v:`R$ ${(detalhe.freteSugerido||0).toFixed(2)}`,c:C.navy,bg:C.navyLight},
-              {l:"Meu Lucro",v:`R$ ${(detalhe.lucro||0).toFixed(2)}`,c:(detalhe.lucro||0)>=0?C.green:C.red,bg:(detalhe.lucro||0)>=0?C.greenLight:C.redLight,bold:true},
-              detalhe.distance>0&&{l:"Receita por km",v:`R$ ${((detalhe.freteSugerido||0)/detalhe.distance).toFixed(2)}/km`,c:C.navy,bg:C.navyLight},
-              detalhe.distance>0&&{l:"Lucro por km",v:`R$ ${((detalhe.lucro||0)/detalhe.distance).toFixed(2)}/km`,c:(detalhe.lucro||0)>=0?C.green:C.red,bg:(detalhe.lucro||0)>=0?C.greenLight:C.redLight},
             ].filter(Boolean).map((r,i)=>(
-              r.bg?(
-                <div key={i} style={{background:r.bg,borderRadius:10,padding:"11px 14px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                  <span style={{color:C.text2,fontSize:12}}>{r.l}</span>
-                  <span style={{color:r.c,fontWeight:r.bold?900:700,fontSize:r.bold?18:14,fontFamily:r.bold?"'Sora',sans-serif":"inherit"}}>{r.v}</span>
-                </div>
-              ):(
-                <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"9px 0",borderBottom:`1px solid ${C.border}`}}>
-                  <span style={{color:C.muted,fontSize:12}}>{r.l}</span>
-                  <span style={{color:C.text,fontWeight:600,fontSize:14}}>{r.v}</span>
-                </div>
-              )
+              <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"9px 0",borderBottom:`1px solid ${C.border}`}}>
+                <span style={{color:C.muted,fontSize:12}}>{r.l}</span>
+                <span style={{color:C.text,fontWeight:600,fontSize:14,textAlign:"right",maxWidth:"58%"}}>{r.v}</span>
+              </div>
             ))}
+          </div>
+
+          {/* Custos */}
+          {(()=>{
+            const{combVal,pedNum,arla,showPed,showArla}=freteCustoBreakdown(detalhe);
+            const combDisplay=combVal!=null&&!Number.isNaN(combVal)?combVal:(showPed||showArla?null:(detalhe.custoTotal||0));
+            return(
+              <div style={{background:"#F8FAFC",borderRadius:12,padding:"4px 14px",marginTop:12,display:"flex",flexDirection:"column"}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 0",borderBottom:`1px solid ${C.border}`}}>
+                  <span style={{color:C.text2,fontSize:13}}>Combustível</span>
+                  <span style={{color:C.text,fontWeight:600,fontSize:14}}>{combDisplay!=null?`R$ ${Number(combDisplay).toFixed(2)}`:"—"}</span>
+                </div>
+                {showPed&&(
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 0",borderBottom:`1px solid ${C.border}`}}>
+                    <span style={{color:C.text2,fontSize:13}}>Pedágio</span>
+                    <span style={{color:C.text,fontWeight:600,fontSize:14}}>R$ {pedNum.toFixed(2)}</span>
+                  </div>
+                )}
+                {showArla&&(
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 0",borderBottom:`1px solid ${C.border}`}}>
+                    <span style={{color:C.text2,fontSize:13}}>ARLA 32</span>
+                    <span style={{color:"#6D28D9",fontWeight:600,fontSize:14}}>R$ {arla.toFixed(2)}</span>
+                  </div>
+                )}
+                <div style={{background:C.redLight,borderRadius:10,padding:"11px 0",margin:"6px 0",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                  <span style={{color:C.text2,fontSize:13,fontWeight:600}}>🔴 Custo Total da Viagem</span>
+                  <span style={{color:C.red,fontWeight:900,fontSize:16,fontFamily:"'Sora',sans-serif"}}>R$ {(detalhe.custoTotal||0).toFixed(2)}</span>
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* Resultado */}
+          <div style={{display:"flex",flexDirection:"column",gap:8,marginTop:12}}>
+            <div style={{background:C.navyLight,borderRadius:10,padding:"11px 14px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <span style={{color:C.text2,fontSize:12}}>Frete Cobrado</span>
+              <span style={{color:C.navy,fontWeight:700,fontSize:14}}>R$ {(detalhe.freteSugerido||0).toFixed(2)}</span>
+            </div>
+            <div style={{background:(detalhe.lucro||0)>=0?C.greenLight:C.redLight,borderRadius:10,padding:"11px 14px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <span style={{color:C.text2,fontSize:12}}>🟢 Meu Lucro</span>
+              <span style={{color:(detalhe.lucro||0)>=0?C.green:C.red,fontWeight:900,fontSize:18,fontFamily:"'Sora',sans-serif"}}>R$ {(detalhe.lucro||0).toFixed(2)}</span>
+            </div>
+            {detalhe.distance>0&&(
+              <>
+                <div style={{background:C.navyLight,borderRadius:10,padding:"11px 14px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                  <span style={{color:C.text2,fontSize:12}}>Receita por km</span>
+                  <span style={{color:C.navy,fontWeight:700,fontSize:14}}>R$ {((detalhe.freteSugerido||0)/detalhe.distance).toFixed(2)}/km</span>
+                </div>
+                <div style={{background:(detalhe.lucro||0)>=0?C.greenLight:C.redLight,borderRadius:10,padding:"11px 14px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                  <span style={{color:C.text2,fontSize:12}}>Lucro por km</span>
+                  <span style={{color:(detalhe.lucro||0)>=0?C.green:C.red,fontWeight:700,fontSize:14}}>R$ {((detalhe.lucro||0)/detalhe.distance).toFixed(2)}/km</span>
+                </div>
+              </>
+            )}
           </div>
           <div style={{display:"flex",gap:9,marginTop:16}}>
             <button onClick={()=>{setDel(detalhe);setDetalhe(null);}}
