@@ -73,7 +73,7 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="V216";
+const APP_VERSION="V217";
 const BETA_HIDE_PLANOS=true;
 
 const OfflineRestoredBanner=({show})=>show?(
@@ -269,7 +269,7 @@ const LogRotasLogo = ({size=32,showText=false}) => (
 // ── SHARED COMPONENTS ─────────────────────────────────────────────────────────
 const Tag=({label,color,bg})=><span style={{background:bg,color,padding:"3px 10px",borderRadius:20,fontSize:12,fontWeight:700}}>{label}</span>;
 const AdBanner=({plan,onUpgrade})=>{
-  if(plan==="pro")return null;
+  if(BETA_HIDE_PLANOS||plan==="pro")return null;
   const ads=[
     {logo:"⛽",brand:"Posto Ipiranga",headline:"Km de Vantagens no abastecimento!",sub:"Acumule pontos e ganhe cashback em cada litro.",cta:"Ver oferta",ctaBg:"#fff",ctaColor:"#D97706",tag:"Patrocinado",bg:"linear-gradient(90deg,#1E3A5F,#2563EB)"},
     {logo:"🛞",brand:"Borracharia Estrada",headline:"Pneus para caminhão com frete grátis",sub:"Melhores marcas, entrega rápida para todo Brasil.",cta:"Comprar",ctaBg:"#fff",ctaColor:"#15803D",tag:"Anúncio",bg:"linear-gradient(90deg,#14532D,#16A34A)"},
@@ -1334,7 +1334,7 @@ const HistoricoEntregasScreen=({
                   <button type="button" onClick={()=>setAbertoId(aberto?null:r.id)}
                     style={{width:"100%",textAlign:"left",background:"transparent",border:"none",padding:"12px 14px",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"space-between",gap:10}}>
                     <div style={{flex:1,minWidth:0}}>
-                      <div style={{color:C.text,fontWeight:700,fontSize:13}}>{r.date||"—"}{r.hora?` · ${r.hora}`:""} · {r.totalParadas||0} paradas</div>
+                      <div style={{color:C.text,fontWeight:800,fontSize:15,fontFamily:"'Sora',sans-serif",lineHeight:1.35}}>{r.date||"—"}{r.hora?` · ${r.hora}`:""} · {r.totalParadas||0} paradas</div>
                       <div style={{color:C.muted,fontSize:12,marginTop:3}}>
                         ✅ {r.entregues||0} entregues · ❌ {r.naoEntregues||0} não entregues
                         {r.synced===false&&<span style={{color:C.amber,marginLeft:6}}>· só no dispositivo</span>}
@@ -1344,23 +1344,28 @@ const HistoricoEntregasScreen=({
                   </button>
                   {aberto&&(
                     <div style={{padding:"0 14px 14px",borderTop:`1px solid ${C.border}`}}>
-                      {(r.paradas||[]).map((p,i)=>(
-                        <div key={i} style={{padding:"10px 0",borderBottom:i<(r.paradas?.length||0)-1?`1px solid ${C.border}`:"none"}}>
-                          <div style={{color:C.text,fontSize:13,fontWeight:600}}>{i+1}. {p.endereco}</div>
-                          <div style={{color:p.status==="entregue"?C.green:C.red,fontSize:12,marginTop:4}}>
-                            {p.status==="entregue"?"✅ Entregue":`❌ Não entregue${p.motivo?` — ${p.motivo}`:""}`}
-                            {p.horario?` · ${p.horario}`:""}
-                          </div>
-                        </div>
-                      ))}
                       <button type="button" disabled={gerandoPdf} onClick={()=>onGerarPdf?.(reportFromHistorico(r))}
                         style={{width:"100%",padding:11,marginTop:12,background:"#fff",border:`1.5px solid ${OTIMIZAR_AZUL}`,borderRadius:10,cursor:gerandoPdf?"wait":"pointer",color:OTIMIZAR_AZUL,fontWeight:700,fontSize:13}}>
                         📄 {gerandoPdf?"Gerando PDF…":"Gerar PDF"}
                       </button>
                       <button type="button" disabled={apagando} onClick={()=>setConfirmApagar(r.id)}
-                        style={{width:"100%",padding:12,marginTop:8,background:C.red,border:"none",borderRadius:10,cursor:apagando?"wait":"pointer",color:"#fff",fontWeight:700,fontSize:13}}>
+                        style={{width:"100%",padding:12,marginTop:8,background:"#FCA5A5",border:"none",borderRadius:10,cursor:apagando?"wait":"pointer",color:"#991B1B",fontWeight:700,fontSize:13}}>
                         🗑️ Apagar este registro
                       </button>
+                      {(r.paradas||[]).map((p,i)=>(
+                        <div key={i} style={{padding:"10px 0",borderBottom:i<(r.paradas?.length||0)-1?`1px solid ${C.border}`:"none"}}>
+                          <div style={{color:C.text,fontSize:13,fontWeight:600}}>{i+1}. {p.endereco}</div>
+                          <div style={{
+                            color:p.status==="entregue"?"#15803D":"#DC2626",
+                            fontSize:13,
+                            fontWeight:700,
+                            marginTop:4,
+                          }}>
+                            {p.status==="entregue"?"✅ Entregue":`❌ Não entregue${p.motivo?` — ${p.motivo}`:""}`}
+                            {p.horario?<span style={{fontWeight:600,color:C.muted}}>{` · ${p.horario}`}</span>:""}
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   )}
                 </div>
@@ -1378,7 +1383,7 @@ const HistoricoEntregasScreen=({
             </div>
             <div style={{display:"flex",flexDirection:"column",gap:10}}>
               <button type="button" disabled={apagando} onClick={handleApagar}
-                style={{width:"100%",padding:13,background:C.red,border:"none",borderRadius:12,cursor:apagando?"wait":"pointer",color:"#fff",fontWeight:700,fontSize:14}}>
+                style={{width:"100%",padding:13,background:"#FCA5A5",border:"none",borderRadius:12,cursor:apagando?"wait":"pointer",color:"#991B1B",fontWeight:700,fontSize:14}}>
                 {apagando?"Apagando…":"Apagar"}
               </button>
               <button type="button" disabled={apagando} onClick={()=>setConfirmApagar(null)}
@@ -3802,10 +3807,10 @@ const Despesas=({despesas,onAddDespesa,onUpdateDespesa,onDeleteDespesa})=>{
 
       {/* Total */}
       {despesas.length>0&&(
-        <div style={{background:`linear-gradient(135deg,${C.red},#B91C1C)`,borderRadius:16,padding:"18px 22px",boxShadow:`0 4px 16px ${C.red}44`}}>
-          <div style={{color:"rgba(255,255,255,0.75)",fontSize:14,fontWeight:700,letterSpacing:0.5,textTransform:"uppercase",marginBottom:6}}>Total de Despesas</div>
-          <div style={{color:"#fff",fontWeight:900,fontSize:30,fontFamily:"'Sora',sans-serif",lineHeight:1}}>R$ {total.toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
-          <div style={{color:"rgba(255,255,255,0.65)",fontSize:12,marginTop:5}}>{despesas.length} registro(s) · entram no Financeiro como saída</div>
+        <div style={{background:"linear-gradient(135deg,#FFF1F2,#FECDD3)",border:`1px solid #FECDD3`,borderRadius:14,padding:"14px 18px",boxShadow:"0 2px 8px #FCA5A522"}}>
+          <div style={{color:"#BE123C",fontSize:12,fontWeight:700,letterSpacing:0.4,textTransform:"uppercase",marginBottom:4,opacity:0.85}}>Total de Despesas</div>
+          <div style={{color:"#9F1239",fontWeight:800,fontSize:24,fontFamily:"'Sora',sans-serif",lineHeight:1}}>R$ {total.toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
+          <div style={{color:"#BE123C",fontSize:11,marginTop:4,opacity:0.75}}>{despesas.length} registro(s) · entram no Financeiro como saída</div>
         </div>
       )}
 
@@ -3901,10 +3906,18 @@ const DespesaItem=({item,last,onEdit,onDelete})=>(
 const Manutencao=({manutencoes:items,onAddManutencao,onDeleteManutencao})=>{
   const[stypes,setStypes]=useState(INIT_STYPE);const[showAdd,setShowAdd]=useState(false);const[showManage,setShowManage]=useState(false);const[del,setDel]=useState(null);const[editTIdx,setEditTIdx]=useState(null);const[editTVal,setEditTVal]=useState("");const[newType,setNewType]=useState("");const[form,setForm]=useState({type:"",vehicle:"",km:"",cost:"",nextKm:"",date:""});
   const alerts=items.filter(i=>i.status!=="ok").length;
+  const totalManut=items.reduce((a,i)=>a+(i.cost||0),0);
   const add=async()=>{await onAddManutencao?.({...form,cost:parseFloat(form.cost)||0,status:"ok"});setForm({type:"",vehicle:"",km:"",cost:"",nextKm:"",date:""});setShowAdd(false);};
   return(
     <div style={{display:"flex",flexDirection:"column",gap:18}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}><h1 style={{color:C.navy,fontSize:22,fontWeight:900,fontFamily:"'Sora',sans-serif",margin:0}}>Manutenção</h1><PrimaryBtn onClick={()=>setShowAdd(true)} small><PlusIcon size={12}/> Registrar</PrimaryBtn></div>
+      {items.length>0&&(
+        <div style={{background:"linear-gradient(135deg,#FFFBEB,#FEF3C7)",border:`1px solid ${C.amber}44`,borderRadius:14,padding:"14px 18px",boxShadow:"0 2px 8px #F59E0B18"}}>
+          <div style={{color:"#B45309",fontSize:12,fontWeight:700,letterSpacing:0.4,textTransform:"uppercase",marginBottom:4,opacity:0.9}}>Total de Manutenções</div>
+          <div style={{color:"#92400E",fontWeight:800,fontSize:24,fontFamily:"'Sora',sans-serif",lineHeight:1}}>R$ {totalManut.toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
+          <div style={{color:"#B45309",fontSize:11,marginTop:4,opacity:0.8}}>{items.length} registro(s)</div>
+        </div>
+      )}
       {alerts>0&&<div style={{background:C.amberLight,border:`1px solid ${C.amber}44`,borderRadius:12,padding:"11px 15px",display:"flex",gap:9,alignItems:"center"}}><AlertTriangleIcon size={16} color={C.amber}/><div><div style={{color:C.amber,fontWeight:700,fontSize:14}}>{alerts} manutenção(ões) com atenção</div></div></div>}
       <Card>{items.length===0?(
         <div style={{padding:"36px 20px",textAlign:"center"}}>
@@ -4376,55 +4389,16 @@ const Financeiro=({historicoFretes,manutencoes,despesas=[]})=>{
             </div>
           </div>
 
-          {/* Fretes do mês */}
+          {/* Fretes do mês — resumo */}
           {fretesMes.length>0&&(
             <Card>
               <CardHeader title={`Fretes — ${MESES_PT[mesSel]}`}/>
-              {fretesMes.map((f,i)=>{
-                const lucro=f.lucro||0;
-                const recKm=f.distance>0?((f.freteSugerido||0)/f.distance):0;
-                const lucKm=f.distance>0?(lucro/f.distance):0;
-                return(
-                  <div key={f.id} style={{padding:"14px 20px",borderBottom:i<fretesMes.length-1?`1px solid ${C.border}`:"none"}}>
-                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8,flexWrap:"wrap",gap:6}}>
-                      <div>
-                        <div style={{color:C.navy,fontWeight:700,fontSize:14}}>{f.origin?.split(",")[0]||"Origem"} → {f.dest?.split(",")[0]||"Destino"}</div>
-                        <div style={{color:C.muted,fontSize:12,marginTop:2}}>{f.date} · {f.distance||0} km{f.cargo?` · ${f.cargo}`:""}</div>
-                      </div>
-                      <div style={{textAlign:"right"}}>
-                        <div style={{color:C.green,fontWeight:800,fontSize:15,fontFamily:"'Sora',sans-serif"}}>R$ {(f.freteSugerido||0).toFixed(2)}</div>
-                        <div style={{color:lucro>=0?C.green:C.red,fontSize:12,fontWeight:600}}>Lucro: R$ {(lucro||0).toFixed(2)}</div>
-                      </div>
-                    </div>
-                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-                      <div style={{background:C.navyLight,borderRadius:9,padding:"7px 10px"}}>
-                        <div style={{color:C.muted,fontSize:9,textTransform:"uppercase",letterSpacing:0.4,marginBottom:2}}>Receita/km</div>
-                        <div style={{color:C.navy,fontWeight:800,fontSize:14}}>R$ {(recKm||0).toFixed(2)}/km</div>
-                      </div>
-                      <div style={{background:lucKm>=0?C.greenLight:C.redLight,borderRadius:9,padding:"7px 10px"}}>
-                        <div style={{color:C.muted,fontSize:9,textTransform:"uppercase",letterSpacing:0.4,marginBottom:2}}>Lucro/km</div>
-                        <div style={{color:lucKm>=0?C.green:C.red,fontWeight:800,fontSize:14}}>R$ {(lucKm||0).toFixed(2)}/km</div>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </Card>
-          )}
-
-          {/* Manutenções do mês */}
-          {maintMes.length>0&&(
-            <Card>
-              <CardHeader title={`Manutenções — ${MESES_PT[mesSel]}`}/>
-              {maintMes.map((m,i)=>(
-                <div key={m.id} style={{padding:"13px 20px",borderBottom:i<maintMes.length-1?`1px solid ${C.border}`:"none",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                  <div style={{display:"flex",alignItems:"center",gap:10}}>
-                    <div style={{width:34,height:34,borderRadius:9,background:C.amberLight,display:"flex",alignItems:"center",justifyContent:"center"}}><WrenchIcon size={14} color={C.amber}/></div>
-                    <div><div style={{color:C.text,fontWeight:600,fontSize:14}}>{m.type}</div><div style={{color:C.muted,fontSize:12}}>{m.vehicle} · {m.date}</div></div>
-                  </div>
-                  <span style={{color:C.red,fontWeight:700,fontSize:14}}>- R$ {(m.cost||0).toFixed(2)}</span>
+              <div style={{padding:"16px 20px"}}>
+                <div style={{color:C.green,fontWeight:900,fontSize:22,fontFamily:"'Sora',sans-serif",lineHeight:1}}>
+                  R$ {totalReceita.toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2})}
                 </div>
-              ))}
+                <div style={{color:C.muted,fontSize:13,marginTop:6}}>{fretesMes.length} frete{fretesMes.length!==1?"s":""}</div>
+              </div>
             </Card>
           )}
         </>
