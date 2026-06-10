@@ -73,7 +73,7 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="V224";
+const APP_VERSION="V225";
 const BETA_HIDE_PLANOS=true;
 
 const OfflineRestoredBanner=({show})=>show?(
@@ -3602,6 +3602,74 @@ const freteCustoBreakdown=(f)=>{
 };
 const freteMoeda=(n)=>`R$ ${Number(n||0).toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2})}`;
 const freteMoedaKm=(n)=>`${freteMoeda(n)}/km`;
+const freteParseData=(f)=>{
+  const parts=(f?.date||"").split("/");
+  if(parts.length!==3)return null;
+  const dia=parseInt(parts[0],10);
+  const mes=parseInt(parts[1],10);
+  const ano=parseInt(parts[2],10);
+  if(!mes||!ano)return null;
+  const horaParts=(f.hora||"00:00").split(":");
+  const h=parseInt(horaParts[0],10)||0;
+  const min=parseInt(horaParts[1],10)||0;
+  const ts=new Date(ano,mes-1,dia||1,h,min).getTime();
+  return{mes,ano,key:`${ano}-${String(mes).padStart(2,"0")}`,ts};
+};
+const freteMesLabel=(mes,ano)=>{
+  const nomes=["Janeiro","Fevereiro","Março","Abril","Maio","Junho","Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"];
+  return `${(nomes[mes-1]||"").toUpperCase()} ${ano}`.trim();
+};
+const freteFiltrarPeriodo=(fretes,filtro)=>{
+  if(filtro==="todos")return[...fretes];
+  const hoje=new Date();
+  let mesAlvo=hoje.getMonth()+1;
+  let anoAlvo=hoje.getFullYear();
+  if(filtro==="passado"){
+    if(mesAlvo===1){mesAlvo=12;anoAlvo-=1;}
+    else mesAlvo-=1;
+  }
+  return fretes.filter(f=>{
+    const p=freteParseData(f);
+    return p&&p.mes===mesAlvo&&p.ano===anoAlvo;
+  });
+};
+const freteAgruparPorMes=(fretes)=>{
+  const sorted=[...fretes].sort((a,b)=>{
+    const pa=freteParseData(a),pb=freteParseData(b);
+    if(!pa&&!pb)return 0;
+    if(!pa)return 1;
+    if(!pb)return -1;
+    return pb.ts-pa.ts;
+  });
+  const groups=[];
+  const map=new Map();
+  sorted.forEach(f=>{
+    const p=freteParseData(f);
+    const key=p?.key||"sem-data";
+    if(!map.has(key)){
+      const g={key,label:p?freteMesLabel(p.mes,p.ano):"SEM DATA",items:[]};
+      map.set(key,g);
+      groups.push(g);
+    }
+    map.get(key).items.push(f);
+  });
+  groups.sort((a,b)=>{
+    if(a.key==="sem-data")return 1;
+    if(b.key==="sem-data")return -1;
+    return b.key.localeCompare(a.key);
+  });
+  return groups.map(g=>({
+    ...g,
+    qtd:g.items.length,
+    totalFat:g.items.reduce((s,f)=>s+(f.freteSugerido||0),0),
+    totalLucro:g.items.reduce((s,f)=>s+(f.lucro||0),0),
+  }));
+};
+const FRETE_FILTRO_OPTS=[
+  {id:"este",label:"Este mês"},
+  {id:"passado",label:"Mês passado"},
+  {id:"todos",label:"Todos"},
+];
 const freteValorBaseInfo=(f)=>{
   const minVal=Number(f.valorMinSaida??f.valorMinimoSaida??0);
   const kmInc=Number(f.kmInclusosMin??f.kmInclusosMinimo??0);
@@ -3636,7 +3704,10 @@ const Comparador=({historicoFretes,onAddFrete,onUpdateFrete,onDeleteFrete})=>{
   const[detalhe,setDetalhe]=useState(null);
   const[showAdd,setShowAdd]=useState(false);
   const[editItem,setEditItem]=useState(null);
+  const[filtroPeriodo,setFiltroPeriodo]=useState("este");
   const[form,setForm]=useState({origin:"",dest:"",date:"",distance:"",freteSugerido:"",custoTotal:"",lucro:"",vkm:"",adicional:"",veiculo:"",cargo:""});
+  const fretesFiltrados=freteFiltrarPeriodo(historicoFretes,filtroPeriodo);
+  const gruposMes=freteAgruparPorMes(fretesFiltrados);
 
   const add=async()=>{
     const now=new Date();
@@ -3679,6 +3750,20 @@ const Comparador=({historicoFretes,onAddFrete,onUpdateFrete,onDeleteFrete})=>{
         <h1 style={{color:C.navy,fontSize:22,fontWeight:900,fontFamily:"'Sora',sans-serif",margin:0}}>Histórico de Fretes</h1>
       </div>
 
+      {historicoFretes.length>0&&(
+        <div style={{display:"flex",gap:8,justifyContent:"center",flexWrap:"wrap"}}>
+          {FRETE_FILTRO_OPTS.map(opt=>{
+            const ativo=filtroPeriodo===opt.id;
+            return(
+              <button key={opt.id} type="button" onClick={()=>setFiltroPeriodo(opt.id)}
+                style={{padding:"8px 16px",borderRadius:20,border:ativo?"none":`1.5px solid ${C.border}`,background:ativo?C.orange:C.surface,cursor:"pointer",color:ativo?"#fff":C.text2,fontWeight:700,fontSize:13,fontFamily:"'Sora',sans-serif",boxShadow:ativo?`0 2px 8px ${C.orange}44`:"none"}}>
+                {opt.label}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
       {historicoFretes.length===0&&(
         <div style={{background:`linear-gradient(135deg,${C.navy}06,${C.orange}04)`,border:`1.5px dashed ${C.orange}44`,borderRadius:16,padding:"36px 20px",textAlign:"center"}}>
           <div style={{fontSize:44,marginBottom:12}}>🚛</div>
@@ -3690,31 +3775,50 @@ const Comparador=({historicoFretes,onAddFrete,onUpdateFrete,onDeleteFrete})=>{
         </div>
       )}
 
-      {historicoFretes.length>0&&(
-        <div style={{display:"flex",flexDirection:"column",gap:10}}>
-        {historicoFretes.map((h)=>{
-          const lucro=h.lucro||0;
-          return(
-            <div key={h.id} style={{border:`1px solid ${C.border}`,borderRadius:12,background:C.surface,overflow:"hidden"}}>
-            <button onClick={()=>setDetalhe(h)}
-              style={{width:"100%",background:"none",border:"none",cursor:"pointer",padding:"14px 16px",textAlign:"left",display:"block"}}>
-              <div style={{color:C.navy,fontWeight:700,fontSize:14,lineHeight:1.35}}>
-                👍 {freteRuaResumida(h.origin)} → {freteRuaResumida(h.dest)}
+      {historicoFretes.length>0&&fretesFiltrados.length===0&&(
+        <div style={{background:C.subtle,border:`1px solid ${C.border}`,borderRadius:16,padding:"36px 20px",textAlign:"center"}}>
+          <div style={{fontSize:36,marginBottom:10,opacity:0.7}}>📭</div>
+          <div style={{color:C.text2,fontWeight:700,fontSize:15,fontFamily:"'Sora',sans-serif"}}>Nenhum frete neste período</div>
+        </div>
+      )}
+
+      {historicoFretes.length>0&&fretesFiltrados.length>0&&(
+        <div style={{display:"flex",flexDirection:"column",gap:20}}>
+        {gruposMes.map(grupo=>(
+          <div key={grupo.key}>
+            <div style={{marginBottom:10}}>
+              <div style={{color:C.navy,fontWeight:800,fontSize:14,fontFamily:"'Sora',sans-serif",letterSpacing:0.6,paddingBottom:8,borderBottom:`1px solid ${C.border}`}}>{grupo.label}</div>
+              <div style={{color:C.muted,fontSize:12,marginTop:8,lineHeight:1.45}}>
+                {grupo.qtd} frete{grupo.qtd!==1?"s":""} · Faturamento {freteMoeda(grupo.totalFat)} · Lucro {freteMoeda(grupo.totalLucro)}
               </div>
-              <div style={{color:C.muted,fontSize:12,marginTop:4}}>
-                {freteDataHora(h)} · {h.distance||0} km{h.veiculo?` · ${h.veiculo}`:""}
-              </div>
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginTop:8,gap:10}}>
-                <div style={{color:C.green,fontWeight:800,fontSize:15,fontFamily:"'Sora',sans-serif"}}>R$ {(h.freteSugerido||0).toFixed(2)}</div>
-                <div style={{color:C.muted,fontSize:11,flexShrink:0}}>Toque para detalhes →</div>
-              </div>
-              <div style={{color:lucro>=0?C.green:C.red,fontSize:12,fontWeight:600,marginTop:4}}>
-                Lucro: R$ {(lucro||0).toFixed(2)}
-              </div>
-            </button>
             </div>
-          );
-        })}
+            <div style={{display:"flex",flexDirection:"column",gap:10}}>
+            {grupo.items.map(h=>{
+              const lucro=h.lucro||0;
+              return(
+                <div key={h.id} style={{border:`1px solid ${C.border}`,borderRadius:12,background:C.surface,overflow:"hidden"}}>
+                <button onClick={()=>setDetalhe(h)}
+                  style={{width:"100%",background:"none",border:"none",cursor:"pointer",padding:"14px 16px",textAlign:"left",display:"block"}}>
+                  <div style={{color:C.navy,fontWeight:700,fontSize:14,lineHeight:1.35}}>
+                    👍 {freteRuaResumida(h.origin)} → {freteRuaResumida(h.dest)}
+                  </div>
+                  <div style={{color:C.muted,fontSize:12,marginTop:4}}>
+                    {freteDataHora(h)} · {h.distance||0} km{h.veiculo?` · ${h.veiculo}`:""}
+                  </div>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginTop:8,gap:10}}>
+                    <div style={{color:C.green,fontWeight:800,fontSize:15,fontFamily:"'Sora',sans-serif"}}>{freteMoeda(h.freteSugerido)}</div>
+                    <div style={{color:C.muted,fontSize:11,flexShrink:0}}>Toque para detalhes →</div>
+                  </div>
+                  <div style={{color:lucro>=0?C.green:C.red,fontSize:12,fontWeight:600,marginTop:4}}>
+                    Lucro: {freteMoeda(lucro)}
+                  </div>
+                </button>
+                </div>
+              );
+            })}
+            </div>
+          </div>
+        ))}
         </div>
       )}
 
