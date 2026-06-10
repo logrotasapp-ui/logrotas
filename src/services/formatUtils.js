@@ -26,6 +26,43 @@ export function formatKm(n) {
   return v.toLocaleString("pt-BR", { maximumFractionDigits: 0 });
 }
 
+/** Número decimal pt-BR (ex: 3,5) */
+export function formatDecimal(n, decimals = 1) {
+  const v = Number(n);
+  if (!Number.isFinite(v)) return String(n ?? "");
+  return v.toLocaleString("pt-BR", {
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals,
+  });
+}
+
+/** R$ 1,85/kWh */
+export function formatKwhPrice(n) {
+  return `R$ ${formatDecimal(n ?? 0, 2)}/kWh`;
+}
+
+/** 3,5 km/L */
+export function formatConsumoKmL(n) {
+  return `${formatDecimal(n ?? 0, 1)} km/L`;
+}
+
+/** plural(2, 'eixo', 'eixos') → "2 eixos" */
+export function plural(n, singular, pluralForm) {
+  const count = Number(n) || 0;
+  if (count === 1) return `1 ${singular}`;
+  return `${count} ${pluralForm}`;
+}
+
+/** pluralWord(2, 'eixo', 'eixos') → "eixos" */
+export function pluralWord(n, singular, pluralForm) {
+  return (Number(n) || 0) === 1 ? singular : pluralForm;
+}
+
+export function pluralDias(n) {
+  const count = Math.abs(Number(n) || 0);
+  return count === 1 ? "1 dia" : `${count} dias`;
+}
+
 /** Rótulo do gráfico de lucro: valor inteiro abaixo de R$ 10k, "k" a partir de R$ 10k. */
 export function formatGraficoLucro(lucro) {
   const v = roundMoney(lucro);
@@ -44,13 +81,11 @@ export function formatGraficoLucro(lucro) {
 
 export function pluralFretes(n) {
   if (n === 0) return "Nenhum frete ainda";
-  if (n === 1) return "1 frete";
-  return `${n} fretes`;
+  return plural(n, "frete", "fretes");
 }
 
 export function pluralRegistros(n) {
-  if (n === 1) return "1 registro";
-  return `${n} registros`;
+  return plural(n, "registro", "registros");
 }
 
 export function pluralDocumentosVencidos(n) {

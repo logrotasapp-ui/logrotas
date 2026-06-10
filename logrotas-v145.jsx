@@ -29,6 +29,12 @@ import {
   roundFreteCostsForSave,
   roundMoney,
   formatGraficoLucro,
+  formatDecimal,
+  formatKwhPrice,
+  formatConsumoKmL,
+  plural,
+  pluralWord,
+  pluralDias,
   pluralFretes,
   pluralRegistros,
   pluralDocumentosVencidos,
@@ -84,7 +90,7 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="V227";
+const APP_VERSION="V228";
 const BETA_HIDE_PLANOS=true;
 
 const OfflineRestoredBanner=({show})=>show?(
@@ -2671,7 +2677,7 @@ const TripCalcModal=({onClose,vehicles})=>{
 
           <div style={{background:"#EFF6FF",border:"1px solid #BFDBFE",borderRadius:9,padding:"8px 12px",display:"flex",alignItems:"center",gap:6}}>
             <InfoIcon size={12} color="#3B82F6"/>
-            <span style={{color:"#1D4ED8",fontSize:12}}><b>{totalAxles} eixo(s)</b> no veículo</span>
+            <span style={{color:"#1D4ED8",fontSize:12}}><b>{plural(totalAxles,"eixo","eixos")}</b> no veículo</span>
           </div>
         </div>
 
@@ -2923,8 +2929,8 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
 
   const TRAILER_OPTS=[
     {id:"none",   label:"Sem reboque",    emoji:"🚫",desc:"Sem eixos adicionais"},
-    {id:"simples",label:"Reboque simples",emoji:"🔗",desc:`+${trailerAxleMap.simples} eixo(s)`},
-    {id:"duplo",  label:"Reboque duplo",  emoji:"⛓️",desc:`+${trailerAxleMap.duplo} eixo(s)`},
+    {id:"simples",label:"Reboque simples",emoji:"🔗",desc:`+${plural(trailerAxleMap.simples,"eixo","eixos")}`},
+    {id:"duplo",  label:"Reboque duplo",  emoji:"⛓️",desc:`+${plural(trailerAxleMap.duplo,"eixo","eixos")}`},
   ];
 
   return(
@@ -3075,7 +3081,7 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
                   style={{background:sel?"#fff":C.surface,border:`2px solid ${sel?cor:C.border}`,borderRadius:13,padding:"12px 10px",cursor:"pointer",textAlign:"center",boxShadow:sel?`0 2px 12px ${cor}22`:"none",transition:"all .15s"}}>
                   <div style={{fontSize:26,marginBottom:4}}>{v.emoji}</div>
                   <div style={{color:sel?cor:C.text,fontWeight:700,fontSize:12}}>{v.label}</div>
-                  <div style={{color:C.muted,fontSize:10,marginTop:2}}>{v.axles} eixo(s) · {v.electric?`${v.kwh}R$/kWh`:`${v.consumption}km/L`}</div>
+                  <div style={{color:C.muted,fontSize:10,marginTop:2}}>{plural(v.axles,"eixo","eixos")} · {v.electric?formatKwhPrice(v.kwh):formatConsumoKmL(v.consumption)}</div>
                   {sel&&<div style={{marginTop:6,display:"inline-block",background:cor,borderRadius:20,padding:"2px 8px"}}><span style={{color:"#fff",fontSize:9,fontWeight:800}}>✓ Selecionado</span></div>}
                 </button>
               );
@@ -3101,7 +3107,7 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
 
           <div style={{background:"#F8FAFC",border:`1px solid ${C.navy}22`,borderRadius:10,padding:"9px 12px",marginTop:10,display:"flex",alignItems:"center",gap:7}}>
             <InfoIcon size={13} color={C.navy}/>
-            <span style={{color:C.navy,fontSize:12}}><b>{totalAxles} eixo(s)</b> no veículo</span>
+            <span style={{color:C.navy,fontSize:12}}><b>{plural(totalAxles,"eixo","eixos")}</b> no veículo</span>
           </div>
         </div>
 
@@ -3164,7 +3170,7 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
                 <div style={{fontSize:26}}>{ok?"✅":"❌"}</div>
                 <div>
                   <div style={{color:ok?"#15803D":"#DC2626",fontWeight:700,fontSize:15,fontFamily:"'Sora',sans-serif"}}>{ok?"Frete cobre os custos!":"Custos acima do frete"}</div>
-                  <div style={{color:C.muted,fontSize:12,marginTop:2}}>{result.tot} km · {result.totalAxles} eixo(s){result.isElec?" · ⚡ Elétrico":""}</div>
+                  <div style={{color:C.muted,fontSize:12,marginTop:2}}>{result.tot} km · {plural(result.totalAxles,"eixo","eixos")}{result.isElec?" · ⚡ Elétrico":""}</div>
                 </div>
               </div>
 
@@ -4198,7 +4204,7 @@ const Manutencao=({manutencoes:items,onAddManutencao,onDeleteManutencao})=>{
           <div style={{color:"#B45309",fontSize:11,marginTop:4,opacity:0.8}}>{pluralRegistros(items.length)}</div>
         </div>
       )}
-      {alerts>0&&<div style={{background:C.amberLight,border:`1px solid ${C.amber}44`,borderRadius:12,padding:"11px 15px",display:"flex",gap:9,alignItems:"center"}}><AlertTriangleIcon size={16} color={C.amber}/><div><div style={{color:C.amber,fontWeight:700,fontSize:14}}>{alerts} manutenção(ões) com atenção</div></div></div>}
+      {alerts>0&&<div style={{background:C.amberLight,border:`1px solid ${C.amber}44`,borderRadius:12,padding:"11px 15px",display:"flex",gap:9,alignItems:"center"}}><AlertTriangleIcon size={16} color={C.amber}/><div><div style={{color:C.amber,fontWeight:700,fontSize:14}}>{plural(alerts,"manutenção","manutenções")} com atenção</div></div></div>}
       <Card>{items.length===0?(
         <div style={{padding:"36px 20px",textAlign:"center"}}>
           <div style={{fontSize:44,marginBottom:12}}>🔧</div>
@@ -4208,18 +4214,18 @@ const Manutencao=({manutencoes:items,onAddManutencao,onDeleteManutencao})=>{
             🔧 Registrar primeira manutenção
           </button>
         </div>
-      ):items.map((item,i)=>{const s=docSt[item.status]||docSt.ok;return(
-        <div key={item.id} style={{padding:"14px 20px",borderBottom:i<items.length-1?`1px solid ${C.border}`:"none",display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
-          <div style={{display:"flex",alignItems:"center",gap:11}}>
-            <div style={{width:38,height:38,borderRadius:10,background:C.amberLight,display:"flex",alignItems:"center",justifyContent:"center"}}><WrenchIcon size={16} color={C.amber}/></div>
-            <div><div style={{color:C.navy,fontWeight:700,fontSize:14}}>{item.type}</div>
-              {maintMetaParts(item).length>0&&<div style={{color:C.muted,fontSize:12,marginTop:2}}>{maintMetaParts(item).join(" · ")}</div>}
-              {item.nextKm!=null&&String(item.nextKm).trim()!==""&&<div style={{color:C.muted,fontSize:11}}>Próxima em {formatKm(item.nextKm)} km</div>}
-            </div>
+      ):items.map((item,i)=>(
+        <div key={item.id} style={{padding:"14px 20px",borderBottom:i<items.length-1?`1px solid ${C.border}`:"none",display:"flex",alignItems:"center",gap:11}}>
+          <div style={{width:38,height:38,borderRadius:10,background:C.amberLight,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><WrenchIcon size={16} color={C.amber}/></div>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{color:C.navy,fontWeight:700,fontSize:14}}>{item.type}</div>
+            {maintMetaParts(item).length>0&&<div style={{color:C.muted,fontSize:12,marginTop:2}}>{maintMetaParts(item).join(" · ")}</div>}
+            {item.nextKm!=null&&String(item.nextKm).trim()!==""&&<div style={{color:C.muted,fontSize:11}}>Próxima em {formatKm(item.nextKm)} km</div>}
           </div>
-          <div style={{display:"flex",alignItems:"center",gap:9}}><div style={{color:C.red,fontWeight:700,fontSize:14}}>- {formatMoeda(item.cost||0)}</div><Tag label={s.label} color={s.color} bg={s.bg}/><button onClick={()=>setDel(item)} style={{background:C.redLight,border:"none",borderRadius:8,padding:6,cursor:"pointer",color:C.red,display:"flex"}}><Trash2Icon size={14}/></button></div>
+          <div style={{color:C.red,fontWeight:700,fontSize:14,flexShrink:0,whiteSpace:"nowrap"}}>- {formatMoeda(item.cost||0)}</div>
+          <button onClick={()=>setDel(item)} style={{background:C.redLight,border:"none",borderRadius:8,padding:6,cursor:"pointer",color:C.red,display:"flex",flexShrink:0}}><Trash2Icon size={14}/></button>
         </div>
-      );})}
+      ))}
       </Card>
       {showAdd&&(<ModalWrap><ModalHeader title="Nova Manutenção" icon={WrenchIcon} iconColor={C.amber} onClose={()=>setShowAdd(false)}/>
         <div style={{display:"flex",flexDirection:"column",gap:12}}>
@@ -4287,9 +4293,9 @@ const calcDiasRestantes=(expiry)=>{
 
 const getDocStatus=(dias)=>{
   if(dias===null)return{color:C.muted,bg:C.subtle,label:"—",icon:"📄"};
-  if(dias<0)return{color:C.red,bg:C.redLight,label:`Vencido há ${Math.abs(dias)} dia(s)`,icon:"❌"};
-  if(dias<=30)return{color:C.red,bg:C.redLight,label:`Vence em ${dias} dia(s) ⚠️`,icon:"🚨"};
-  if(dias<=60)return{color:C.amber,bg:C.amberLight,label:`Vence em ${dias} dia(s)`,icon:"⚠️"};
+  if(dias<0)return{color:C.red,bg:C.redLight,label:`Vencido há ${pluralDias(Math.abs(dias))}`,icon:"❌"};
+  if(dias<=30)return{color:C.red,bg:C.redLight,label:`Vence em ${pluralDias(dias)} ⚠️`,icon:"🚨"};
+  if(dias<=60)return{color:C.amber,bg:C.amberLight,label:`Vence em ${pluralDias(dias)}`,icon:"⚠️"};
   return{color:C.green,bg:C.greenLight,label:`Válido · ${dias} dias`,icon:"✅"};
 };
 
@@ -4535,9 +4541,9 @@ const Financeiro=({historicoFretes,manutencoes,despesas=[]})=>{
 
         {/* Gráfico */}
         {mesesGrafico.length>1?(
-          <div style={{position:"relative",height:chartH+40}}>
-            <div style={{position:"absolute",left:0,right:0,top:chartH/2,borderTop:`1px dashed ${C.border}`,zIndex:0}}/>
-            <svg width="100%" height={chartH+30} style={{overflow:"visible"}}>
+          <div style={{position:"relative",height:chartH+40,padding:"0 14px"}}>
+            <div style={{position:"absolute",left:14,right:14,top:chartH/2,borderTop:`1px dashed ${C.border}`,zIndex:0}}/>
+            <svg width="100%" height={chartH+30} style={{overflow:"visible",display:"block"}}>
               {mesesGrafico.map((p,i)=>{
                 if(i===0)return null;
                 const prev=mesesGrafico[i-1];
@@ -4551,10 +4557,13 @@ const Financeiro=({historicoFretes,manutencoes,despesas=[]})=>{
                 const x=i/(mesesGrafico.length-1)*100;
                 const y=chartH/2-(p.lucro/maxLucro)*(chartH/2-10);
                 const cor=p.lucro>=0?C.green:C.red;
+                const isLast=i===mesesGrafico.length-1;
+                const isFirst=i===0;
+                const textAnchor=isLast?"end":isFirst?"start":"middle";
                 return(
                   <g key={i}>
                     <circle cx={`${x}%`} cy={y} r={p.atual?8:5} fill={p.atual?C.orange:cor} stroke="#fff" strokeWidth="2"/>
-                    <text x={`${x}%`} y={p.lucro>=0?y-13:y+20} textAnchor="middle"
+                    <text x={`${x}%`} y={p.lucro>=0?y-13:y+20} textAnchor={textAnchor}
                       fill={p.atual?C.orange:cor} fontSize="10" fontWeight={p.atual?"800":"600"}>
                       {formatGraficoLucro(p.lucro)}
                     </text>
@@ -4612,20 +4621,19 @@ const Financeiro=({historicoFretes,manutencoes,despesas=[]})=>{
       ):(
         <>
           {/* Saldo líquido */}
-          <div style={{background:saldoLiquido>=0?`linear-gradient(135deg,${C.green},#16A34A)`:`linear-gradient(135deg,${C.red},#B91C1C)`,borderRadius:16,padding:"20px 22px",boxShadow:`0 6px 20px ${saldoLiquido>=0?C.green:C.red}44`}}>
-            <div style={{color:"rgba(255,255,255,0.75)",fontSize:14,fontWeight:700,letterSpacing:0.5,textTransform:"uppercase",marginBottom:6}}>Saldo Líquido do Mês</div>
-            <div style={{color:"#fff",fontWeight:900,fontSize:32,fontFamily:"'Sora',sans-serif",lineHeight:1,whiteSpace:"nowrap"}}>
+          <div style={{background:saldoLiquido>=0?"linear-gradient(135deg,#166534,#15803d)":"linear-gradient(135deg,#991B1B,#B91C1C)",borderRadius:14,padding:"15px 18px",boxShadow:saldoLiquido>=0?"0 4px 14px #16653433":"0 4px 14px #991B1B33"}}>
+            <div style={{color:"rgba(255,255,255,0.72)",fontSize:12,fontWeight:700,letterSpacing:0.4,textTransform:"uppercase",marginBottom:5}}>Saldo Líquido do Mês</div>
+            <div style={{color:"#fff",fontWeight:900,fontSize:28,fontFamily:"'Sora',sans-serif",lineHeight:1,whiteSpace:"nowrap"}}>
               {saldoLiquido>=0?"":"- "}{formatMoeda(Math.abs(saldoLiquido))}
             </div>
-            <div style={{color:"rgba(255,255,255,0.7)",fontSize:12,marginTop:6,display:"flex",flexDirection:"column",gap:4}}>
-              <span>{saldoLiquido>=0?"✓ Mês positivo":"⚠ Despesas superaram receitas"} · {formatKm(totalKm)} km rodados</span>
-              {margemPct!=null&&<span>Margem: {margemPct.toLocaleString("pt-BR",{minimumFractionDigits:1,maximumFractionDigits:1})}%</span>}
-              {hasPrevData&&(
-                <span style={{color:diffSaldo>=0?"#BBF7D0":"#FECACA",fontWeight:700}}>
-                  {diffSaldo>=0?"▲":"▼"} {diffSaldo>=0?"+":""}{formatMoeda(Math.abs(diffSaldo))} vs {MESES_PT[prevMesIdx]}
-                </span>
-              )}
+            <div style={{color:"rgba(255,255,255,0.78)",fontSize:11,marginTop:5,lineHeight:1.45}}>
+              {saldoLiquido>=0?"✓ Mês positivo":"⚠ Despesas superaram receitas"} · {formatKm(totalKm)} km{margemPct!=null?` · Margem ${margemPct.toLocaleString("pt-BR",{minimumFractionDigits:1,maximumFractionDigits:1})}%`:""}
             </div>
+            {hasPrevData&&(
+              <div style={{color:diffSaldo>=0?"#BBF7D0":"#FECACA",fontSize:11,fontWeight:700,marginTop:4}}>
+                {diffSaldo>=0?"▲":"▼"} {diffSaldo>=0?"+":""}{formatMoeda(Math.abs(diffSaldo))} vs {MESES_PT[prevMesIdx]}
+              </div>
+            )}
           </div>
 
           {/* Cards principais */}
@@ -5209,7 +5217,7 @@ const Assinatura=({plan:cur,onChangePlan})=>{
 };
 
 // ── PERFIL ────────────────────────────────────────────────────────────────────
-const Perfil=({uid,metaMes,setMetaMes,ganhoMes,vehicles,setVehicles,perfil,setPerfil,onLimpar,onAdmin})=>{
+const Perfil=({uid,metaMes,setMetaMes,faturamentoMes,saldoLiquidoMes,vehicles,setVehicles,perfil,setPerfil,onLimpar,onAdmin})=>{
   const[editMode,setEditMode]=useState(false);
   const[loadingPerfil,setLoadingPerfil]=useState(false);
   const[editandoMeta,setEditandoMeta]=useState(false);
@@ -5217,9 +5225,9 @@ const Perfil=({uid,metaMes,setMetaMes,ganhoMes,vehicles,setVehicles,perfil,setPe
   const[editVeh,setEditVeh]=useState(null);
   const[editVehVals,setEditVehVals]=useState({});
   const[tapCount,setTapCount]=useState(0);
-  const pct=metaMes>0?Math.min((ganhoMes/metaMes)*100,100):0;
-  const falta=metaMes>0?Math.max(metaMes-ganhoMes,0):0;
-  const atingiu=ganhoMes>=metaMes&&metaMes>0;
+  const pct=metaMes>0?Math.min((faturamentoMes/metaMes)*100,100):0;
+  const falta=metaMes>0?Math.max(metaMes-faturamentoMes,0):0;
+  const atingiu=faturamentoMes>=metaMes&&metaMes>0;
   const salvarMeta=()=>{const v=parseFloat(draftMeta);if(v>0)setMetaMes(v);setEditandoMeta(false);};
   const startEditVeh=v=>{setEditVeh(v.id);setEditVehVals({consumption:String(v.consumption),axles:String(v.axles),kwh:String(v.kwh||"")});};
   const saveVeh=id=>{setVehicles(vs=>vs.map(x=>x.id===id?{...x,consumption:parseFloat(editVehVals.consumption)||x.consumption,axles:parseInt(editVehVals.axles)||x.axles,kwh:parseFloat(editVehVals.kwh)||x.kwh}:x));setEditVeh(null);};
@@ -5297,7 +5305,7 @@ const Perfil=({uid,metaMes,setMetaMes,ganhoMes,vehicles,setVehicles,perfil,setPe
           <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
             <div>
               <div style={{color:"#93C5FD",fontSize:12,marginBottom:2}}>Meta definida</div>
-              <div style={{color:C.orange,fontWeight:900,fontSize:34,fontFamily:"'Sora',sans-serif",lineHeight:1}}>R$ {metaMes.toLocaleString("pt-BR")}</div>
+              <div style={{color:C.orange,fontWeight:900,fontSize:34,fontFamily:"'Sora',sans-serif",lineHeight:1}}>{formatMoeda(metaMes)}</div>
             </div>
             <button onClick={()=>{setDraftMeta(String(metaMes));setEditandoMeta(true);}}
               style={{background:"#ffffff22",border:"1px solid #ffffff44",borderRadius:11,padding:"9px 15px",cursor:"pointer",color:"#fff",fontWeight:700,fontSize:12,display:"flex",alignItems:"center",gap:6}}>
@@ -5312,19 +5320,24 @@ const Perfil=({uid,metaMes,setMetaMes,ganhoMes,vehicles,setVehicles,perfil,setPe
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
           <div>
             <div style={{color:"#BFDBFE",fontSize:12}}>Já recebi este mês</div>
-            <div style={{color:"#fff",fontWeight:800,fontSize:18,fontFamily:"'Sora',sans-serif"}}>R$ {ganhoMes.toLocaleString("pt-BR")}</div>
+            <div style={{color:"#fff",fontWeight:800,fontSize:18,fontFamily:"'Sora',sans-serif"}}>{formatMoeda(faturamentoMes)}</div>
           </div>
           {atingiu?(
             <div style={{background:"#16A34A",borderRadius:12,padding:"8px 14px"}}><div style={{color:"#fff",fontWeight:800,fontSize:14}}>✓ Meta atingida!</div></div>
           ):(
             <div style={{textAlign:"right"}}>
               <div style={{color:"#BFDBFE",fontSize:12}}>Falta para a meta</div>
-              <div style={{color:C.orange,fontWeight:800,fontSize:18,fontFamily:"'Sora',sans-serif"}}>R$ {falta.toLocaleString("pt-BR")}</div>
+              <div style={{color:C.orange,fontWeight:800,fontSize:18,fontFamily:"'Sora',sans-serif"}}>{formatMoeda(falta)}</div>
             </div>
           )}
         </div>
         <div style={{color:"#93C5FD",fontSize:12,marginTop:10}}>
-          {pct.toFixed(0)}% da meta concluída · Baseado nos fretes salvos no histórico
+          {pct.toLocaleString("pt-BR",{maximumFractionDigits:0})}% da meta concluída · Baseado no faturamento dos fretes salvos
+        </div>
+        <div style={{color:"#93C5FD",fontSize:11,marginTop:6,opacity:0.9}}>
+          {saldoLiquidoMes>=0
+            ? `Desses, ${formatMoeda(saldoLiquidoMes)} ficaram no seu bolso`
+            : `Atenção: mês com saldo negativo de ${formatMoeda(Math.abs(saldoLiquidoMes))}`}
         </div>
       </div>
 
@@ -5344,7 +5357,7 @@ const Perfil=({uid,metaMes,setMetaMes,ganhoMes,vehicles,setVehicles,perfil,setPe
                   <div style={{fontSize:26,flexShrink:0}}>{v.emoji}</div>
                   <div style={{flex:1}}>
                     <div style={{color:C.text,fontWeight:700,fontSize:14}}>{v.label}</div>
-                    <div style={{color:C.muted,fontSize:12}}>{v.axles} eixo(s) · {v.electric?`R$ ${v.kwh||1.85}/kWh`:`${v.consumption} km/L`}</div>
+                    <div style={{color:C.muted,fontSize:12}}>{plural(v.axles,"eixo","eixos")} · {v.electric?formatKwhPrice(v.kwh||1.85):formatConsumoKmL(v.consumption)}</div>
                   </div>
                   {editVeh===v.id
                     ?<button onClick={()=>saveVeh(v.id)} style={{background:C.greenLight,border:`1px solid ${C.green}33`,borderRadius:8,padding:"5px 10px",cursor:"pointer",color:C.green,fontSize:14,fontWeight:700,display:"flex",alignItems:"center",gap:4,flexShrink:0}}><SaveIcon size={11}/> Salvar</button>
@@ -5497,12 +5510,14 @@ const Perfil=({uid,metaMes,setMetaMes,ganhoMes,vehicles,setVehicles,perfil,setPe
       <div style={{textAlign:"center",color:C.muted,fontSize:11}}>LogRotas {APP_VERSION}</div>
 
       {/* BOTÃO LIMPAR — para recomeçar do zero */}
-      <button onClick={onLimpar}
-        style={{width:"100%",padding:"14px",background:"transparent",border:`1.5px solid ${C.red}`,borderRadius:13,cursor:"pointer",color:C.red,fontWeight:700,fontSize:14,display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
-        <Trash2Icon size={15}/> Apagar todos os dados e começar do zero
-      </button>
-      <div style={{background:C.redLight,borderRadius:10,padding:"9px 13px",textAlign:"center"}}>
-        <span style={{color:C.red,fontSize:12}}>⚠️ Isso apaga fretes, despesas, manutenções e documentos. Use apenas para resetar o app para um novo teste.</span>
+      <div style={{display:"flex",alignItems:"flex-start",gap:12}}>
+        <button onClick={onLimpar}
+          style={{flexShrink:0,padding:"8px 12px",background:"transparent",border:`1.5px solid ${C.red}88`,borderRadius:10,cursor:"pointer",color:C.red,fontWeight:600,fontSize:12,whiteSpace:"nowrap"}}>
+          🗑 Apagar dados
+        </button>
+        <p style={{margin:0,color:C.muted,fontSize:11,lineHeight:1.5}}>
+          Apaga fretes, despesas, manutenções e documentos. Use apenas para recomeçar do zero.
+        </p>
       </div>
     </div>
   );
@@ -5533,7 +5548,22 @@ export default function App(){
   const[authReady,setAuthReady]=useState(false);
   const[firebaseUser,setFirebaseUser]=useState(null);
   const[splashDone,setSplashDone]=useState(false);
-  const ganhoMes=historicoFretes.filter(f=>{if(!f.date)return false;const[,mes,ano]=f.date.split("/");return parseInt(mes)===hoje.getMonth()+1&&parseInt(ano)===hoje.getFullYear();}).reduce((a,f)=>a+(f.lucro||0),0);
+  const filtrarMesAtual=(arr)=>{
+    const m=hoje.getMonth();
+    const y=hoje.getFullYear();
+    return (arr||[]).filter(x=>{
+      if(!x.date)return false;
+      const p=x.date.split("/");
+      if(p.length<3)return false;
+      return parseInt(p[1])-1===m&&parseInt(p[2])===y;
+    });
+  };
+  const fretesMesAtual=filtrarMesAtual(historicoFretes);
+  const faturamentoMes=roundMoney(fretesMesAtual.reduce((a,f)=>a+(f.freteSugerido||0),0));
+  const lucroMesAtual=roundMoney(fretesMesAtual.reduce((a,f)=>a+(f.lucro||0),0));
+  const maintMesAtual=roundMoney(filtrarMesAtual(manutencoes).reduce((a,m)=>a+(m.cost||0),0));
+  const despMesAtual=roundMoney(filtrarMesAtual(despesas).reduce((a,d)=>a+(d.valor||0),0));
+  const saldoLiquidoMes=roundMoney(lucroMesAtual-maintMesAtual-despMesAtual);
 
   useEffect(()=>{
     const t=setTimeout(()=>{
@@ -5920,7 +5950,7 @@ export default function App(){
         {page==="documentos"  &&<Documentos docs={docs} onAddDocumento={handleAddDocumento} onDeleteDocumento={handleDeleteDocumento}/>}
         {page==="assinatura"  &&BETA_HIDE_PLANOS&&<PlanosBetaPlaceholder/>}
         {page==="assinatura"  &&!BETA_HIDE_PLANOS&&<Assinatura plan={plan} onChangePlan={handleChangePlan}/>}
-        {page==="perfil"      &&<Perfil uid={firebaseUser?.uid} metaMes={metaMes} setMetaMes={setMetaMes} ganhoMes={ganhoMes} vehicles={vehicles} setVehicles={setVehicles} perfil={perfil} setPerfil={setPerfil} onLimpar={limparTudo} onAdmin={()=>setShowAdmin(true)}/>}
+        {page==="perfil"      &&<Perfil uid={firebaseUser?.uid} metaMes={metaMes} setMetaMes={setMetaMes} faturamentoMes={faturamentoMes} saldoLiquidoMes={saldoLiquidoMes} vehicles={vehicles} setVehicles={setVehicles} perfil={perfil} setPerfil={setPerfil} onLimpar={limparTudo} onAdmin={()=>setShowAdmin(true)}/>}
       </div>
       {page!=="dashboard"&&(<button onClick={()=>{setCalcMode(null);setShowCalc(true);}} style={{position:"fixed",bottom:22,right:18,width:52,height:52,borderRadius:"50%",background:C.orange,border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",boxShadow:`0 4px 20px ${C.orange}55`,zIndex:90}}><RouteIcon size={22} color="#fff"/></button>)}
       {/* Modal notificações */}
