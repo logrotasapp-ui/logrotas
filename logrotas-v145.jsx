@@ -14,6 +14,8 @@ import {
   optimizeDeliveryRoute,
   optimizeDeliveryRouteHybrid,
   reoptimizeRemainingDeliveryRoute,
+  findDuplicateStopIndex,
+  resolveStopGeocodeBias,
   buildParadasFromAddresses,
   resolveManualAddress,
   buildCalculatorStopSearchBias,
@@ -93,7 +95,7 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="V231";
+const APP_VERSION="V232";
 const BETA_HIDE_PLANOS=true;
 
 const OfflineRestoredBanner=({show})=>show?(
@@ -1470,6 +1472,7 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
   const[erroOtimizar,setErroOtimizar]=useState("");
   const[avisoGps,setAvisoGps]=useState("");
   const[rotaPath,setRotaPath]=useState(null);
+  const[dupQueue,setDupQueue]=useState([]);
   const[resultado,setResultado]=useState(null);
   const[mapaExpandido,setMapaExpandido]=useState(false);
   const[posicaoMotorista,setPosicaoMotorista]=useState(null);
@@ -1566,6 +1569,18 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
       return;
     }
     if(resultado&&pendentesCount>0){
+      writeNavigationSession({
+        active:true,
+        modoNavegacao,
+        paradas,
+        resultado,
+        posicaoMotorista,
+        viewNav,
+      });
+    }else if(pendentesCount>0&&readNavigationSession()?.active){
+      // V232 — contador sincronizado: adicionar/remover parada zera `resultado`,
+      // mas a sessão ativa precisa refletir o novo N imediatamente
+      // (banner "Parada X de N" e cabeçalho "N endereços")
       writeNavigationSession({
         active:true,
         modoNavegacao,
@@ -1688,6 +1703,7 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
     setResultado(null);
     setRotaPath(null);
     setAvisoGps("");
+    setDupQueue([]);
     setShowResumo(false);
     setResumoFinal(null);
     setErroHistoricoSave("");
@@ -1803,6 +1819,13 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
     try{
       const geocoded=await geocodeRomaneioExtractedAddresses(novas);
       if(geocoded[0]){
+        // V232 — duplicado: confirma antes de seguir para a inserção
+        const dupIdx=findDuplicateStopIndex(paradas,geocoded[0]);
+        if(dupIdx>=0){
+          setDupQueue(q=>[...q,{parada:geocoded[0],idx:dupIdx,destino:"nav"}]);
+          setShowAddNavMenu(false);
+          return;
+        }
         setParadaPendenteInsert(geocoded[0]);
         setShowInsertOpcoes(true);
         setShowAddNavMenu(false);
@@ -1816,15 +1839,41 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
     setErroNavAdd("");
     setAdicionandoNav(true);
     try{
-      const out=await resolveManualAddress(novoEnderecoNav);
+      const out=await resolveManualAddress(novoEnderecoNav,{
+        proximityLngLat:posicaoMotorista?.length>=2?posicaoMotorista:resolveStopGeocodeBias(paradas.map(p=>p.coords)),
+      });
       if(!out.ok){setErroNavAdd(out.error);return;}
-      setParadaPendenteInsert({id:Date.now(),endereco:out.endereco,coords:out.coords,status:"pendente"});
+      const nova={id:Date.now(),endereco:out.endereco,coords:out.coords,status:"pendente"};
       setNovoEnderecoNav("");
+      // V232 — duplicado: confirma antes de seguir para a inserção
+      const dupIdx=findDuplicateStopIndex(paradas,nova);
+      if(dupIdx>=0){
+        setDupQueue(q=>[...q,{parada:nova,idx:dupIdx,destino:"nav"}]);
+        setShowAddNavMenu(false);
+        return;
+      }
+      setParadaPendenteInsert(nova);
       setShowInsertOpcoes(true);
       setShowAddNavMenu(false);
     }catch{setErroNavAdd("Não foi possível validar o endereço.");}
     finally{setAdicionandoNav(false);}
   };
+
+  // V232 — fila de duplicados: confirma um por vez (Adicionar / Cancelar)
+  const confirmarDuplicada=()=>{
+    const item=dupQueue[0];
+    setDupQueue(q=>q.slice(1));
+    if(!item)return;
+    if(item.destino==="nav"){
+      setParadaPendenteInsert(item.parada);
+      setShowInsertOpcoes(true);
+    }else{
+      setParadas(p=>[...p,item.parada]);
+      setResultado(null);
+      setAposConclusao(false);
+    }
+  };
+  const cancelarDuplicada=()=>setDupQueue(q=>q.slice(1));
 
   // Geocoding Google com proximity (GPS + cadeia) p/ endereços do OCR (Vision)
   // V169 — paradas com confianca ok|warn; feedback para FAIL
@@ -1846,7 +1895,16 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
     setProcessandoFoto(true);
     try{
       const geocoded=await geocodeRomaneioExtractedAddresses(novas);
-      setParadas(p=>[...p,...geocoded]);
+      // V232 — detector de duplicados: confirma antes de adicionar repetidas
+      const unicos=[];
+      const duplicadas=[];
+      for(const g of geocoded){
+        const dupIdx=findDuplicateStopIndex([...paradas,...unicos],g);
+        if(dupIdx>=0)duplicadas.push({parada:g,idx:dupIdx,destino:"lista"});
+        else unicos.push(g);
+      }
+      if(unicos.length)setParadas(p=>[...p,...unicos]);
+      if(duplicadas.length)setDupQueue(q=>[...q,...duplicadas]);
       setAposConclusao(false);
     }catch{
       setErroFoto("Erro ao localizar endereços no mapa. Tente de novo.");
@@ -1860,12 +1918,23 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
     setErroManual("");
     setAdicionandoManual(true);
     try{
-      const out=await resolveManualAddress(novoEndereco);
+      // V232 — viés de proximidade: GPS do motorista ou média das paradas já geocodificadas
+      const out=await resolveManualAddress(novoEndereco,{
+        proximityLngLat:resolveStopGeocodeBias(paradas.map(p=>p.coords)),
+      });
       if(!out.ok){
         setErroManual(out.error);
         return;
       }
-      setParadas(p=>[...p,{id:Date.now(),endereco:out.endereco,coords:out.coords}]);
+      const nova={id:Date.now(),endereco:out.endereco,coords:out.coords};
+      // V232 — detector de duplicados (mesmo endereço ou coords < 30 m)
+      const dupIdx=findDuplicateStopIndex(paradas,nova);
+      if(dupIdx>=0){
+        setDupQueue(q=>[...q,{parada:nova,idx:dupIdx,destino:"lista"}]);
+        setNovoEndereco("");
+        return;
+      }
+      setParadas(p=>[...p,nova]);
       setNovoEndereco("");
       setResultado(null);
       setAposConclusao(false);
@@ -1904,6 +1973,10 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
     if(!out.ok){
       if(out.paradasInvalidas?.length){
         setParadas(p=>p.map(x=>out.paradasInvalidas.includes(x.id)?{...x,geocodeFalhou:true}:{...x,geocodeFalhou:false}));
+      }
+      // V232 — outliers (>20 km do centro mediano): destaca e exige confirmação
+      if(out.paradasForaDaArea?.length){
+        setParadas(p=>p.map(x=>out.paradasForaDaArea.includes(x.id)?{...x,outlier:true}:{...x,outlier:false}));
       }
       setErroOtimizar(out.error);
       return;
@@ -2127,7 +2200,7 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
             <div key={p.id} style={{
               display:"flex",flexDirection:"column",gap:8,
               background:paradaCardBg(p),
-              border:`1.5px solid ${p.geocodeFalhou?C.amber:paradaCardBorder(p,i,paradaAtualIdx,modoNavegacao)}`,
+              border:`1.5px solid ${p.geocodeFalhou||p.outlier?C.amber:paradaCardBorder(p,i,paradaAtualIdx,modoNavegacao)}`,
               borderRadius:11,padding:"10px 13px",transition:"all .3s",position:"relative",
             }}>
               <div style={{display:"flex",alignItems:"flex-start",gap:10,paddingRight:36}}>
@@ -2154,7 +2227,19 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
                   ⚠️ Confirme este endereço antes de otimizar
                 </div>
               )}
-              {!p.geocodeFalhou&&p.confianca==="warn"&&getParadaStatus(p)==="pendente"&&(
+              {/* V232 — outlier: muito distante do centro das paradas; exige confirmação */}
+              {p.outlier&&(
+                <div style={{paddingLeft:34,marginTop:-4,display:"flex",flexDirection:"column",gap:7,alignItems:"flex-start"}}>
+                  <div style={{color:"#92400E",fontSize:11,fontWeight:700,lineHeight:1.4}}>
+                    ⚠️ Endereço muito distante das demais paradas — confirme a cidade antes de otimizar
+                  </div>
+                  <button onClick={()=>setParadas(prev=>prev.map(x=>x.id===p.id?{...x,outlier:false,outlierConfirmado:true}:x))}
+                    style={{background:"#FFFBEB",border:`1.5px solid ${C.amber}`,borderRadius:8,padding:"5px 11px",cursor:"pointer",color:"#92400E",fontSize:11,fontWeight:700}}>
+                    ✓ Manter mesmo assim
+                  </button>
+                </div>
+              )}
+              {!p.geocodeFalhou&&!p.outlier&&p.confianca==="warn"&&getParadaStatus(p)==="pendente"&&(
                 <div style={{color:"#92400E",fontSize:11,fontWeight:600,paddingLeft:34,marginTop:-4}}>
                   ⚠️ Verifique este endereço
                 </div>
@@ -2454,15 +2539,15 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
         </div>
       )}
 
+      {/* V232 — nova parada durante a rota: re-otimizar pendentes ou adicionar ao fim */}
       {showInsertOpcoes&&paradaPendenteInsert&&(
         <div style={{position:"fixed",inset:0,zIndex:770,background:"#1E3A8A66",display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
           <div style={{background:C.surface,borderRadius:18,width:"100%",maxWidth:380,padding:22}}>
-            <div style={{color:C.navy,fontWeight:800,fontSize:15,marginBottom:8}}>Onde inserir?</div>
+            <div style={{color:C.navy,fontWeight:800,fontSize:15,marginBottom:8}}>Re-otimizar as paradas restantes incluindo a nova?</div>
             <div style={{color:C.muted,fontSize:12,marginBottom:14,lineHeight:1.4}}>{paradaPendenteInsert.endereco}</div>
             {[
-              {id:"proxima",label:"Próxima parada",desc:"Logo após a parada atual"},
-              {id:"final",label:"Final da rota",desc:"Última parada da lista"},
-              {id:"eficiente",label:"Posição mais eficiente",desc:"Reotimiza paradas restantes a partir do GPS"},
+              {id:"eficiente",label:"🔄 Re-otimizar",desc:"Recalcula a melhor ordem das paradas pendentes a partir do seu GPS. Entregas já feitas não mudam."},
+              {id:"final",label:"➕ Adicionar ao fim",desc:"Entra como última parada da lista"},
             ].map(op=>(
               <button key={op.id} type="button" disabled={reotimizando} onClick={()=>aplicarInsertParada(op.id,{...paradaPendenteInsert,id:paradaPendenteInsert.id||Date.now()})}
                 style={{width:"100%",textAlign:"left",padding:"12px 14px",marginBottom:8,background:C.subtle,border:`1px solid ${C.border}`,borderRadius:10,cursor:reotimizando?"wait":"pointer"}}>
@@ -2470,7 +2555,31 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
                 <div style={{color:C.muted,fontSize:11,marginTop:2}}>{op.desc}</div>
               </button>
             ))}
+            {reotimizando&&<div style={{color:OTIMIZAR_AZUL,fontSize:12,fontWeight:600,textAlign:"center",marginTop:4}}>Reotimizando rota…</div>}
             <button type="button" onClick={()=>{setShowInsertOpcoes(false);setParadaPendenteInsert(null);}} style={{width:"100%",padding:10,marginTop:4,background:"transparent",border:"none",cursor:"pointer",color:C.muted}}>Cancelar</button>
+          </div>
+        </div>
+      )}
+
+      {/* V232 — confirmação de endereço duplicado */}
+      {dupQueue.length>0&&(
+        <div style={{position:"fixed",inset:0,zIndex:790,background:"#1E3A8A66",display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+          <div style={{background:C.surface,borderRadius:18,width:"100%",maxWidth:360,padding:24,textAlign:"center"}}>
+            <div style={{fontSize:34,marginBottom:8}}>📍</div>
+            <div style={{color:C.navy,fontWeight:800,fontSize:15,fontFamily:"'Sora',sans-serif",marginBottom:8}}>
+              Este endereço já está na rota (parada {dupQueue[0].idx+1}). Adicionar mesmo assim?
+            </div>
+            <div style={{color:C.muted,fontSize:13,marginBottom:18,lineHeight:1.5}}>{dupQueue[0].parada.endereco}</div>
+            <div style={{display:"flex",gap:10}}>
+              <button type="button" onClick={cancelarDuplicada}
+                style={{flex:1,padding:"12px 0",background:C.subtle,border:`1px solid ${C.border}`,borderRadius:11,cursor:"pointer",color:C.text2,fontWeight:600,fontSize:14}}>
+                Cancelar
+              </button>
+              <button type="button" onClick={confirmarDuplicada}
+                style={{flex:1,padding:"12px 0",background:OTIMIZAR_AZUL,border:"none",borderRadius:11,cursor:"pointer",color:"#fff",fontWeight:800,fontSize:14}}>
+                Adicionar
+              </button>
+            </div>
           </div>
         </div>
       )}

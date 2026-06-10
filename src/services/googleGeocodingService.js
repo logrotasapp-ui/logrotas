@@ -23,6 +23,7 @@ export async function geocodeAddressGoogle(address, options = {}) {
     const request = {
       address: text,
       componentRestrictions: { country: "br" },
+      region: "br",
       language: "pt-BR",
     };
 

@@ -15,7 +15,14 @@ import {
   fetchGoogleRouteInBlocks,
   reorderStopsByGoogleWaypointOrder,
 } from "./googleDirectionsService.js";
-import { optimizeOpenRoute, openRouteDistanceKm } from "./routeOptimizer.js";
+import {
+  optimizeOpenRoute,
+  openRouteDistanceKm,
+  medianCenter,
+  haversine,
+} from "./routeOptimizer.js";
+
+export { findDuplicateStopIndex } from "./routeOptimizer.js";
 import { geocodeAddressGoogle } from "./googleGeocodingService.js";
 
 export { resolvePlaceSuggestion } from "./googlePlacesService.js";
@@ -116,6 +123,33 @@ function resolveProximityForRomaneio() {
   return cachedGeocodeProximity || lastRomaneioGeocodeProximity;
 }
 
+/** Média [lng, lat] de uma lista de coords [lng, lat] (ignora inválidas). */
+function meanLngLatFromCoords(coordsList) {
+  const valid = (coordsList || []).filter(
+    (c) => Array.isArray(c) && c.length >= 2 && Number.isFinite(Number(c[0])) && Number.isFinite(Number(c[1]))
+  );
+  if (!valid.length) return null;
+  const sum = valid.reduce(
+    (acc, c) => [acc[0] + Number(c[0]), acc[1] + Number(c[1])],
+    [0, 0]
+  );
+  return [sum[0] / valid.length, sum[1] / valid.length];
+}
+
+/**
+ * V232 — Viés de localização para geocodificação de paradas:
+ * GPS atual do motorista → média das paradas já geocodificadas → cadeia romaneio.
+ * Evita que endereços sem cidade/CEP caiam em cidades homônimas distantes.
+ * @param {Array<number[] | null>} [geocodedLngLatList] coords [lng,lat] já conhecidas
+ * @returns {[number, number] | null} [lng, lat]
+ */
+export function resolveStopGeocodeBias(geocodedLngLatList = []) {
+  if (cachedGeocodeProximity) return cachedGeocodeProximity;
+  const mean = meanLngLatFromCoords(geocodedLngLatList);
+  if (mean) return mean;
+  return lastRomaneioGeocodeProximity;
+}
+
 // ── HTTP helpers ─────────────────────────────────────────────────────────────
 
 async function fetchJson(url, options = {}) {
@@ -196,7 +230,7 @@ function pickBestAddressSuggestion(query, suggestions) {
  * @param {string} rawText
  * @returns {Promise<{ ok: true, endereco: string, coords: number[], normalized: string } | { ok: false, error: string, normalized: string }>}
  */
-export async function resolveManualAddress(rawText) {
+export async function resolveManualAddress(rawText, opts = {}) {
   const normalized = normalizeManualAddressInput(rawText);
 
   if (normalized.length < 3) {
@@ -216,8 +250,13 @@ export async function resolveManualAddress(rawText) {
     queries.push(withoutNumber);
   }
 
+  // V232 — viés de proximidade (GPS / média das paradas) p/ evitar homônimos distantes
+  const searchBias = opts.proximityLngLat?.length >= 2
+    ? { proximityLngLat: opts.proximityLngLat }
+    : {};
+
   for (const query of queries) {
-    const res = await searchAddresses(query, { skipNormalize: true });
+    const res = await searchAddresses(query, { skipNormalize: true, ...searchBias });
     if (!res.ok) {
       return {
         ok: false,
@@ -598,13 +637,13 @@ export async function geocodeAddressForDisplay(endereco) {
  * Geocoding de endereços extraídos por OCR (romaneio).
  * Proximity: GPS do motorista → último endereço geocodificado com sucesso.
  */
-export async function geocodeRomaneioExtractedAddress(endereco) {
+export async function geocodeRomaneioExtractedAddress(endereco, biasLngLat = null) {
   if (!API_KEYS.googleMaps || !endereco?.trim()) {
     return { ok: false, endereco: null, coords: null };
   }
 
   warmGeocodeProximity();
-  const proximity = resolveProximityForRomaneio();
+  const proximity = biasLngLat?.length >= 2 ? biasLngLat : resolveProximityForRomaneio();
   const g = await geocodeAddressGoogle(endereco, { biasLngLat: proximity });
 
   if (!g) {
@@ -621,13 +660,21 @@ export async function geocodeRomaneioExtractedAddress(endereco) {
   };
 }
 
-/** V159 — Geocodifica lista de endereços do romaneio em sequência (proximity em cadeia). */
+/**
+ * V159 — Geocodifica lista de endereços do romaneio em sequência.
+ * V232 — viés por chamada: GPS do motorista → média das já geocodificadas.
+ */
 export async function geocodeRomaneioExtractedAddresses(paradas) {
   warmGeocodeProximity();
   const out = [];
+  const resolvedCoords = (paradas || [])
+    .map((p) => (Array.isArray(p?.coords) && p.coords.length >= 2 ? p.coords : null))
+    .filter(Boolean);
   for (const p of paradas || []) {
-    const g = await geocodeRomaneioExtractedAddress(p.endereco);
+    const bias = resolveStopGeocodeBias(resolvedCoords);
+    const g = await geocodeRomaneioExtractedAddress(p.endereco, bias);
     if (g.ok) {
+      resolvedCoords.push(g.coords);
       out.push({ ...p, endereco: g.endereco, coords: g.coords });
     } else {
       out.push(p);
@@ -636,8 +683,11 @@ export async function geocodeRomaneioExtractedAddresses(paradas) {
   return out;
 }
 
-/** Usa coords já geocodificadas na parada; senão Google Geocoding (otimização). */
-async function resolveParadaCoordForOptimization(parada) {
+/**
+ * Usa coords já geocodificadas na parada; senão Google Geocoding (otimização).
+ * V232 — aceita viés explícito (GPS / média das paradas já geocodificadas).
+ */
+async function resolveParadaCoordForOptimization(parada, biasLngLat = null) {
   const c = parada?.coords;
   if (Array.isArray(c) && c.length >= 2) {
     return { lng: Number(c[0]), lat: Number(c[1]) };
@@ -646,7 +696,7 @@ async function resolveParadaCoordForOptimization(parada) {
     return { lng: c.lng, lat: c.lat };
   }
   warmGeocodeProximity();
-  const proximity = resolveProximityForRomaneio();
+  const proximity = biasLngLat?.length >= 2 ? biasLngLat : resolveProximityForRomaneio();
   return geocodeAddressGoogle(parada.endereco, { biasLngLat: proximity });
 }
 
@@ -948,6 +998,9 @@ function getFreshDriverPosition() {
   });
 }
 
+/** V232 — distância máxima (km) ao centro mediano antes de sinalizar outlier. */
+const OUTLIER_RADIUS_KM = 20;
+
 /**
  * V231 — Otimização híbrida em 3 etapas:
  *  1. Origem = GPS atual (fresco). Falha → 1ª parada vira origem (gpsFalhou).
@@ -976,13 +1029,19 @@ export async function optimizeDeliveryRouteHybrid(paradas, options = {}) {
 
   try {
     // Validação: geocodifica o que falta; falhas são sinalizadas (não entram silenciosamente)
+    // V232 — viés por chamada: GPS do motorista → média das paradas já geocodificadas
     const entries = [];
     const paradasInvalidas = [];
+    const resolvedCoords = paradas
+      .map((p) => (Array.isArray(p?.coords) && p.coords.length >= 2 ? p.coords : null))
+      .filter(Boolean);
     for (const parada of paradas) {
-      const coord = await resolveParadaCoordForOptimization(parada);
+      const bias = resolveStopGeocodeBias(resolvedCoords);
+      const coord = await resolveParadaCoordForOptimization(parada, bias);
       if (coord && Number.isFinite(coord.lat) && Number.isFinite(coord.lng)) {
-        const { geocodeFalhou: _gf, ...rest } = parada;
+        const { geocodeFalhou: _gf, outlier: _ol, ...rest } = parada;
         entries.push({ parada: rest, coord: { lat: coord.lat, lng: coord.lng } });
+        resolvedCoords.push([coord.lng, coord.lat]);
       } else {
         paradasInvalidas.push(parada.id);
       }
@@ -1003,6 +1062,31 @@ export async function optimizeDeliveryRouteHybrid(paradas, options = {}) {
       return {
         ok: false,
         error: "Não foi possível localizar os endereços. Verifique se estão completos.",
+      };
+    }
+
+    // V232 — detector de outlier (rede de segurança): paradas a mais de 20 km do
+    // centro mediano são sinalizadas e a otimização só prossegue após o usuário
+    // confirmar (outlierConfirmado), corrigir ou remover. Nunca entram silenciosamente.
+    const center = medianCenter(entries.map((e) => e.coord));
+    const paradasForaDaArea = center
+      ? entries
+          .filter(
+            (e) =>
+              !e.parada.outlierConfirmado &&
+              haversine(center, e.coord) > OUTLIER_RADIUS_KM
+          )
+          .map((e) => e.parada.id)
+      : [];
+
+    if (paradasForaDaArea.length > 0) {
+      return {
+        ok: false,
+        error:
+          paradasForaDaArea.length === 1
+            ? "1 endereço está muito distante das demais paradas. Confirme a cidade antes de otimizar."
+            : `${paradasForaDaArea.length} endereços estão muito distantes das demais paradas. Confirme a cidade antes de otimizar.`,
+        paradasForaDaArea,
       };
     }
 

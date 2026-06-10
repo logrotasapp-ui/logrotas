@@ -132,6 +132,57 @@ export function twoOptImprove(origin, points, initialOrder) {
 }
 
 /**
+ * V232 — Centro mediano das coordenadas (mediana de lat e de lng).
+ * Robusto contra outliers — usado pelo detector de paradas fora da área.
+ * @param {Array<{ lat: number, lng: number }>} points
+ * @returns {{ lat: number, lng: number } | null}
+ */
+export function medianCenter(points) {
+  const n = points?.length || 0;
+  if (n === 0) return null;
+  const med = (arr) => {
+    const s = [...arr].sort((a, b) => a - b);
+    const m = Math.floor(s.length / 2);
+    return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+  };
+  return {
+    lat: med(points.map((p) => p.lat)),
+    lng: med(points.map((p) => p.lng)),
+  };
+}
+
+/** V232 — raio para considerar duas paradas o mesmo ponto (30 metros). */
+const DUPLICATE_RADIUS_KM = 0.03;
+
+/**
+ * V232 — Detector de duplicados: mesmo endereço formatado (case-insensitive)
+ * ou coordenadas a menos de 30 m.
+ * @param {Array<{ endereco?: string, coords?: number[] }>} paradas
+ * @param {{ endereco?: string, coords?: number[] }} nova
+ * @returns {number} índice da parada duplicada, ou -1
+ */
+export function findDuplicateStopIndex(paradas, nova) {
+  const norm = (s) => String(s || "").trim().toLowerCase();
+  const novaEnd = norm(nova?.endereco);
+  const novaCoords =
+    Array.isArray(nova?.coords) && nova.coords.length >= 2 ? nova.coords : null;
+
+  for (let i = 0; i < (paradas || []).length; i++) {
+    const p = paradas[i];
+    if (novaEnd && norm(p?.endereco) === novaEnd) return i;
+    const c = Array.isArray(p?.coords) && p.coords.length >= 2 ? p.coords : null;
+    if (novaCoords && c) {
+      const d = haversine(
+        { lat: c[1], lng: c[0] },
+        { lat: novaCoords[1], lng: novaCoords[0] }
+      );
+      if (d < DUPLICATE_RADIUS_KM) return i;
+    }
+  }
+  return -1;
+}
+
+/**
  * Otimização completa de rota aberta: Nearest Neighbor + 2-opt.
  * Para n <= 2 a ordem é trivial (NN já resolve, 2-opt é pulado).
  * @param {{ lat: number, lng: number }} origin — ponto de partida (não é parada)
