@@ -73,7 +73,7 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="V223";
+const APP_VERSION="V224";
 const BETA_HIDE_PLANOS=true;
 
 const OfflineRestoredBanner=({show})=>show?(
@@ -3272,7 +3272,10 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
                 ):(
                   <button onClick={()=>{
                     const paradasMid=stops.slice(1,-1).map(s=>s.v).filter(Boolean);
-                    setPendingSave({origin:stops[0]?.v||"Origem",dest:stops[stops.length-1]?.v||"Destino",paradas:paradasMid,date:new Date().toLocaleDateString("pt-BR"),hora:new Date().toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"}),distance:result.tot,veiculo:vehicles.find(v=>v.id===vehicleId)?.label||"",cargo,observacao,vkm:metaLocal,adicional:freight,energyCost:result.energyCost||0,tollCost:result.tollCost||0,arlaCost:result.arlaCost||0,custoTotal:result.total,freteSugerido:freteSug,lucro:lucroFinal});
+                    const quote=calculateFreteQuote(result,{valorPorKm:metaLocal,adicionalFixo:freight,valorMinimoSaida:valorMinSaida,kmInclusosMinimo:kmInclusosMin});
+                    const minV=parseFloat(valorMinSaida)||0;
+                    const kmInc=parseFloat(kmInclusosMin)||0;
+                    setPendingSave({origin:stops[0]?.v||"Origem",dest:stops[stops.length-1]?.v||"Destino",paradas:paradasMid,date:new Date().toLocaleDateString("pt-BR"),hora:new Date().toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"}),distance:result.tot,veiculo:vehicles.find(v=>v.id===vehicleId)?.label||"",cargo,observacao,vkm:metaLocal,adicional:freight,energyCost:result.energyCost||0,tollCost:result.tollCost||0,arlaCost:result.arlaCost||0,custoTotal:result.total,freteSugerido:freteSug,lucro:lucroFinal,valorMinSaida:minV,kmInclusosMin:kmInc,kmExcedente:quote.kmExcedente||0,usedMinimum:!!quote.usedMinimum});
                     setShowStatusModal(true);
                   }} style={{width:"100%",padding:"13px",background:C.navy,border:"none",borderRadius:12,cursor:"pointer",color:"#fff",fontWeight:700,fontSize:14,fontFamily:"'Sora',sans-serif",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
                     <SaveIcon size={15}/> Salvar no Histórico de Fretes
@@ -3590,12 +3593,25 @@ const freteCustoBreakdown=(f)=>{
   const pedRaw=f.tollCost??f.pedagio??f.pedagioTotal;
   const pedNum=pedRaw!=null&&pedRaw!==""?Number(pedRaw):null;
   const arla=Number(f.arlaCost||0);
-  const showPed=pedNum!=null&&!Number.isNaN(pedNum);
+  const showComb=hasBreakdown&&combVal>0;
+  const showPed=pedNum!=null&&!Number.isNaN(pedNum)&&pedNum>0;
   const showArla=arla>0;
   const somaPartes=(combVal??0)+(showPed?pedNum:0)+(showArla?arla:0);
   const custoTotal=Number(f.custoTotal||0)||(hasBreakdown?somaPartes:0);
-  return{combVal,pedNum,arla,showPed,showArla,hasBreakdown,custoTotal};
+  return{combVal,pedNum,arla,showComb,showPed,showArla,hasBreakdown,custoTotal};
 };
+const freteMoeda=(n)=>`R$ ${Number(n||0).toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2})}`;
+const freteMoedaKm=(n)=>`${freteMoeda(n)}/km`;
+const freteValorBaseInfo=(f)=>{
+  const minVal=Number(f.valorMinSaida??f.valorMinimoSaida??0);
+  const kmInc=Number(f.kmInclusosMin??f.kmInclusosMinimo??0);
+  if(minVal<=0||kmInc<=0)return null;
+  const kmExc=Number(f.kmExcedente??Math.max(0,(Number(f.distance)||0)-kmInc));
+  const vkm=Number(f.vkm||0);
+  return{minVal,kmInc,kmExc,vkm};
+};
+const FRETE_DET_PAD=14;
+const FRETE_DET_HIGHLIGHT=(extra={})=>({padding:`11px ${FRETE_DET_PAD}px`,margin:`0 -${FRETE_DET_PAD}px`,borderRadius:10,borderBottom:"none",...extra});
 const freteDataHora=(f)=>{
   const d=f.date||"—";
   return f.hora?`${d} · ${f.hora}`:d;
@@ -3712,72 +3728,84 @@ const Comparador=({historicoFretes,onAddFrete,onUpdateFrete,onDeleteFrete})=>{
               <div style={{color:C.text,fontWeight:800,fontSize:16,fontFamily:"'Sora',sans-serif",marginTop:6}}>Detalhes do Frete</div>
             </div>
             <div style={{marginTop:16,textAlign:"left"}}>
-              {freteDetalheRotas(detalhe).map((item,i)=>(
-                <div key={i}>
-                  {i>0&&<div style={{color:"#9CA3AF",fontSize:13,padding:"5px 0 5px 2px",lineHeight:1}}>→</div>}
+              {freteDetalheRotas(detalhe).map((item,i,arr)=>(
+                <div key={i} style={{marginBottom:i<arr.length-1?14:0}}>
+                  {i>0&&<div style={{color:"#9CA3AF",fontSize:13,padding:"10px 0 8px 2px",lineHeight:1}}>→</div>}
                   <div style={{color:"#6B7280",fontSize:11,fontWeight:700,textTransform:"uppercase",letterSpacing:0.4}}>{item.label}</div>
-                  <div style={{color:"#1F2937",fontWeight:600,fontSize:15,marginTop:2,lineHeight:1.35}}>{item.rua}</div>
+                  <div style={{color:"#1F2937",fontWeight:600,fontSize:15,marginTop:3,lineHeight:1.35}}>{item.rua}</div>
                 </div>
               ))}
             </div>
           </div>
 
           {/* Informações */}
-          <div style={{display:"flex",flexDirection:"column",gap:0}}>
-            {[
+          {(()=>{
+            const baseInfo=freteValorBaseInfo(detalhe);
+            const adicNum=Number(detalhe.adicional||0);
+            const vkmNum=Number(detalhe.vkm||0);
+            const infoRows=[
               {l:"Data",v:freteDataHora(detalhe)},
               {l:"Distância",v:`${detalhe.distance||0} km`},
               {l:"Veículo",v:detalhe.veiculo||"—"},
               {l:"Carga",v:detalhe.cargo||"—"},
               detalhe.observacao&&{l:"Observação",v:detalhe.observacao},
-              {l:"Valor por km",v:detalhe.vkm?`R$ ${detalhe.vkm}/km`:"—"},
-              {l:"Adicional fixo",v:detalhe.adicional?`R$ ${detalhe.adicional}`:"—"},
-            ].filter(Boolean).map((r,i)=>(
-              <FreteDetRow key={i} label={r.l} value={r.v} valueStyle={r.l==="Observação"?{maxWidth:"58%"}:{}}/>
-            ))}
-          </div>
+              {l:"Valor por km",v:vkmNum>0?freteMoedaKm(vkmNum):"—"},
+              baseInfo&&{l:"Valor base",v:`${freteMoeda(baseInfo.minVal)} (inclui ${baseInfo.kmInc} km)`},
+              baseInfo&&baseInfo.kmExc>0&&baseInfo.vkm>0&&{l:"Km excedentes",v:`${baseInfo.kmExc} km × ${freteMoedaKm(baseInfo.vkm)}`},
+              adicNum>0&&{l:"Adicional fixo",v:freteMoeda(adicNum)},
+            ].filter(Boolean);
+            return(
+              <div style={{display:"flex",flexDirection:"column",gap:0}}>
+                {infoRows.map((r,i)=>(
+                  <FreteDetRow key={i} label={r.l} value={r.v} valueStyle={r.l==="Observação"?{maxWidth:"58%"}:{}}/>
+                ))}
+              </div>
+            );
+          })()}
 
-          {/* Custos */}
+          <div style={{borderTop:`1px solid ${C.border}`,marginTop:10,marginBottom:6}}/>
+
+          {/* Custos e resultado */}
           {(()=>{
-            const{combVal,pedNum,arla,showPed,showArla,hasBreakdown,custoTotal}=freteCustoBreakdown(detalhe);
+            const{combVal,pedNum,arla,showComb,showPed,showArla,custoTotal}=freteCustoBreakdown(detalhe);
             const lucroPos=(detalhe.lucro||0)>=0;
+            const dist=Number(detalhe.distance)||0;
             return(
               <>
-                <FreteDetRow label="Combustível" value={hasBreakdown?`R$ ${combVal.toFixed(2)}`:"—"}/>
-                {showPed&&<FreteDetRow label="Pedágio" value={`R$ ${pedNum.toFixed(2)}`}/>}
-                {showArla&&<FreteDetRow label="ARLA 32" value={`R$ ${arla.toFixed(2)}`}/>}
+                {showComb&&<FreteDetRow label="Combustível" value={freteMoeda(combVal)}/>}
+                {showPed&&<FreteDetRow label="Pedágio" value={freteMoeda(pedNum)}/>}
+                {showArla&&<FreteDetRow label="ARLA 32" value={freteMoeda(arla)}/>}
                 <FreteDetRow
                   label="Custo Total da Viagem"
-                  value={`R$ ${custoTotal.toFixed(2)}`}
-                  valueStyle={{color:C.red,fontWeight:800}}
-                  rowStyle={{background:C.redLight,borderRadius:10,borderBottom:"none",padding:"11px 0",marginTop:4}}
+                  value={freteMoeda(custoTotal)}
+                  valueStyle={{color:C.red,fontWeight:"bold"}}
+                  rowStyle={FRETE_DET_HIGHLIGHT({background:C.redLight,marginTop:4})}
                 />
-
                 <FreteDetRow
                   label="Frete Cobrado"
-                  value={`R$ ${(detalhe.freteSugerido||0).toFixed(2)}`}
+                  value={freteMoeda(detalhe.freteSugerido)}
                   valueStyle={{color:C.navy}}
-                  rowStyle={{background:C.navyLight,borderRadius:10,borderBottom:"none",padding:"11px 0",marginTop:12}}
+                  rowStyle={FRETE_DET_HIGHLIGHT({background:C.navyLight,marginTop:12})}
                 />
                 <FreteDetRow
                   label="🟢 Meu Lucro"
-                  value={`R$ ${(detalhe.lucro||0).toFixed(2)}`}
-                  valueStyle={{color:lucroPos?C.green:C.red,fontWeight:800}}
-                  rowStyle={{background:lucroPos?C.greenLight:C.redLight,borderRadius:10,borderBottom:"none",padding:"11px 0",marginTop:8}}
+                  value={freteMoeda(detalhe.lucro)}
+                  valueStyle={{color:lucroPos?C.green:C.red,fontWeight:"bold"}}
+                  rowStyle={FRETE_DET_HIGHLIGHT({background:lucroPos?C.greenLight:C.redLight,marginTop:8})}
                 />
-                {detalhe.distance>0&&(
+                {dist>0&&(
                   <>
                     <FreteDetRow
                       label="Receita por km"
-                      value={`R$ ${((detalhe.freteSugerido||0)/detalhe.distance).toFixed(2)}/km`}
+                      value={freteMoedaKm((detalhe.freteSugerido||0)/dist)}
                       valueStyle={{color:C.navy}}
-                      rowStyle={{background:C.navyLight,borderRadius:10,borderBottom:"none",padding:"11px 0",marginTop:8}}
+                      rowStyle={FRETE_DET_HIGHLIGHT({background:C.navyLight,marginTop:8})}
                     />
                     <FreteDetRow
                       label="Lucro por km"
-                      value={`R$ ${((detalhe.lucro||0)/detalhe.distance).toFixed(2)}/km`}
-                      valueStyle={{color:lucroPos?C.green:C.red,fontWeight:600}}
-                      rowStyle={{background:lucroPos?C.greenLight:C.redLight,borderRadius:10,borderBottom:"none",padding:"11px 0",marginTop:8}}
+                      value={freteMoedaKm((detalhe.lucro||0)/dist)}
+                      valueStyle={{color:lucroPos?C.green:C.red}}
+                      rowStyle={FRETE_DET_HIGHLIGHT({background:lucroPos?C.greenLight:C.redLight,marginTop:8})}
                     />
                   </>
                 )}
@@ -3800,7 +3828,7 @@ const Comparador=({historicoFretes,onAddFrete,onUpdateFrete,onDeleteFrete})=>{
           </div>
           {/* Compartilhar pelo WhatsApp */}
           {(()=>{
-            const msg=`🚛 *Orçamento de Frete*\n\n📍 *Origem:* ${detalhe.origin||""}\n🏁 *Destino:* ${detalhe.dest||""}\n📏 *Distância:* ${detalhe.distance||0} km\n💰 *Valor do frete:* R$ ${(detalhe.freteSugerido||0).toFixed(2)}\n`+(detalhe.observacao?`📝 *Obs:* ${detalhe.observacao}\n`:"")+`\n_Cotação gerada pelo LogRotas_`;
+            const msg=`🚛 *Orçamento de Frete*\n\n📍 *Origem:* ${detalhe.origin||""}\n🏁 *Destino:* ${detalhe.dest||""}\n📏 *Distância:* ${detalhe.distance||0} km\n💰 *Valor do frete:* ${freteMoeda(detalhe.freteSugerido)}\n`+(detalhe.observacao?`📝 *Obs:* ${detalhe.observacao}\n`:"")+`\n_Cotação gerada pelo LogRotas_`;
             return(
               <a href={`https://wa.me/?text=${encodeURIComponent(msg)}`} target="_blank" rel="noreferrer"
                 style={{display:"flex",alignItems:"center",justifyContent:"center",gap:8,background:"#22C55E",borderRadius:11,padding:"11px 0",color:"#fff",fontWeight:700,fontSize:14,textDecoration:"none",marginTop:4}}>
