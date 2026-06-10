@@ -113,11 +113,13 @@ export default function DeliveryMap({
   expandedMap = false,
   gestureHandling = "cooperative",
   onDriverLocationUpdate,
+  routePath = null,
 }) {
   const containerRef = useRef(null);
   const mapRef = useRef(null);
   const clustererRef = useRef(null);
   const markersRef = useRef([]);
+  const routePolylineRef = useRef(null);
   const driverMarkerRef = useRef(null);
   const infoWindowRef = useRef(null);
   const applyRequestIdRef = useRef(0);
@@ -318,6 +320,33 @@ export default function DeliveryMap({
     if (!map || !mapReady) return;
     map.setOptions({ gestureHandling });
   }, [gestureHandling, mapReady]);
+
+  // V231 — trajeto completo da rota otimizada (polylines concatenadas dos blocos Directions)
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+
+    if (routePolylineRef.current) {
+      routePolylineRef.current.setMap(null);
+      routePolylineRef.current = null;
+    }
+    if (routePath?.length >= 2) {
+      routePolylineRef.current = new window.google.maps.Polyline({
+        map,
+        path: routePath,
+        strokeColor: "#2563EB",
+        strokeWeight: 5,
+        strokeOpacity: 0.9,
+      });
+    }
+
+    return () => {
+      if (routePolylineRef.current) {
+        routePolylineRef.current.setMap(null);
+        routePolylineRef.current = null;
+      }
+    };
+  }, [routePath, mapReady]);
 
   useEffect(() => {
     const map = mapRef.current;

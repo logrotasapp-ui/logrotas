@@ -256,6 +256,109 @@ function directionsRoute(entries, driverOrigin = null) {
   });
 }
 
+// ── V231 — Directions em blocos (motor híbrido, Etapa 3) ────────────────────
+// A ordem das paradas já vem definida pelo otimizador no aparelho (NN + 2-opt).
+// Aqui a Directions API é usada SEM optimizeWaypoints, apenas para desenhar o
+// trajeto real e somar distância/duração — em blocos de até 25 pontos.
+
+const BLOCK_MAX_POINTS = 25;
+
+function routeChunkPlain(service, chunk) {
+  return new Promise((resolve) => {
+    service.route(
+      {
+        origin: latLngFromCoord(chunk[0]),
+        destination: latLngFromCoord(chunk[chunk.length - 1]),
+        waypoints: chunk.slice(1, -1).map((c) => ({
+          location: latLngFromCoord(c),
+          stopover: true,
+        })),
+        optimizeWaypoints: false,
+        travelMode: window.google.maps.TravelMode.DRIVING,
+      },
+      (result, status) => {
+        if (
+          status === window.google.maps.DirectionsStatus.OK &&
+          result?.routes?.[0]?.legs?.length
+        ) {
+          resolve(result.routes[0]);
+        } else {
+          resolve(null);
+        }
+      }
+    );
+  });
+}
+
+async function routeChunkWithRetry(service, chunk) {
+  const first = await routeChunkPlain(service, chunk);
+  if (first) return first;
+  return routeChunkPlain(service, chunk);
+}
+
+/**
+ * V231 — Calcula a rota real (distância, duração e polyline) em blocos de até
+ * 25 pontos, encadeando: o último ponto de cada bloco é a origem do próximo.
+ * Se um bloco falhar (após 1 retry), os demais seguem normalmente — a ORDEM
+ * das paradas não depende desta etapa.
+ * @param {Array<{ lat: number, lng: number }>} points — [origem, ...paradas] na ordem final
+ * @returns {Promise<{ ok: boolean, totalDistanceM: number, totalDurationS: number, overviewPath: Array<{lat:number,lng:number}>, blocksOk: number, blocksTotal: number }>}
+ */
+export async function fetchGoogleRouteInBlocks(points) {
+  const empty = {
+    ok: false,
+    totalDistanceM: 0,
+    totalDurationS: 0,
+    overviewPath: [],
+    blocksOk: 0,
+    blocksTotal: 0,
+  };
+  if (!API_KEYS.googleMaps || !points || points.length < 2) return empty;
+
+  try {
+    await waitForGoogleMaps();
+  } catch {
+    return empty;
+  }
+
+  const service = new window.google.maps.DirectionsService();
+  let totalDistanceM = 0;
+  let totalDurationS = 0;
+  const overviewPath = [];
+  let blocksOk = 0;
+  let blocksTotal = 0;
+
+  let start = 0;
+  while (start < points.length - 1) {
+    const end = Math.min(start + BLOCK_MAX_POINTS - 1, points.length - 1);
+    const chunk = points.slice(start, end + 1);
+    blocksTotal++;
+
+    const route = await routeChunkWithRetry(service, chunk);
+    if (route) {
+      blocksOk++;
+      totalDistanceM += sumLegsMetric(route.legs, "distance");
+      totalDurationS += sumLegsMetric(route.legs, "duration");
+      if (route.overview_path?.length) {
+        overviewPath.push(
+          ...route.overview_path.map((ll) => ({ lat: ll.lat(), lng: ll.lng() }))
+        );
+      }
+    }
+
+    start = end;
+  }
+
+  return {
+    ok: blocksOk > 0,
+    totalDistanceM,
+    totalDurationS,
+    overviewPath,
+    blocksOk,
+    blocksTotal,
+  };
+}
+
 /**
  * @param {Array<{ parada: object, coord: { lng: number, lat: number } }>} entries
  * @param {{ lng: number, lat: number } | null} [driverOrigin]

@@ -12,6 +12,7 @@ import {
   resolveCalculatorStopsCoords,
   geocodeRomaneioExtractedAddresses,
   optimizeDeliveryRoute,
+  optimizeDeliveryRouteHybrid,
   reoptimizeRemainingDeliveryRoute,
   buildParadasFromAddresses,
   resolveManualAddress,
@@ -92,7 +93,7 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="V230";
+const APP_VERSION="V231";
 const BETA_HIDE_PLANOS=true;
 
 const OfflineRestoredBanner=({show})=>show?(
@@ -110,6 +111,14 @@ const montarLinkIndicacao=(whatsappOuId)=>{
 
 // Desative para exibir aviso "Em breve" no banner da tela Início (reativar após beta)
 const REFERRAL_ENABLED=false;
+
+// V231 — Toggle de segurança do motor de otimização de rotas.
+// true  → motor híbrido novo: GPS fresco como origem + Nearest Neighbor + 2-opt
+//         no aparelho (rota aberta, 100+ paradas) + Directions em blocos de 25
+//         só para desenho/métricas reais (sem optimizeWaypoints).
+// false → comportamento antigo intacto (optimizeDeliveryRoute com
+//         optimizeWaypoints da Directions API, código preservado).
+const USE_HYBRID_OPTIMIZER=true;
 
 // Abre WhatsApp com a frase oficial de indicação
 const compartilharIndicacao=(perfil)=>{
@@ -1459,6 +1468,8 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
   const[adicionandoManual,setAdicionandoManual]=useState(false);
   const[otimizando,setOtimizando]=useState(false);
   const[erroOtimizar,setErroOtimizar]=useState("");
+  const[avisoGps,setAvisoGps]=useState("");
+  const[rotaPath,setRotaPath]=useState(null);
   const[resultado,setResultado]=useState(null);
   const[mapaExpandido,setMapaExpandido]=useState(false);
   const[posicaoMotorista,setPosicaoMotorista]=useState(null);
@@ -1675,6 +1686,8 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
   const reiniciarRota=()=>{
     setParadas([]);
     setResultado(null);
+    setRotaPath(null);
+    setAvisoGps("");
     setShowResumo(false);
     setResumoFinal(null);
     setErroHistoricoSave("");
@@ -1736,6 +1749,7 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
           consumoKmL:perfil?.consumo,
           precoCombustivel:5.89,
           driverOriginCoords:driverCoords,
+          useHybrid:USE_HYBRID_OPTIMIZER,
         });
         if(out.ok){
           setParadas(out.paradas);
@@ -1867,25 +1881,38 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
     setResultado(null);
   };
 
-  // V166 — geocoding → GPS como origin → todas paradas como waypoints otimizáveis
+  // V231 — motor híbrido: GPS fresco → NN + 2-opt no aparelho → Directions em blocos.
+  // V166 (legado, USE_HYBRID_OPTIMIZER=false) — geocoding → GPS como origin → waypoints otimizáveis.
   const handleOtimizarRota=async()=>{
     if(paradas.length<2)return;
     playWhooshSound();
     setOtimizando(true);
     setErroOtimizar("");
+    setAvisoGps("");
     setResultado(null);
-    const out=await optimizeDeliveryRoute(paradas,{
-      consumoKmL:perfil?.consumo,
-      precoCombustivel:5.89,
-    });
+    setRotaPath(null);
+    const out=USE_HYBRID_OPTIMIZER
+      ?await optimizeDeliveryRouteHybrid(paradas,{
+        consumoKmL:perfil?.consumo,
+        precoCombustivel:5.89,
+      })
+      :await optimizeDeliveryRoute(paradas,{
+        consumoKmL:perfil?.consumo,
+        precoCombustivel:5.89,
+      });
     setOtimizando(false);
     if(!out.ok){
+      if(out.paradasInvalidas?.length){
+        setParadas(p=>p.map(x=>out.paradasInvalidas.includes(x.id)?{...x,geocodeFalhou:true}:{...x,geocodeFalhou:false}));
+      }
       setErroOtimizar(out.error);
       return;
     }
+    if(out.gpsFalhou)setAvisoGps("Não foi possível obter sua localização — a rota partirá da primeira parada");
     if(out.motoristaCoords)setPosicaoMotorista(out.motoristaCoords);
     setParadas(out.paradasOtimizadas);
     setResultado(out.resultado);
+    if(out.routePath?.length)setRotaPath(out.routePath);
     setAposConclusao(false);
   };
 
@@ -1978,6 +2005,7 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
             height={240}
             showLocateButton
             onDriverLocationUpdate={setPosicaoMotorista}
+            routePath={resultado?rotaPath:null}
           />
           {/* V161 — expandir mapa em overlay tela cheia */}
           <button
@@ -2061,6 +2089,7 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
                 expandedMap
                 gestureHandling="greedy"
                 onDriverLocationUpdate={setPosicaoMotorista}
+                routePath={resultado?rotaPath:null}
               />
             </div>
           </div>
@@ -2098,7 +2127,7 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
             <div key={p.id} style={{
               display:"flex",flexDirection:"column",gap:8,
               background:paradaCardBg(p),
-              border:`1.5px solid ${paradaCardBorder(p,i,paradaAtualIdx,modoNavegacao)}`,
+              border:`1.5px solid ${p.geocodeFalhou?C.amber:paradaCardBorder(p,i,paradaAtualIdx,modoNavegacao)}`,
               borderRadius:11,padding:"10px 13px",transition:"all .3s",position:"relative",
             }}>
               <div style={{display:"flex",alignItems:"flex-start",gap:10,paddingRight:36}}>
@@ -2120,7 +2149,12 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
                 style={{position:"absolute",top:10,right:10,background:C.redLight,border:"none",borderRadius:7,padding:5,cursor:"pointer",color:C.red,display:"flex",flexShrink:0}}>
                 <Trash2Icon size={13}/>
               </button>
-              {p.confianca==="warn"&&getParadaStatus(p)==="pendente"&&(
+              {p.geocodeFalhou&&(
+                <div style={{color:"#92400E",fontSize:11,fontWeight:700,paddingLeft:34,marginTop:-4}}>
+                  ⚠️ Confirme este endereço antes de otimizar
+                </div>
+              )}
+              {!p.geocodeFalhou&&p.confianca==="warn"&&getParadaStatus(p)==="pendente"&&(
                 <div style={{color:"#92400E",fontSize:11,fontWeight:600,paddingLeft:34,marginTop:-4}}>
                   ⚠️ Verifique este endereço
                 </div>
@@ -2134,6 +2168,13 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
       {erroOtimizar&&(
         <div style={{background:"#FFF5F5",border:"1.5px solid #FCA5A5",borderRadius:10,padding:"10px 13px",marginBottom:12,color:"#DC2626",fontSize:13,fontWeight:600}}>
           ⚠️ {erroOtimizar}
+        </div>
+      )}
+
+      {/* V231 — GPS indisponível: rota parte da primeira parada (não trava o fluxo) */}
+      {avisoGps&&(
+        <div style={{background:"#FFFBEB",border:"1.5px solid #FDE68A",borderRadius:10,padding:"10px 13px",marginBottom:12,color:"#92400E",fontSize:13,fontWeight:600}}>
+          📍 {avisoGps}
         </div>
       )}
 
@@ -2152,15 +2193,26 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
       {/* Resultado da otimização */}
       {resultado&&(
         <div style={{display:"flex",flexDirection:"column",gap:10,marginBottom:14}}>
-          {/* Banner economia */}
+          {/* Banner economia — V231: economia <= 0 mostra mensagem de rota já ideal */}
           <div style={{background:`linear-gradient(135deg,${OTIMIZAR_AZUL},${OTIMIZAR_AZUL_MID})`,borderRadius:16,padding:"18px 20px",textAlign:"center",boxShadow:`0 4px 16px ${OTIMIZAR_AZUL}44`}}>
-            <div style={{fontSize:32,marginBottom:6}}>🎉</div>
-            <div style={{color:"#fff",fontWeight:900,fontSize:18,fontFamily:"'Sora',sans-serif",marginBottom:4}}>
-              Você economizou {formatKmDecimal(resultado.economiaKm)}!
-            </div>
-            <div style={{color:"rgba(255,255,255,0.85)",fontSize:13}}>
-              Equivale a <b>{formatMoeda(resultado.economiaCusto)}</b> de combustível a menos
-            </div>
+            {resultado.rotaJaIdeal?(
+              <>
+                <div style={{fontSize:32,marginBottom:6}}>✅</div>
+                <div style={{color:"#fff",fontWeight:900,fontSize:18,fontFamily:"'Sora',sans-serif"}}>
+                  Sua rota já estava no caminho ideal ✅
+                </div>
+              </>
+            ):(
+              <>
+                <div style={{fontSize:32,marginBottom:6}}>🎉</div>
+                <div style={{color:"#fff",fontWeight:900,fontSize:18,fontFamily:"'Sora',sans-serif",marginBottom:4}}>
+                  Você economizou {formatKmDecimal(resultado.economiaKm)}!
+                </div>
+                <div style={{color:"rgba(255,255,255,0.85)",fontSize:13}}>
+                  Equivale a <b>{formatMoeda(resultado.economiaCusto)}</b> de combustível a menos
+                </div>
+              </>
+            )}
           </div>
 
           {/* Detalhes */}

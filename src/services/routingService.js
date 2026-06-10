@@ -12,8 +12,10 @@ import {
 import {
   fetchGoogleOptimizedRoute,
   fetchGoogleDrivingDistanceKm,
+  fetchGoogleRouteInBlocks,
   reorderStopsByGoogleWaypointOrder,
 } from "./googleDirectionsService.js";
+import { optimizeOpenRoute, openRouteDistanceKm } from "./routeOptimizer.js";
 import { geocodeAddressGoogle } from "./googleGeocodingService.js";
 
 export { resolvePlaceSuggestion } from "./googlePlacesService.js";
@@ -921,9 +923,182 @@ export async function optimizeDeliveryRoute(paradas, options = {}) {
   }
 }
 
+// ── V231 — Motor de otimização híbrido ───────────────────────────────────────
+
+/**
+ * Etapa 1 — posição GPS FRESCA do motorista (nunca cache).
+ * Falha/negado → null (o chamador usa a 1ª parada como origem, sem travar).
+ * @returns {Promise<{ lng: number, lat: number } | null>}
+ */
+function getFreshDriverPosition() {
+  return new Promise((resolve) => {
+    if (typeof navigator === "undefined" || !navigator.geolocation) {
+      resolve(null);
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        cachedGeocodeProximity = [pos.coords.longitude, pos.coords.latitude];
+        geocodeProximityRequested = true;
+        resolve({ lng: pos.coords.longitude, lat: pos.coords.latitude });
+      },
+      () => resolve(null),
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+    );
+  });
+}
+
+/**
+ * V231 — Otimização híbrida em 3 etapas:
+ *  1. Origem = GPS atual (fresco). Falha → 1ª parada vira origem (gpsFalhou).
+ *  2. Sequenciamento no aparelho (Nearest Neighbor + 2-opt, rota aberta) —
+ *     sem limite de 25 paradas, suporta 100+.
+ *  3. Directions API SEM optimizeWaypoints, em blocos de até 25 pontos, apenas
+ *     para distância/duração reais e polyline do trajeto.
+ *
+ * Economia ("Você economizou") = custo haversine da ordem original − ordem
+ * otimizada (mesma métrica, comparação justa).
+ *
+ * Paradas sem coordenadas e com geocodificação falha NÃO entram na otimização:
+ * retorna { ok:false, paradasInvalidas:[ids] } para a UI sinalizar.
+ * @param {Array<{ id, endereco, coords? }>} paradas
+ */
+export async function optimizeDeliveryRouteHybrid(paradas, options = {}) {
+  const {
+    consumoKmL = 10,
+    precoCombustivel = 5.89,
+    driverOriginCoords = null,
+  } = options;
+
+  if (!paradas || paradas.length < 2) {
+    return { ok: false, error: "Adicione pelo menos 2 paradas." };
+  }
+
+  try {
+    // Validação: geocodifica o que falta; falhas são sinalizadas (não entram silenciosamente)
+    const entries = [];
+    const paradasInvalidas = [];
+    for (const parada of paradas) {
+      const coord = await resolveParadaCoordForOptimization(parada);
+      if (coord && Number.isFinite(coord.lat) && Number.isFinite(coord.lng)) {
+        const { geocodeFalhou: _gf, ...rest } = parada;
+        entries.push({ parada: rest, coord: { lat: coord.lat, lng: coord.lng } });
+      } else {
+        paradasInvalidas.push(parada.id);
+      }
+    }
+
+    if (paradasInvalidas.length > 0) {
+      return {
+        ok: false,
+        error:
+          paradasInvalidas.length === 1
+            ? "1 endereço não foi localizado no mapa. Confirme este endereço antes de otimizar."
+            : `${paradasInvalidas.length} endereços não foram localizados no mapa. Confirme estes endereços antes de otimizar.`,
+        paradasInvalidas,
+      };
+    }
+
+    if (entries.length < 2) {
+      return {
+        ok: false,
+        error: "Não foi possível localizar os endereços. Verifique se estão completos.",
+      };
+    }
+
+    // Etapa 1 — origem = GPS atual (fresco); falha → 1ª parada
+    let origin = null;
+    let gpsFalhou = false;
+    if (driverOriginCoords?.length >= 2) {
+      origin = { lng: driverOriginCoords[0], lat: driverOriginCoords[1] };
+    } else {
+      origin = await getFreshDriverPosition();
+      if (!origin) gpsFalhou = true;
+    }
+
+    let fixedFirst = null;
+    let toOptimize = entries;
+    if (!origin) {
+      fixedFirst = entries[0];
+      origin = fixedFirst.coord;
+      toOptimize = entries.slice(1);
+    }
+
+    // Etapa 2 — sequenciamento no aparelho (NN + 2-opt, rota aberta)
+    const orderIdx = optimizeOpenRoute(
+      origin,
+      toOptimize.map((e) => e.coord)
+    );
+    const orderedEntries = [
+      ...(fixedFirst ? [fixedFirst] : []),
+      ...orderIdx.map((i) => toOptimize[i]),
+    ];
+
+    const paradasOtimizadas = orderedEntries.map((entry, i) => ({
+      ...entry.parada,
+      ordem: i + 1,
+      coords: [entry.coord.lng, entry.coord.lat],
+    }));
+
+    // Economia honesta: haversine da ordem original vs otimizada (mesma métrica)
+    const kmOriginalHav = openRouteDistanceKm(
+      origin,
+      entries.map((e) => e.coord)
+    );
+    const kmOtimizadoHav = openRouteDistanceKm(
+      origin,
+      orderedEntries.map((e) => e.coord)
+    );
+
+    // Etapa 3 — Directions em blocos (distância/duração reais + polyline)
+    const blocks = await fetchGoogleRouteInBlocks([
+      origin,
+      ...orderedEntries.map((e) => e.coord),
+    ]);
+
+    const cons = parseFloat(consumoKmL) || 10;
+    const preco = parseFloat(precoCombustivel) || 5.89;
+
+    const kmOtimizado =
+      blocks.ok && blocks.blocksOk === blocks.blocksTotal
+        ? parseFloat((blocks.totalDistanceM / 1000).toFixed(1))
+        : parseFloat(kmOtimizadoHav.toFixed(1));
+    const economiaKmRaw = kmOriginalHav - kmOtimizadoHav;
+    const rotaJaIdeal = economiaKmRaw <= 0;
+    const economiaKm = rotaJaIdeal ? 0 : parseFloat(economiaKmRaw.toFixed(1));
+    const economiaCusto = parseFloat(((economiaKm / cons) * preco).toFixed(2));
+    const tempoEstimado =
+      blocks.ok && blocks.totalDurationS > 0
+        ? Math.round(blocks.totalDurationS / 60)
+        : Math.round(kmOtimizado * 2.5);
+    const custoTotal = parseFloat(((kmOtimizado / cons) * preco).toFixed(2));
+
+    return {
+      ok: true,
+      paradasOtimizadas,
+      resultado: {
+        kmOriginal: parseFloat((kmOtimizado + economiaKm).toFixed(1)),
+        kmOtimizado,
+        economiaKm,
+        economiaCusto,
+        tempoEstimado,
+        custoTotal,
+        rotaJaIdeal,
+      },
+      motoristaCoords: gpsFalhou || fixedFirst ? null : [origin.lng, origin.lat],
+      usedDriverOrigin: !gpsFalhou && !fixedFirst,
+      gpsFalhou,
+      routePath: blocks.overviewPath,
+    };
+  } catch {
+    return { ok: false, error: CONNECTION_ERROR };
+  }
+}
+
 /**
  * Reotimiza paradas pendentes + nova parada, preservando as já concluídas.
  * Usa a posição atual do motorista como origem quando informada.
+ * `useHybrid: true` roteia pelo motor V231 (NN + 2-opt no aparelho).
  */
 export async function reoptimizeRemainingDeliveryRoute(
   concluidas,
@@ -931,6 +1106,7 @@ export async function reoptimizeRemainingDeliveryRoute(
   novaParada,
   options = {}
 ) {
+  const { useHybrid = false, ...rest } = options;
   const lista = [...(pendentes || []), novaParada];
   if (lista.length < 2) {
     return {
@@ -938,11 +1114,13 @@ export async function reoptimizeRemainingDeliveryRoute(
       paradas: [...(concluidas || []), ...lista],
       paradasOtimizadas: lista,
       resultado: null,
-      motoristaCoords: options.driverOriginCoords || null,
+      motoristaCoords: rest.driverOriginCoords || null,
     };
   }
 
-  const out = await optimizeDeliveryRoute(lista, options);
+  const out = useHybrid
+    ? await optimizeDeliveryRouteHybrid(lista, rest)
+    : await optimizeDeliveryRoute(lista, rest);
   if (!out.ok) return out;
 
   return {
