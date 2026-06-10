@@ -28,6 +28,11 @@ import {
   formatKm,
   roundFreteCostsForSave,
   roundMoney,
+  formatGraficoLucro,
+  pluralFretes,
+  pluralRegistros,
+  pluralDocumentosVencidos,
+  pluralDocumentosVence,
 } from "./src/services/formatUtils.js";
 import ScannerModule from "./src/components/ScannerModule.js";
 import { playWhooshSound } from "./src/utils/whooshSound.js";
@@ -79,7 +84,7 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="V226";
+const APP_VERSION="V227";
 const BETA_HIDE_PLANOS=true;
 
 const OfflineRestoredBanner=({show})=>show?(
@@ -3331,7 +3336,7 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
 };
 
 // ── DASHBOARD ─────────────────────────────────────────────────────────────────
-const Dashboard=({onNav,setShowCalc,setCalcMode,historicoFretes,manutencoes,docs,perfil})=>{
+const Dashboard=({onNav,setShowCalc,setCalcMode,historicoFretes,manutencoes,docs,despesas=[],perfil})=>{
   const hoje=new Date();hoje.setHours(0,0,0,0);
   const docsVencendo=(docs||[]).filter(d=>{
     if(!d.expiry)return false;
@@ -3353,19 +3358,36 @@ const Dashboard=({onNav,setShowCalc,setCalcMode,historicoFretes,manutencoes,docs
     const exp=new Date(ano,mes-1,dia);
     return Math.ceil((exp-hoje)/(1000*60*60*24))<0;
   });
-  const maintAlerts=(manutencoes||[]).filter(m=>m.status!=="ok").length;
+  const maintList=manutencoes||[];
+  const docsList=docs||[];
+  const despList=despesas||[];
+  const maintAlerts=maintList.filter(m=>m.status!=="ok").length;
+  const totalManut=maintList.length;
   const totalFretes=historicoFretes?.length||0;
-  const receitaTotal=historicoFretes?.reduce((a,f)=>a+(f.freteSugerido||0),0)||0;
+  const receitaTotal=roundMoney(historicoFretes?.reduce((a,f)=>a+(f.freteSugerido||0),0)||0);
   const semDados=totalFretes===0;
   const nomeMotorista=perfil?.nome?perfil.nome.split(" ")[0]:"Motorista";
   const hora=new Date().getHours();
   const saudacao=hora<12?"Bom dia":hora<18?"Boa tarde":"Boa noite";
+  const mesAtual=new Date().getMonth();
+  const anoAtual=new Date().getFullYear();
+  const fretesMesAtual=(historicoFretes||[]).filter(f=>{
+    if(!f.date)return false;
+    const parts=f.date.split("/");
+    if(parts.length<3)return false;
+    return parseInt(parts[1])-1===mesAtual&&parseInt(parts[2])===anoAtual;
+  });
+  const faturamentoMes=roundMoney(fretesMesAtual.reduce((a,f)=>a+(f.freteSugerido||0),0));
 
   return(
     <div style={{display:"flex",flexDirection:"column",gap:18}}>
       <div>
-        <div style={{color:C.muted,fontSize:12,marginBottom:3}}>{saudacao}, {nomeMotorista}! 👋</div>
-        <h1 style={{color:C.navy,fontSize:22,fontWeight:900,fontFamily:"'Sora',sans-serif",margin:"0 0 12px"}}>LogRotas</h1>
+        <div style={{color:C.navy,fontSize:20,fontWeight:800,fontFamily:"'Sora',sans-serif",marginBottom:6}}>{saudacao}, {nomeMotorista}! 👋</div>
+        <div style={{color:C.text2,fontSize:14,fontWeight:600,lineHeight:1.45,marginBottom:12}}>
+          {fretesMesAtual.length===0
+            ? "Nenhum frete este mês ainda"
+            : `${fretesMesAtual.length} ${fretesMesAtual.length===1?"frete":"fretes"} este mês · ${formatMoeda(faturamentoMes)}`}
+        </div>
 
         {/* Botão indicação */}
         <a onClick={e=>{e.preventDefault();compartilharIndicacao(perfil);}} href="#"
@@ -3401,7 +3423,7 @@ const Dashboard=({onNav,setShowCalc,setCalcMode,historicoFretes,manutencoes,docs
         <div style={{background:C.redLight,border:`1px solid ${C.red}44`,borderRadius:13,padding:"12px 16px",display:"flex",gap:10,alignItems:"center",cursor:"pointer"}} onClick={()=>onNav("documentos")}>
           <span style={{fontSize:20}}>🚨</span>
           <div style={{flex:1}}>
-            <div style={{color:C.red,fontWeight:700,fontSize:14}}>{docsVencidos.length} documento(s) VENCIDO(S)!</div>
+            <div style={{color:C.red,fontWeight:700,fontSize:14}}>{pluralDocumentosVencidos(docsVencidos.length)}</div>
             <div style={{color:C.red,fontSize:12,opacity:0.8}}>Toque para ver e regularizar agora</div>
           </div>
           <ArrowRightIcon size={14} color={C.red}/>
@@ -3413,7 +3435,7 @@ const Dashboard=({onNav,setShowCalc,setCalcMode,historicoFretes,manutencoes,docs
         <div style={{background:C.redLight,border:`1px solid ${C.red}44`,borderRadius:13,padding:"12px 16px",display:"flex",gap:10,alignItems:"center",cursor:"pointer"}} onClick={()=>onNav("documentos")}>
           <span style={{fontSize:20}}>⚠️</span>
           <div style={{flex:1}}>
-            <div style={{color:C.red,fontWeight:700,fontSize:14}}>{docsVencendo30.length} documento(s) vence(m) em até 30 dias</div>
+            <div style={{color:C.red,fontWeight:700,fontSize:14}}>{pluralDocumentosVence(docsVencendo30.length,30)}</div>
             <div style={{color:C.red,fontSize:12,opacity:0.8}}>Renove com urgência para evitar multas</div>
           </div>
           <ArrowRightIcon size={14} color={C.red}/>
@@ -3425,7 +3447,7 @@ const Dashboard=({onNav,setShowCalc,setCalcMode,historicoFretes,manutencoes,docs
         <div style={{background:C.amberLight,border:`1px solid ${C.amber}44`,borderRadius:13,padding:"12px 16px",display:"flex",gap:10,alignItems:"center",cursor:"pointer"}} onClick={()=>onNav("documentos")}>
           <span style={{fontSize:20}}>📅</span>
           <div style={{flex:1}}>
-            <div style={{color:C.amber,fontWeight:700,fontSize:14}}>{docsVencendo.filter(d=>!docsVencendo30.includes(d)).length} documento(s) vence(m) em até 60 dias</div>
+            <div style={{color:C.amber,fontWeight:700,fontSize:14}}>{pluralDocumentosVence(docsVencendo.filter(d=>!docsVencendo30.includes(d)).length,60)}</div>
             <div style={{color:C.amber,fontSize:12,opacity:0.8}}>Planeje a renovação com antecedência</div>
           </div>
           <ArrowRightIcon size={14} color={C.amber}/>
@@ -3436,7 +3458,7 @@ const Dashboard=({onNav,setShowCalc,setCalcMode,historicoFretes,manutencoes,docs
       {maintAlerts>0&&(
         <div style={{background:C.amberLight,border:`1px solid ${C.amber}44`,borderRadius:13,padding:"12px 16px",display:"flex",gap:10,alignItems:"center",cursor:"pointer"}} onClick={()=>onNav("manutencao")}>
           <WrenchIcon size={17} color={C.amber}/>
-          <div style={{flex:1}}><div style={{color:C.amber,fontWeight:700,fontSize:14}}>{maintAlerts} alerta(s) de manutenção</div></div>
+          <div style={{flex:1}}><div style={{color:C.amber,fontWeight:700,fontSize:14}}>{maintAlerts} {maintAlerts===1?"alerta":"alertas"} de manutenção</div></div>
           <ArrowRightIcon size={14} color={C.amber}/>
         </div>
       )}
@@ -3472,7 +3494,7 @@ const Dashboard=({onNav,setShowCalc,setCalcMode,historicoFretes,manutencoes,docs
       ):(
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:11}}>
           <Metric label="Fretes salvos" value={String(totalFretes)} sub="no histórico" trend="up" icon={CalculatorIcon} color={C.green} bg={C.greenLight}/>
-          <Metric label="Receita total" value={`R$ ${receitaTotal.toLocaleString("pt-BR",{minimumFractionDigits:0,maximumFractionDigits:0})}`} sub="todos os fretes" trend="up" icon={DollarSignIcon} color={C.orange} bg={C.orangeLight}/>
+          <Metric label="Receita total" value={formatMoeda(receitaTotal)} sub="todos os fretes" trend="up" icon={DollarSignIcon} color={C.orange} bg={C.orangeLight}/>
         </div>
       )}
 
@@ -3480,11 +3502,11 @@ const Dashboard=({onNav,setShowCalc,setCalcMode,historicoFretes,manutencoes,docs
         <div style={{color:C.muted,fontSize:14,fontWeight:700,letterSpacing:0.5,textTransform:"uppercase",marginBottom:10}}>Acesso Rápido</div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
           {[
-            {label:"Histórico Fretes",sub:totalFretes>0?`${totalFretes} frete(s)`:"Nenhum frete ainda",icon:CalculatorIcon,color:C.navy,page:"comparador"},
+            {label:"Histórico Fretes",sub:pluralFretes(totalFretes),icon:CalculatorIcon,color:C.navy,page:"comparador"},
             {label:"Financeiro",sub:totalFretes>0?"Receitas e despesas":"Sem dados ainda",icon:BarChart3Icon,color:C.green,page:"financeiro"},
-            {label:"Manutenção",sub:maintAlerts>0?`${maintAlerts} alerta(s)`:"Sem registros",icon:WrenchIcon,color:C.red,page:"manutencao"},
-            {label:"Documentos",sub:docsVencidos.length>0?`${docsVencidos.length} vencido(s)!`:docsVencendo.length>0?`${docsVencendo.length} vencendo em breve`:"Vencimentos",icon:FileTextIcon,color:docsVencidos.length>0?C.red:docsVencendo.length>0?C.amber:C.navy,page:"documentos"},
-            {label:"Despesas",sub:"Refeições, hotel e mais",icon:DollarSignIcon,color:C.red,page:"despesas"},
+            {label:"Manutenção",sub:totalManut>0?pluralRegistros(totalManut):"Sem registros",icon:WrenchIcon,color:C.red,page:"manutencao"},
+            {label:"Documentos",sub:docsVencidos.length>0?pluralDocumentosVencidos(docsVencidos.length):docsVencendo.length>0?`${docsVencendo.length} ${docsVencendo.length===1?"documento vencendo":"documentos vencendo"} em breve`:"Vencimentos",icon:FileTextIcon,color:docsVencidos.length>0?C.red:docsVencendo.length>0?C.amber:C.navy,page:"documentos"},
+            {label:"Despesas",sub:despList.length>0?pluralRegistros(despList.length):"Refeições, hotel e mais",icon:DollarSignIcon,color:C.red,page:"despesas"},
             {label:"Meu Perfil",sub:"Meta e configurações",icon:SettingsIcon,color:C.navy,page:"perfil"},
           ].map((s,i)=>(
             <button key={i} onClick={()=>onNav(s.page)} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:"13px 15px",cursor:"pointer",textAlign:"left",display:"flex",alignItems:"center",gap:11,boxShadow:"0 1px 4px #1E3A8A08"}}>
@@ -4053,7 +4075,7 @@ const Despesas=({despesas,onAddDespesa,onUpdateDespesa,onDeleteDespesa})=>{
         <div style={{background:"linear-gradient(135deg,#FFF1F2,#FECDD3)",border:`1px solid #FECDD3`,borderRadius:14,padding:"14px 18px",boxShadow:"0 2px 8px #FCA5A522"}}>
           <div style={{color:"#BE123C",fontSize:12,fontWeight:700,letterSpacing:0.4,textTransform:"uppercase",marginBottom:4,opacity:0.85}}>Total de Despesas</div>
           <div style={{color:"#9F1239",fontWeight:800,fontSize:24,fontFamily:"'Sora',sans-serif",lineHeight:1}}>{formatMoeda(total)}</div>
-          <div style={{color:"#BE123C",fontSize:11,marginTop:4,opacity:0.75}}>{despesas.length} registro(s) · entram no Financeiro como saída</div>
+          <div style={{color:"#BE123C",fontSize:11,marginTop:4,opacity:0.75}}>{pluralRegistros(despesas.length)} · entram no Financeiro como saída</div>
         </div>
       )}
 
@@ -4173,7 +4195,7 @@ const Manutencao=({manutencoes:items,onAddManutencao,onDeleteManutencao})=>{
         <div style={{background:"linear-gradient(135deg,#FFFBEB,#FEF3C7)",border:`1px solid ${C.amber}44`,borderRadius:14,padding:"14px 18px",boxShadow:"0 2px 8px #F59E0B18"}}>
           <div style={{color:"#B45309",fontSize:12,fontWeight:700,letterSpacing:0.4,textTransform:"uppercase",marginBottom:4,opacity:0.9}}>Total de Manutenções</div>
           <div style={{color:"#92400E",fontWeight:800,fontSize:24,fontFamily:"'Sora',sans-serif",lineHeight:1}}>{formatMoeda(totalManut)}</div>
-          <div style={{color:"#B45309",fontSize:11,marginTop:4,opacity:0.8}}>{items.length} registro(s)</div>
+          <div style={{color:"#B45309",fontSize:11,marginTop:4,opacity:0.8}}>{pluralRegistros(items.length)}</div>
         </div>
       )}
       {alerts>0&&<div style={{background:C.amberLight,border:`1px solid ${C.amber}44`,borderRadius:12,padding:"11px 15px",display:"flex",gap:9,alignItems:"center"}}><AlertTriangleIcon size={16} color={C.amber}/><div><div style={{color:C.amber,fontWeight:700,fontSize:14}}>{alerts} manutenção(ões) com atenção</div></div></div>}
@@ -4294,13 +4316,13 @@ const Documentos=({docs,onAddDocumento,onDeleteDocumento})=>{
       {alertasVermelhos>0&&(
         <div style={{background:C.redLight,border:`1px solid ${C.red}44`,borderRadius:12,padding:"12px 16px",display:"flex",gap:9,alignItems:"center"}}>
           <span style={{fontSize:20}}>🚨</span>
-          <div><div style={{color:C.red,fontWeight:700,fontSize:14}}>{alertasVermelhos} documento(s) vencendo em até 30 dias</div><div style={{color:C.red,fontSize:12,opacity:0.8}}>Renove com urgência para evitar multas</div></div>
+          <div><div style={{color:C.red,fontWeight:700,fontSize:14}}>{pluralDocumentosVence(alertasVermelhos,30)}</div><div style={{color:C.red,fontSize:12,opacity:0.8}}>Renove com urgência para evitar multas</div></div>
         </div>
       )}
       {alertasAmarelos>0&&(
         <div style={{background:C.amberLight,border:`1px solid ${C.amber}44`,borderRadius:12,padding:"12px 16px",display:"flex",gap:9,alignItems:"center"}}>
           <span style={{fontSize:20}}>⚠️</span>
-          <div><div style={{color:C.amber,fontWeight:700,fontSize:14}}>{alertasAmarelos} documento(s) vencendo em até 60 dias</div><div style={{color:C.amber,fontSize:12,opacity:0.8}}>Fique atento e planeje a renovação</div></div>
+          <div><div style={{color:C.amber,fontWeight:700,fontSize:14}}>{pluralDocumentosVence(alertasAmarelos,60)}</div><div style={{color:C.amber,fontSize:12,opacity:0.8}}>Fique atento e planeje a renovação</div></div>
         </div>
       )}
 
@@ -4451,6 +4473,117 @@ const Financeiro=({historicoFretes,manutencoes,despesas=[]})=>{
   const maxLucro=Math.max(...mesesGrafico.map(x=>Math.abs(x.lucro)),1);
   const chartH=120;
 
+  const graficoLucroCard=(
+    <Card>
+      <CardHeader title={`📈 Evolução do Lucro — ${periodoGraf==="3"?"3 meses":periodoGraf==="12"?"12 meses":periodoGraf==="custom"?"Período personalizado":"6 meses"}`}/>
+      <div style={{padding:"14px 20px"}}>
+
+        {/* Chips de período */}
+        <div style={{display:"flex",gap:6,marginBottom:14,flexWrap:"wrap"}}>
+          {[{v:"3",l:"3 meses"},{v:"6",l:"6 meses"},{v:"12",l:"12 meses"},{v:"custom",l:"Personalizado"}].map(op=>(
+            <button key={op.v} onClick={()=>setPeriodoGraf(op.v)}
+              style={{padding:"6px 14px",borderRadius:20,border:`1.5px solid ${periodoGraf===op.v?C.orange:C.border}`,background:periodoGraf===op.v?C.orange:"transparent",color:periodoGraf===op.v?"#fff":C.text2,fontWeight:periodoGraf===op.v?700:400,fontSize:12,cursor:"pointer",transition:"all .15s"}}>
+              {op.l}
+            </button>
+          ))}
+        </div>
+
+        {/* Campos de data personalizada — seletor de mês e ano */}
+        {periodoGraf==="custom"&&(
+          <div style={{background:C.navyLight,borderRadius:12,padding:"12px 14px",marginBottom:14}}>
+            <div style={{color:C.navy,fontSize:14,fontWeight:700,marginBottom:10}}>Selecione o período:</div>
+            <div style={{display:"flex",gap:10,alignItems:"flex-end"}}>
+              <div style={{flex:1}}>
+                <div style={{color:C.muted,fontSize:10,fontWeight:700,marginBottom:5}}>DE</div>
+                <div style={{display:"flex",gap:6}}>
+                  <select value={dataIni.split("/")[0]||""} onChange={e=>{const[,y]=dataIni.split("/");setDataIni(`${e.target.value}/${y||new Date().getFullYear()}`);}}
+                    style={{flex:1,background:"#fff",border:`1.5px solid ${C.border}`,borderRadius:9,padding:"8px 6px",fontSize:12,color:C.text,outline:"none"}}>
+                    <option value="">Mês</option>
+                    {MESES_PT.map((m,i)=><option key={i} value={String(i+1).padStart(2,"0")}>{m.slice(0,3)}</option>)}
+                  </select>
+                  <select value={dataIni.split("/")[1]||""} onChange={e=>{const[m]=dataIni.split("/");setDataIni(`${m||"01"}/${e.target.value}`);}}
+                    style={{flex:1,background:"#fff",border:`1.5px solid ${C.border}`,borderRadius:9,padding:"8px 6px",fontSize:12,color:C.text,outline:"none"}}>
+                    <option value="">Ano</option>
+                    {[2026,2027,2028,2029,2030].map(y=><option key={y} value={y}>{y}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div style={{color:C.muted,fontSize:14,paddingBottom:8}}>→</div>
+              <div style={{flex:1}}>
+                <div style={{color:C.muted,fontSize:10,fontWeight:700,marginBottom:5}}>ATÉ</div>
+                <div style={{display:"flex",gap:6}}>
+                  <select value={dataFim.split("/")[0]||""} onChange={e=>{const[,y]=dataFim.split("/");setDataFim(`${e.target.value}/${y||new Date().getFullYear()}`);}}
+                    style={{flex:1,background:"#fff",border:`1.5px solid ${C.border}`,borderRadius:9,padding:"8px 6px",fontSize:12,color:C.text,outline:"none"}}>
+                    <option value="">Mês</option>
+                    {MESES_PT.map((m,i)=><option key={i} value={String(i+1).padStart(2,"0")}>{m.slice(0,3)}</option>)}
+                  </select>
+                  <select value={dataFim.split("/")[1]||""} onChange={e=>{const[m]=dataFim.split("/");setDataFim(`${m||"01"}/${e.target.value}`);}}
+                    style={{flex:1,background:"#fff",border:`1.5px solid ${C.border}`,borderRadius:9,padding:"8px 6px",fontSize:12,color:C.text,outline:"none"}}>
+                    <option value="">Ano</option>
+                    {[2026,2027,2028,2029,2030].map(y=><option key={y} value={y}>{y}</option>)}
+                  </select>
+                </div>
+              </div>
+            </div>
+            {dataIni&&dataFim&&(
+              <div style={{marginTop:10,color:C.navy,fontSize:12,textAlign:"center",fontWeight:600}}>
+                📊 Mostrando: {MESES_PT[parseInt(dataIni.split("/")[0])-1]?.slice(0,3)} {dataIni.split("/")[1]} → {MESES_PT[parseInt(dataFim.split("/")[0])-1]?.slice(0,3)} {dataFim.split("/")[1]}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Gráfico */}
+        {mesesGrafico.length>1?(
+          <div style={{position:"relative",height:chartH+40}}>
+            <div style={{position:"absolute",left:0,right:0,top:chartH/2,borderTop:`1px dashed ${C.border}`,zIndex:0}}/>
+            <svg width="100%" height={chartH+30} style={{overflow:"visible"}}>
+              {mesesGrafico.map((p,i)=>{
+                if(i===0)return null;
+                const prev=mesesGrafico[i-1];
+                const x1=(i-1)/(mesesGrafico.length-1)*100;
+                const x2=i/(mesesGrafico.length-1)*100;
+                const y1=chartH/2-(prev.lucro/maxLucro)*(chartH/2-10);
+                const y2=chartH/2-(p.lucro/maxLucro)*(chartH/2-10);
+                return <line key={i} x1={`${x1}%`} y1={y1} x2={`${x2}%`} y2={y2} stroke={C.navy} strokeWidth="2.5" strokeLinecap="round"/>;
+              })}
+              {mesesGrafico.map((p,i)=>{
+                const x=i/(mesesGrafico.length-1)*100;
+                const y=chartH/2-(p.lucro/maxLucro)*(chartH/2-10);
+                const cor=p.lucro>=0?C.green:C.red;
+                return(
+                  <g key={i}>
+                    <circle cx={`${x}%`} cy={y} r={p.atual?8:5} fill={p.atual?C.orange:cor} stroke="#fff" strokeWidth="2"/>
+                    <text x={`${x}%`} y={p.lucro>=0?y-13:y+20} textAnchor="middle"
+                      fill={p.atual?C.orange:cor} fontSize="10" fontWeight={p.atual?"800":"600"}>
+                      {formatGraficoLucro(p.lucro)}
+                    </text>
+                  </g>
+                );
+              })}
+            </svg>
+            <div style={{display:"flex",justifyContent:"space-between",marginTop:4}}>
+              {mesesGrafico.map((p,i)=>(
+                <div key={i} style={{textAlign:"center",flex:1}}>
+                  <div style={{color:p.atual?C.orange:C.muted,fontSize:10,fontWeight:p.atual?800:400}}>{p.label}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ):(
+          <div style={{textAlign:"center",padding:"20px 0",color:C.muted,fontSize:14}}>
+            {periodoGraf==="custom"?"Preencha as datas para ver o gráfico":"Sem dados suficientes para o gráfico"}
+          </div>
+        )}
+
+        <div style={{background:C.navyLight,borderRadius:10,padding:"8px 12px",display:"flex",alignItems:"center",gap:6,marginTop:12}}>
+          <div style={{width:10,height:10,borderRadius:"50%",background:C.orange,flexShrink:0}}/>
+          <span style={{color:C.navy,fontSize:12}}>Ponto laranja = mês selecionado · Valores ≥ R$ 10 mil exibidos em mil (k)</span>
+        </div>
+      </div>
+    </Card>
+  );
+
   return(
     <div style={{display:"flex",flexDirection:"column",gap:18}}>
 
@@ -4458,116 +4591,6 @@ const Financeiro=({historicoFretes,manutencoes,despesas=[]})=>{
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
         <h1 style={{color:C.navy,fontSize:22,fontWeight:900,fontFamily:"'Sora',sans-serif",margin:0}}>Financeiro</h1>
       </div>
-
-      {/* Gráfico de evolução do lucro */}
-      <Card>
-        <CardHeader title={`📈 Evolução do Lucro — ${periodoGraf==="3"?"3 meses":periodoGraf==="12"?"12 meses":periodoGraf==="custom"?"Período personalizado":"6 meses"}`}/>
-        <div style={{padding:"14px 20px"}}>
-
-          {/* Chips de período */}
-          <div style={{display:"flex",gap:6,marginBottom:14,flexWrap:"wrap"}}>
-            {[{v:"3",l:"3 meses"},{v:"6",l:"6 meses"},{v:"12",l:"12 meses"},{v:"custom",l:"Personalizado"}].map(op=>(
-              <button key={op.v} onClick={()=>setPeriodoGraf(op.v)}
-                style={{padding:"6px 14px",borderRadius:20,border:`1.5px solid ${periodoGraf===op.v?C.orange:C.border}`,background:periodoGraf===op.v?C.orange:"transparent",color:periodoGraf===op.v?"#fff":C.text2,fontWeight:periodoGraf===op.v?700:400,fontSize:12,cursor:"pointer",transition:"all .15s"}}>
-                {op.l}
-              </button>
-            ))}
-          </div>
-
-          {/* Campos de data personalizada — seletor de mês e ano */}
-          {periodoGraf==="custom"&&(
-            <div style={{background:C.navyLight,borderRadius:12,padding:"12px 14px",marginBottom:14}}>
-              <div style={{color:C.navy,fontSize:14,fontWeight:700,marginBottom:10}}>Selecione o período:</div>
-              <div style={{display:"flex",gap:10,alignItems:"flex-end"}}>
-                <div style={{flex:1}}>
-                  <div style={{color:C.muted,fontSize:10,fontWeight:700,marginBottom:5}}>DE</div>
-                  <div style={{display:"flex",gap:6}}>
-                    <select value={dataIni.split("/")[0]||""} onChange={e=>{const[,y]=dataIni.split("/");setDataIni(`${e.target.value}/${y||new Date().getFullYear()}`);}}
-                      style={{flex:1,background:"#fff",border:`1.5px solid ${C.border}`,borderRadius:9,padding:"8px 6px",fontSize:12,color:C.text,outline:"none"}}>
-                      <option value="">Mês</option>
-                      {MESES_PT.map((m,i)=><option key={i} value={String(i+1).padStart(2,"0")}>{m.slice(0,3)}</option>)}
-                    </select>
-                    <select value={dataIni.split("/")[1]||""} onChange={e=>{const[m]=dataIni.split("/");setDataIni(`${m||"01"}/${e.target.value}`);}}
-                      style={{flex:1,background:"#fff",border:`1.5px solid ${C.border}`,borderRadius:9,padding:"8px 6px",fontSize:12,color:C.text,outline:"none"}}>
-                      <option value="">Ano</option>
-                      {[2026,2027,2028,2029,2030].map(y=><option key={y} value={y}>{y}</option>)}
-                    </select>
-                  </div>
-                </div>
-                <div style={{color:C.muted,fontSize:14,paddingBottom:8}}>→</div>
-                <div style={{flex:1}}>
-                  <div style={{color:C.muted,fontSize:10,fontWeight:700,marginBottom:5}}>ATÉ</div>
-                  <div style={{display:"flex",gap:6}}>
-                    <select value={dataFim.split("/")[0]||""} onChange={e=>{const[,y]=dataFim.split("/");setDataFim(`${e.target.value}/${y||new Date().getFullYear()}`);}}
-                      style={{flex:1,background:"#fff",border:`1.5px solid ${C.border}`,borderRadius:9,padding:"8px 6px",fontSize:12,color:C.text,outline:"none"}}>
-                      <option value="">Mês</option>
-                      {MESES_PT.map((m,i)=><option key={i} value={String(i+1).padStart(2,"0")}>{m.slice(0,3)}</option>)}
-                    </select>
-                    <select value={dataFim.split("/")[1]||""} onChange={e=>{const[m]=dataFim.split("/");setDataFim(`${m||"01"}/${e.target.value}`);}}
-                      style={{flex:1,background:"#fff",border:`1.5px solid ${C.border}`,borderRadius:9,padding:"8px 6px",fontSize:12,color:C.text,outline:"none"}}>
-                      <option value="">Ano</option>
-                      {[2026,2027,2028,2029,2030].map(y=><option key={y} value={y}>{y}</option>)}
-                    </select>
-                  </div>
-                </div>
-              </div>
-              {dataIni&&dataFim&&(
-                <div style={{marginTop:10,color:C.navy,fontSize:12,textAlign:"center",fontWeight:600}}>
-                  📊 Mostrando: {MESES_PT[parseInt(dataIni.split("/")[0])-1]?.slice(0,3)} {dataIni.split("/")[1]} → {MESES_PT[parseInt(dataFim.split("/")[0])-1]?.slice(0,3)} {dataFim.split("/")[1]}
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Gráfico */}
-          {mesesGrafico.length>1?(
-            <div style={{position:"relative",height:chartH+40}}>
-              <div style={{position:"absolute",left:0,right:0,top:chartH/2,borderTop:`1px dashed ${C.border}`,zIndex:0}}/>
-              <svg width="100%" height={chartH+30} style={{overflow:"visible"}}>
-                {mesesGrafico.map((p,i)=>{
-                  if(i===0)return null;
-                  const prev=mesesGrafico[i-1];
-                  const x1=(i-1)/(mesesGrafico.length-1)*100;
-                  const x2=i/(mesesGrafico.length-1)*100;
-                  const y1=chartH/2-(prev.lucro/maxLucro)*(chartH/2-10);
-                  const y2=chartH/2-(p.lucro/maxLucro)*(chartH/2-10);
-                  return <line key={i} x1={`${x1}%`} y1={y1} x2={`${x2}%`} y2={y2} stroke={C.navy} strokeWidth="2.5" strokeLinecap="round"/>;
-                })}
-                {mesesGrafico.map((p,i)=>{
-                  const x=i/(mesesGrafico.length-1)*100;
-                  const y=chartH/2-(p.lucro/maxLucro)*(chartH/2-10);
-                  const cor=p.lucro>=0?C.green:C.red;
-                  return(
-                    <g key={i}>
-                      <circle cx={`${x}%`} cy={y} r={p.atual?8:5} fill={p.atual?C.orange:cor} stroke="#fff" strokeWidth="2"/>
-                      <text x={`${x}%`} y={p.lucro>=0?y-13:y+20} textAnchor="middle"
-                        fill={p.atual?C.orange:cor} fontSize="10" fontWeight={p.atual?"800":"600"}>
-                        {p.lucro===0?"—":`${p.lucro>=0?"+":""}${(p.lucro/1000).toFixed(1)}k`}
-                      </text>
-                    </g>
-                  );
-                })}
-              </svg>
-              <div style={{display:"flex",justifyContent:"space-between",marginTop:4}}>
-                {mesesGrafico.map((p,i)=>(
-                  <div key={i} style={{textAlign:"center",flex:1}}>
-                    <div style={{color:p.atual?C.orange:C.muted,fontSize:10,fontWeight:p.atual?800:400}}>{p.label}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ):(
-            <div style={{textAlign:"center",padding:"20px 0",color:C.muted,fontSize:14}}>
-              {periodoGraf==="custom"?"Preencha as datas para ver o gráfico":"Sem dados suficientes para o gráfico"}
-            </div>
-          )}
-
-          <div style={{background:C.navyLight,borderRadius:10,padding:"8px 12px",display:"flex",alignItems:"center",gap:6,marginTop:12}}>
-            <div style={{width:10,height:10,borderRadius:"50%",background:C.orange,flexShrink:0}}/>
-            <span style={{color:C.navy,fontSize:12}}>Ponto laranja = mês selecionado · Valores em mil reais (k)</span>
-          </div>
-        </div>
-      </Card>
 
       {/* Navegação mês anterior / próximo */}
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",background:C.navyLight,borderRadius:13,padding:"10px 16px"}}>
@@ -4588,25 +4611,6 @@ const Financeiro=({historicoFretes,manutencoes,despesas=[]})=>{
         </div>
       ):(
         <>
-          {/* Cards principais */}
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:11}}>
-            <Metric label="Receita bruta" value={formatMoeda(totalReceita)} sub={`${fretesMes.length} frete(s)`} trend="up" icon={TrendingUpIcon} color={C.green} bg={C.greenLight}/>
-            <Metric label="Custo das viagens" value={formatMoeda(totalCusto)} sub="combustível + pedágio + ARLA" trend="down" icon={TrendingDownIcon} color={C.red} bg={C.redLight}/>
-          </div>
-
-          {totalMaint>0&&(
-            <div style={{background:C.amberLight,border:`1px solid ${C.amber}33`,borderRadius:13,padding:"13px 16px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-              <div style={{display:"flex",alignItems:"center",gap:8}}><WrenchIcon size={15} color={C.amber}/><div><div style={{color:C.amber,fontWeight:700,fontSize:14}}>Manutenções do mês</div><div style={{color:C.amber,fontSize:12,opacity:0.8}}>{maintMes.length} registro(s)</div></div></div>
-              <span style={{color:C.amber,fontWeight:800,fontSize:18,fontFamily:"'Sora',sans-serif",whiteSpace:"nowrap"}}>- {formatMoeda(totalMaint)}</span>
-            </div>
-          )}
-          {totalDesp>0&&(
-            <div style={{background:C.redLight,border:`1px solid ${C.red}33`,borderRadius:13,padding:"13px 16px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-              <div style={{display:"flex",alignItems:"center",gap:8}}><DollarSignIcon size={15} color={C.red}/><div><div style={{color:C.red,fontWeight:700,fontSize:14}}>Despesas do mês</div><div style={{color:C.red,fontSize:12,opacity:0.8}}>{despMes.length} registro(s)</div></div></div>
-              <span style={{color:C.red,fontWeight:800,fontSize:18,fontFamily:"'Sora',sans-serif",whiteSpace:"nowrap"}}>- {formatMoeda(totalDesp)}</span>
-            </div>
-          )}
-
           {/* Saldo líquido */}
           <div style={{background:saldoLiquido>=0?`linear-gradient(135deg,${C.green},#16A34A)`:`linear-gradient(135deg,${C.red},#B91C1C)`,borderRadius:16,padding:"20px 22px",boxShadow:`0 6px 20px ${saldoLiquido>=0?C.green:C.red}44`}}>
             <div style={{color:"rgba(255,255,255,0.75)",fontSize:14,fontWeight:700,letterSpacing:0.5,textTransform:"uppercase",marginBottom:6}}>Saldo Líquido do Mês</div>
@@ -4623,6 +4627,25 @@ const Financeiro=({historicoFretes,manutencoes,despesas=[]})=>{
               )}
             </div>
           </div>
+
+          {/* Cards principais */}
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:11}}>
+            <Metric label="Receita bruta" value={formatMoeda(totalReceita)} sub={`${fretesMes.length} ${fretesMes.length===1?"frete":"fretes"}`} trend="up" icon={TrendingUpIcon} color={C.green} bg={C.greenLight}/>
+            <Metric label="Custo das viagens" value={formatMoeda(totalCusto)} sub="combustível + pedágio + ARLA" trend="down" icon={TrendingDownIcon} color={C.red} bg={C.redLight}/>
+          </div>
+
+          {totalMaint>0&&(
+            <div style={{background:C.amberLight,border:`1px solid ${C.amber}33`,borderRadius:13,padding:"13px 16px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <div style={{display:"flex",alignItems:"center",gap:8}}><WrenchIcon size={15} color={C.amber}/><div><div style={{color:C.amber,fontWeight:700,fontSize:14}}>Manutenções do mês</div><div style={{color:C.amber,fontSize:12,opacity:0.8}}>{pluralRegistros(maintMes.length)}</div></div></div>
+              <span style={{color:C.amber,fontWeight:800,fontSize:18,fontFamily:"'Sora',sans-serif",whiteSpace:"nowrap"}}>- {formatMoeda(totalMaint)}</span>
+            </div>
+          )}
+          {totalDesp>0&&(
+            <div style={{background:C.redLight,border:`1px solid ${C.red}33`,borderRadius:13,padding:"13px 16px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <div style={{display:"flex",alignItems:"center",gap:8}}><DollarSignIcon size={15} color={C.red}/><div><div style={{color:C.red,fontWeight:700,fontSize:14}}>Despesas do mês</div><div style={{color:C.red,fontSize:12,opacity:0.8}}>{pluralRegistros(despMes.length)}</div></div></div>
+              <span style={{color:C.red,fontWeight:800,fontSize:18,fontFamily:"'Sora',sans-serif",whiteSpace:"nowrap"}}>- {formatMoeda(totalDesp)}</span>
+            </div>
+          )}
 
           {/* R$/km */}
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:11}}>
@@ -4646,12 +4669,14 @@ const Financeiro=({historicoFretes,manutencoes,despesas=[]})=>{
                 <div style={{color:C.green,fontWeight:900,fontSize:22,fontFamily:"'Sora',sans-serif",lineHeight:1,whiteSpace:"nowrap"}}>
                   {formatMoeda(totalReceita)}
                 </div>
-                <div style={{color:C.muted,fontSize:13,marginTop:6}}>{fretesMes.length} frete{fretesMes.length!==1?"s":""}</div>
+                <div style={{color:C.muted,fontSize:13,marginTop:6}}>{fretesMes.length} {fretesMes.length===1?"frete":"fretes"}</div>
               </div>
             </Card>
           )}
         </>
       )}
+
+      {graficoLucroCard}
     </div>
   );
 };
@@ -5887,7 +5912,7 @@ export default function App(){
         );})}
       </div>
       <div style={{maxWidth:820,margin:"0 auto",padding:`20px 14px ${showNavActiveBanner?(plan==="free"?"168px":"128px"):plan==="free"?"120px":"80px"}`}}>
-        {page==="dashboard"   &&<Dashboard onNav={setPage} setShowCalc={setShowCalc} setCalcMode={setCalcMode} historicoFretes={historicoFretes} manutencoes={manutencoes} docs={docs} perfil={perfil}/>}
+        {page==="dashboard"   &&<Dashboard onNav={setPage} setShowCalc={setShowCalc} setCalcMode={setCalcMode} historicoFretes={historicoFretes} manutencoes={manutencoes} docs={docs} despesas={despesas} perfil={perfil}/>}
         {page==="financeiro"  &&<Financeiro historicoFretes={historicoFretes} manutencoes={manutencoes} despesas={despesas}/>}
         {page==="despesas"    &&<Despesas despesas={despesas} onAddDespesa={handleAddDespesa} onUpdateDespesa={handleUpdateDespesa} onDeleteDespesa={handleDeleteDespesa}/>}
         {page==="comparador"  &&<Comparador historicoFretes={historicoFretes} onAddFrete={handleAddFrete} onUpdateFrete={handleUpdateFrete} onDeleteFrete={handleDeleteFrete}/>}

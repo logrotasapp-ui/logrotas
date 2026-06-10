@@ -26,6 +26,44 @@ export function formatKm(n) {
   return v.toLocaleString("pt-BR", { maximumFractionDigits: 0 });
 }
 
+/** Rótulo do gráfico de lucro: valor inteiro abaixo de R$ 10k, "k" a partir de R$ 10k. */
+export function formatGraficoLucro(lucro) {
+  const v = roundMoney(lucro);
+  if (v === 0) return "—";
+  const abs = Math.abs(v);
+  const sign = v >= 0 ? "+" : "-";
+  if (abs >= 10000) {
+    const kStr = (abs / 1000).toLocaleString("pt-BR", {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 1,
+    });
+    return `${sign}R$ ${kStr}k`;
+  }
+  return `${sign}R$ ${Math.round(abs).toLocaleString("pt-BR", { maximumFractionDigits: 0 })}`;
+}
+
+export function pluralFretes(n) {
+  if (n === 0) return "Nenhum frete ainda";
+  if (n === 1) return "1 frete";
+  return `${n} fretes`;
+}
+
+export function pluralRegistros(n) {
+  if (n === 1) return "1 registro";
+  return `${n} registros`;
+}
+
+export function pluralDocumentosVencidos(n) {
+  if (n === 1) return "1 documento VENCIDO!";
+  return `${n} documentos VENCIDOS!`;
+}
+
+export function pluralDocumentosVence(n, dias) {
+  const doc = n === 1 ? "documento" : "documentos";
+  const verb = n === 1 ? "vence" : "vencem";
+  return `${n} ${doc} ${verb} em até ${dias} dias`;
+}
+
 /** Arredonda custos do frete e recalcula total/lucro antes de salvar. */
 export function roundFreteCostsForSave(item) {
   if (!item) return item;
