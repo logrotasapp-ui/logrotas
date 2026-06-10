@@ -33,13 +33,17 @@ class DeliveryClusterRenderer {
   }
 }
 
-function createNumberedMarker(lng, lat, order, entregue = false) {
+function createNumberedMarker(lng, lat, order, status = "pendente") {
+  const fillColor =
+    status === "entregue" ? "#22C55E" :
+    status === "nao_entregue" ? "#FCA5A5" :
+    "#3B82F6";
   return new window.google.maps.Marker({
     position: { lat, lng },
     icon: {
       path: window.google.maps.SymbolPath.CIRCLE,
       scale: 16,
-      fillColor: entregue ? "#94A3B8" : "#3B82F6",
+      fillColor,
       fillOpacity: 1,
       strokeColor: "#ffffff",
       strokeWeight: 2,
@@ -198,8 +202,8 @@ export default function DeliveryMap({
 
         const markers = features.map((f) => {
           const [lng, lat] = f.geometry.coordinates;
-          const { packageCount, orders, entregue } = f.properties;
-          const marker = createNumberedMarker(lng, lat, f.properties.order, entregue);
+          const { packageCount, orders, status } = f.properties;
+          const marker = createNumberedMarker(lng, lat, f.properties.order, status || "pendente");
           marker.__deliveryData = { packageCount, orders };
           marker.addListener("click", () => {
             if (!infoWindowRef.current) {

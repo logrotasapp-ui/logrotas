@@ -26,6 +26,16 @@ export function formatKm(n) {
   return v.toLocaleString("pt-BR", { maximumFractionDigits: 0 });
 }
 
+/** 8,3 km */
+export function formatKmDecimal(n, decimals = 1) {
+  const v = Number(n);
+  if (!Number.isFinite(v)) return `${n} km`;
+  return `${v.toLocaleString("pt-BR", {
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals,
+  })} km`;
+}
+
 /** Número decimal pt-BR (ex: 3,5) */
 export function formatDecimal(n, decimals = 1) {
   const v = Number(n);

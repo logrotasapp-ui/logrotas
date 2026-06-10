@@ -1,8 +1,9 @@
 /** Marcadores Google Maps — mesma aparência do mapa expandido de entregas. */
 
-export function createNumberedStopMarker(lng, lat, order, { entregue = false, isCurrent = false } = {}) {
+export function createNumberedStopMarker(lng, lat, order, { entregue = false, naoEntregue = false, isCurrent = false } = {}) {
   let fillColor = "#3B82F6";
-  if (entregue) fillColor = "#94A3B8";
+  if (naoEntregue) fillColor = "#FCA5A5";
+  else if (entregue) fillColor = "#22C55E";
   else if (isCurrent) fillColor = "#2563EB";
 
   return new window.google.maps.Marker({

@@ -4,6 +4,12 @@
 
 import { geocodeAddressForDisplay } from "./routingService.js";
 
+function resolveParadaStatus(p) {
+  if (p?.status) return p.status;
+  if (p?.entregue) return "entregue";
+  return "pendente";
+}
+
 function resolveCoords(parada) {
   const c = parada?.coords;
   if (!c) return null;
@@ -49,7 +55,8 @@ export async function buildDeliveryMapFeatures(paradas) {
       lng,
       lat,
       order,
-      entregue: !!p.entregue,
+      status: resolveParadaStatus(p),
+      entregue: resolveParadaStatus(p) === "entregue",
     });
   }
 
@@ -75,6 +82,7 @@ export async function buildDeliveryMapFeatures(paradas) {
         packageCount: group.packageCount,
         orders: group.orders,
         order: pt.order,
+        status: pt.status,
         entregue: pt.entregue,
       },
       geometry: {

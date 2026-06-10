@@ -79,19 +79,9 @@ export default function NavigationMap({
         const isCurrent = i === currentStopIndex && status === "pendente";
         const marker = createNumberedStopMarker(lng, lat, i + 1, {
           entregue: status === "entregue",
+          naoEntregue: status === "nao_entregue",
           isCurrent,
         });
-
-        if (status === "nao_entregue") {
-          marker.setIcon({
-            path: window.google.maps.SymbolPath.CIRCLE,
-            scale: 16,
-            fillColor: "#FCA5A5",
-            fillOpacity: 1,
-            strokeColor: "#ffffff",
-            strokeWeight: 2,
-          });
-        }
 
         marker.addListener("click", () => {
           const pacotes = packageCountAtCoords(paradas, lng, lat);

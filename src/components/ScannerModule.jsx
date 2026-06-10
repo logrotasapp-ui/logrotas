@@ -355,14 +355,6 @@ export default function ScannerModule({
           >
             Fotos JPG/PNG ou PDF (1ª página). Requer internet.
           </p>
-
-          <button
-            type="button"
-            onClick={handleFullCancel}
-            style={{ ...cancelBtnStyle, width: "100%" }}
-          >
-            Cancelar
-          </button>
         </>
       )}
 

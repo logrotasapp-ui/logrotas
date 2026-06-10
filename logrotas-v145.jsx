@@ -29,6 +29,7 @@ import {
   roundFreteCostsForSave,
   roundMoney,
   formatGraficoLucro,
+  formatKmDecimal,
   formatDecimal,
   formatKwhPrice,
   formatConsumoKmL,
@@ -90,7 +91,7 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="V228";
+const APP_VERSION="V229";
 const BETA_HIDE_PLANOS=true;
 
 const OfflineRestoredBanner=({show})=>show?(
@@ -1278,6 +1279,32 @@ function getParadaStatus(p){
   return "pendente";
 }
 
+function paradaBolinhaCor(p,i,paradaAtualIdx,modoNavegacao){
+  const st=getParadaStatus(p);
+  if(st==="entregue")return C.green;
+  if(st==="nao_entregue")return C.red;
+  if(modoNavegacao&&i===paradaAtualIdx&&st==="pendente")return OTIMIZAR_AZUL;
+  if(p.confianca==="warn"&&st==="pendente")return "#F59E0B";
+  return OTIMIZAR_AZUL;
+}
+
+function paradaCardBg(p){
+  const st=getParadaStatus(p);
+  if(st==="entregue")return "#F0FDF4";
+  if(st==="nao_entregue")return "#FFF5F5";
+  if(p.confianca==="warn")return "#FFFBEB";
+  return C.subtle;
+}
+
+function paradaCardBorder(p,i,paradaAtualIdx,modoNavegacao){
+  const st=getParadaStatus(p);
+  if(modoNavegacao&&i===paradaAtualIdx&&st==="pendente")return OTIMIZAR_AZUL;
+  if(st==="entregue")return `${C.green}44`;
+  if(st==="nao_entregue")return `${C.red}44`;
+  if(p.confianca==="warn")return "#FDE68A";
+  return C.border;
+}
+
 function formatNowBR(){
   const d=new Date();
   const pad=n=>String(n).padStart(2,"0");
@@ -1909,7 +1936,7 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
         </div>
         <button onClick={adicionarManual} disabled={atingiuLimite||adicionandoManual}
           style={{width:"100%",background:atingiuLimite||adicionandoManual?"#94A3B8":OTIMIZAR_AZUL,border:"none",borderRadius:12,padding:"12px 20px",cursor:atingiuLimite||adicionandoManual?"not-allowed":"pointer",color:"#fff",fontWeight:800,fontSize:15,display:"flex",alignItems:"center",justifyContent:"center",gap:7,minHeight:48,boxShadow:atingiuLimite||adicionandoManual?"none":`0 4px 14px ${OTIMIZAR_AZUL}44`}}>
-          <PlusIcon size={18}/> {adicionandoManual?"…":"Add"}
+          <PlusIcon size={18}/> {adicionandoManual?"…":"Adicionar"}
         </button>
       </div>
 
@@ -2066,16 +2093,16 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
           {paradas.map((p,i)=>(
             <div key={p.id} style={{
               display:"flex",flexDirection:"column",gap:8,
-              background:getParadaStatus(p)==="entregue"?"#F1F5F9":getParadaStatus(p)==="nao_entregue"?"#FFF5F5":p.confianca==="warn"?"#FFFBEB":C.subtle,
-              border:`1.5px solid ${getParadaStatus(p)!=="pendente"?"#E2E8F0":p.confianca==="warn"?"#FDE68A":C.border}`,
+              background:paradaCardBg(p),
+              border:`1.5px solid ${paradaCardBorder(p,i,paradaAtualIdx,modoNavegacao)}`,
               borderRadius:11,padding:"10px 13px",transition:"all .3s",position:"relative",
             }}>
               <div style={{display:"flex",alignItems:"flex-start",gap:10,paddingRight:36}}>
-                <div style={{width:24,height:24,borderRadius:"50%",background:getParadaStatus(p)!=="pendente"?"#94A3B8":p.confianca==="warn"?"#F59E0B":resultado?"#22C55E":"#3B82F6",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,marginTop:1}}>
+                <div style={{width:24,height:24,borderRadius:"50%",background:paradaBolinhaCor(p,i,paradaAtualIdx,modoNavegacao),display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,marginTop:1}}>
                   <span style={{color:"#fff",fontWeight:800,fontSize:11}}>{i+1}</span>
                 </div>
                 <div style={{flex:1,minWidth:0}}>
-                  <div style={{color:getParadaStatus(p)!=="pendente"?"#94A3B8":C.text,fontSize:13,textDecoration:getParadaStatus(p)!=="pendente"?"line-through":"none",lineHeight:1.4}}>
+                  <div style={{color:getParadaStatus(p)!=="pendente"?"#64748B":C.text,fontSize:13,textDecoration:getParadaStatus(p)!=="pendente"?"line-through":"none",lineHeight:1.4}}>
                     {p.endereco}
                   </div>
                   {getParadaStatus(p)==="entregue"&&<div style={{color:C.green,fontSize:11,marginTop:4}}>✅ Entregue · {p.horario||""}</div>}
@@ -2125,10 +2152,10 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
           <div style={{background:`linear-gradient(135deg,${OTIMIZAR_AZUL},${OTIMIZAR_AZUL_MID})`,borderRadius:16,padding:"18px 20px",textAlign:"center",boxShadow:`0 4px 16px ${OTIMIZAR_AZUL}44`}}>
             <div style={{fontSize:32,marginBottom:6}}>🎉</div>
             <div style={{color:"#fff",fontWeight:900,fontSize:18,fontFamily:"'Sora',sans-serif",marginBottom:4}}>
-              Você economizou {resultado.economiaKm} km!
+              Você economizou {formatKmDecimal(resultado.economiaKm)}!
             </div>
             <div style={{color:"rgba(255,255,255,0.85)",fontSize:13}}>
-              Equivale a <b>R$ {resultado.economiaCusto}</b> de combustível a menos
+              Equivale a <b>{formatMoeda(resultado.economiaCusto)}</b> de combustível a menos
             </div>
           </div>
 
@@ -2136,11 +2163,11 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
           <div style={{background:C.subtle,borderRadius:14,padding:"16px",display:"flex",flexDirection:"column",gap:10}}>
             <div style={{color:C.navy,fontWeight:700,fontSize:13,marginBottom:4}}>📊 Resumo da Rota Otimizada</div>
             {[
-              {emoji:"📍",label:"Distância otimizada",valor:`${resultado.kmOtimizado.toFixed(1)} km`},
+              {emoji:"📍",label:"Distância otimizada",valor:formatKmDecimal(resultado.kmOtimizado)},
               {emoji:"⏱️",label:"Tempo estimado",valor:`~${resultado.tempoEstimado} min`},
-              {emoji:"⛽",label:"Custo combustível",valor:`R$ ${resultado.custoTotal}`},
-              {emoji:"✂️",label:"Distância economizada",valor:`${resultado.economiaKm} km`,cor:OTIMIZAR_AZUL},
-              {emoji:"💰",label:"Economia em R$",valor:`R$ ${resultado.economiaCusto}`,cor:OTIMIZAR_AZUL},
+              {emoji:"⛽",label:"Custo combustível",valor:formatMoeda(resultado.custoTotal)},
+              {emoji:"✂️",label:"Distância economizada",valor:formatKmDecimal(resultado.economiaKm),cor:OTIMIZAR_AZUL},
+              {emoji:"💰",label:"Economia em R$",valor:formatMoeda(resultado.economiaCusto),cor:OTIMIZAR_AZUL},
             ].map((r,i)=>(
               <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",borderBottom:i<4?`1px solid ${C.border}`:"none",paddingBottom:i<4?8:0}}>
                 <span style={{color:C.text2,fontSize:13}}>{r.emoji} {r.label}</span>
@@ -2263,11 +2290,11 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
               {paradas.map((p,i)=>(
                 <div key={p.id} style={{
                   padding:"12px",marginBottom:8,borderRadius:11,
-                  background:getParadaStatus(p)==="pendente"?C.subtle:getParadaStatus(p)==="entregue"?"#F0FDF4":"#FFF5F5",
-                  border:`1.5px solid ${i===paradaAtualIdx?OTIMIZAR_AZUL:C.border}`,
+                  background:paradaCardBg(p),
+                  border:`1.5px solid ${paradaCardBorder(p,i,paradaAtualIdx,true)}`,
                 }}>
                   <div style={{display:"flex",gap:10,alignItems:"flex-start"}}>
-                    <span style={{width:24,height:24,borderRadius:"50%",background:i===paradaAtualIdx?OTIMIZAR_AZUL:"#94A3B8",color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:800,flexShrink:0}}>{i+1}</span>
+                    <span style={{width:24,height:24,borderRadius:"50%",background:paradaBolinhaCor(p,i,paradaAtualIdx,true),color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:800,flexShrink:0}}>{i+1}</span>
                     <div style={{flex:1}}>
                       <div style={{color:C.text,fontSize:13,lineHeight:1.4}}>{p.endereco}</div>
                       {getParadaStatus(p)==="entregue"&&<div style={{color:C.green,fontSize:11,marginTop:4}}>✅ Entregue · {p.horario}</div>}
