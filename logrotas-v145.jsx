@@ -73,7 +73,7 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="V219";
+const APP_VERSION="V220";
 const BETA_HIDE_PLANOS=true;
 
 const OfflineRestoredBanner=({show})=>show?(
@@ -2733,7 +2733,7 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
   const[vehicleId,setVehicleId]=useState("carro");
   const[fuelPrice,setFuelPrice]=useState("");
   const[consumo,setConsumo]=useState("");
-  const[arlaPrice,setArlaPrice]=useState("0");
+  const[arlaPrice,setArlaPrice]=useState("");
   const[arlaConsumption,setArlaConsumption]=useState("");
   const[pedagioTotal,setPedagioTotal]=useState("");
   const[trailer,setTrailer]=useState("none");
@@ -2766,6 +2766,7 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
     const cached=readOfflineCache(OFFLINE_KEYS.frete);
     const temDados=cached&&(
       String(cached.fuelPrice||"").trim()||
+      String(cached.arlaPrice||"").trim()||
       String(cached.consumo||"").trim()||
       String(cached.cargo||"").trim()||
       String(cached.metaLocal||"").trim()||
@@ -2778,6 +2779,7 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
     if(temDados){
       if(cached.vehicleId)setVehicleId(cached.vehicleId);
       if(cached.fuelPrice!=null)setFuelPrice(String(cached.fuelPrice));
+      if(cached.arlaPrice!=null&&String(cached.arlaPrice).trim()!=="")setArlaPrice(String(cached.arlaPrice));
       if(cached.consumo!=null)setConsumo(String(cached.consumo));
       if(cached.trailer)setTrailer(cached.trailer);
       if(cached.trailerAxleMap)setTrailerAxleMap(cached.trailerAxleMap);
@@ -2797,6 +2799,7 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
     if(!offlineHydrated)return;
     const temDados=
       String(fuelPrice||"").trim()||
+      String(arlaPrice||"").trim()||
       String(consumo||"").trim()||
       String(cargo||"").trim()||
       String(metaLocal||"").trim()||
@@ -2807,10 +2810,10 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
       vehicleId!=="carro"||trailer!=="none";
     if(!temDados)return;
     writeOfflineCache(OFFLINE_KEYS.frete,{
-      vehicleId,fuelPrice,consumo,trailer,trailerAxleMap,cargo,
+      vehicleId,fuelPrice,arlaPrice,consumo,trailer,trailerAxleMap,cargo,
       metaLocal,freight,valorMinSaida,kmInclusosMin,metaLucro,
     });
-  },[offlineHydrated,vehicleId,fuelPrice,consumo,trailer,trailerAxleMap,cargo,metaLocal,freight,valorMinSaida,kmInclusosMin,metaLucro]);
+  },[offlineHydrated,vehicleId,fuelPrice,arlaPrice,consumo,trailer,trailerAxleMap,cargo,metaLocal,freight,valorMinSaida,kmInclusosMin,metaLucro]);
 
   // V171 — KM por trecho via Google Directions driving
   const buscarDistAuto=async(stopsAtuais)=>{
@@ -2858,10 +2861,13 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
       skipVehicleReset.current=false;
       return;
     }
+    const cached=readOfflineCache(OFFLINE_KEYS.frete);
     if(isElec)setFuelPrice(String(veh.kwh||1.85));
+    else if(cached?.fuelPrice!=null)setFuelPrice(String(cached.fuelPrice));
     else setFuelPrice("");
     setTrailer("none");
-    setArlaPrice("0");
+    if(cached?.arlaPrice!=null&&String(cached.arlaPrice).trim()!=="")setArlaPrice(String(cached.arlaPrice));
+    else setArlaPrice("");
     setArlaConsumption("");
     setResult(null);
   },[vehicleId]);
