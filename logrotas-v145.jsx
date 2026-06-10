@@ -70,6 +70,7 @@ import {
   updateDespesaWithFinanceiro,
   deleteDespesaWithFinanceiro,
   addManutencaoWithFinanceiro,
+  updateManutencaoWithFinanceiro,
   deleteManutencaoWithFinanceiro,
   addDocumento,
   deleteDocumento,
@@ -91,7 +92,7 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="V229";
+const APP_VERSION="V230";
 const BETA_HIDE_PLANOS=true;
 
 const OfflineRestoredBanner=({show})=>show?(
@@ -106,6 +107,9 @@ const montarLinkIndicacao=(whatsappOuId)=>{
   const id=String(whatsappOuId).replace(/\D/g,"")||"usuario";
   return `${BASE_URL}?ref=${id}`;
 };
+
+// Desative para exibir aviso "Em breve" no banner da tela Início (reativar após beta)
+const REFERRAL_ENABLED=false;
 
 // Abre WhatsApp com a frase oficial de indicação
 const compartilharIndicacao=(perfil)=>{
@@ -3370,6 +3374,7 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
 
 // ── DASHBOARD ─────────────────────────────────────────────────────────────────
 const Dashboard=({onNav,setShowCalc,setCalcMode,historicoFretes,manutencoes,docs,despesas=[],perfil})=>{
+  const[showReferralSoon,setShowReferralSoon]=useState(false);
   const hoje=new Date();hoje.setHours(0,0,0,0);
   const docsVencendo=(docs||[]).filter(d=>{
     if(!d.expiry)return false;
@@ -3423,7 +3428,7 @@ const Dashboard=({onNav,setShowCalc,setCalcMode,historicoFretes,manutencoes,docs
         </div>
 
         {/* Botão indicação */}
-        <a onClick={e=>{e.preventDefault();compartilharIndicacao(perfil);}} href="#"
+        <a onClick={e=>{e.preventDefault();if(REFERRAL_ENABLED){compartilharIndicacao(perfil);}else{setShowReferralSoon(true);}}} href="#"
           style={{display:"flex",alignItems:"center",justifyContent:"space-between",background:"linear-gradient(135deg,#1E3A8A,#2952C8)",border:"none",borderRadius:14,padding:"11px 16px",cursor:"pointer",textDecoration:"none",marginBottom:4}}>
           <div style={{display:"flex",alignItems:"center",gap:10}}>
             <div style={{width:34,height:34,borderRadius:"50%",background:"#ffffff22",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
@@ -3549,6 +3554,16 @@ const Dashboard=({onNav,setShowCalc,setCalcMode,historicoFretes,manutencoes,docs
           ))}
         </div>
       </div>
+      {showReferralSoon&&(
+        <div style={{position:"fixed",inset:0,background:"#1E3A8A44",zIndex:500,display:"flex",alignItems:"center",justifyContent:"center",padding:20}} onClick={()=>setShowReferralSoon(false)}>
+          <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:20,width:"100%",maxWidth:340,padding:26,textAlign:"center",boxShadow:"0 20px 60px #00000022"}} onClick={e=>e.stopPropagation()}>
+            <div style={{fontSize:36,marginBottom:12}}>🚀</div>
+            <div style={{color:C.navy,fontWeight:800,fontSize:17,fontFamily:"'Sora',sans-serif",marginBottom:10}}>Em breve!</div>
+            <div style={{color:C.text2,fontSize:14,marginBottom:22,lineHeight:1.55}}>O programa de indicação será ativado oficialmente após a fase beta.</div>
+            <button onClick={()=>setShowReferralSoon(false)} style={{width:"100%",padding:"11px 0",background:C.navy,border:"none",borderRadius:11,color:"#fff",fontWeight:800,fontSize:14,cursor:"pointer"}}>OK</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -4216,11 +4231,29 @@ const maintMetaParts=(item)=>{
   if(item.km!=null&&String(item.km).trim()!=="")parts.push(`${formatKm(item.km)} km`);
   return parts;
 };
-const Manutencao=({manutencoes:items,onAddManutencao,onDeleteManutencao})=>{
-  const[stypes,setStypes]=useState(INIT_STYPE);const[showAdd,setShowAdd]=useState(false);const[showManage,setShowManage]=useState(false);const[del,setDel]=useState(null);const[editTIdx,setEditTIdx]=useState(null);const[editTVal,setEditTVal]=useState("");const[newType,setNewType]=useState("");const[form,setForm]=useState({type:"",vehicle:"",km:"",cost:"",nextKm:"",date:""});
+const Manutencao=({manutencoes:items,onAddManutencao,onUpdateManutencao,onDeleteManutencao})=>{
+  const[stypes,setStypes]=useState(INIT_STYPE);const[showAdd,setShowAdd]=useState(false);const[showManage,setShowManage]=useState(false);const[del,setDel]=useState(null);const[editTIdx,setEditTIdx]=useState(null);const[editTVal,setEditTVal]=useState("");const[newType,setNewType]=useState("");const[form,setForm]=useState({type:"",vehicle:"",km:"",cost:"",nextKm:"",date:""});const[editingId,setEditingId]=useState(null);
   const alerts=items.filter(i=>i.status!=="ok").length;
   const totalManut=items.reduce((a,i)=>a+(i.cost||0),0);
-  const add=async()=>{await onAddManutencao?.({...form,cost:parseFloat(form.cost)||0,status:"ok"});setForm({type:"",vehicle:"",km:"",cost:"",nextKm:"",date:""});setShowAdd(false);};
+  const resetForm=()=>setForm({type:"",vehicle:"",km:"",cost:"",nextKm:"",date:""});
+  const closeModal=()=>{setShowAdd(false);setEditingId(null);resetForm();};
+  const openEdit=(item)=>{
+    setForm({type:item.type||"",vehicle:item.vehicle||"",km:item.km!=null?String(item.km):"",cost:item.cost!=null?String(item.cost):"",nextKm:item.nextKm!=null?String(item.nextKm):"",date:item.date||""});
+    setEditingId(item.id);
+    setShowAdd(true);
+  };
+  const save=async()=>{
+    const payload={...form,cost:parseFloat(form.cost)||0};
+    if(editingId){
+      const orig=items.find(i=>i.id===editingId);
+      await onUpdateManutencao?.({id:editingId,...payload,status:orig?.status||"ok"});
+      setEditingId(null);
+    } else {
+      await onAddManutencao?.({...payload,status:"ok"});
+    }
+    resetForm();
+    setShowAdd(false);
+  };
   return(
     <div style={{display:"flex",flexDirection:"column",gap:18}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}><h1 style={{color:C.navy,fontSize:22,fontWeight:900,fontFamily:"'Sora',sans-serif",margin:0}}>Manutenção</h1><PrimaryBtn onClick={()=>setShowAdd(true)} small><PlusIcon size={12}/> Registrar</PrimaryBtn></div>
@@ -4250,11 +4283,12 @@ const Manutencao=({manutencoes:items,onAddManutencao,onDeleteManutencao})=>{
             {item.nextKm!=null&&String(item.nextKm).trim()!==""&&<div style={{color:C.muted,fontSize:11}}>Próxima em {formatKm(item.nextKm)} km</div>}
           </div>
           <div style={{color:C.red,fontWeight:700,fontSize:14,flexShrink:0,whiteSpace:"nowrap"}}>- {formatMoeda(item.cost||0)}</div>
-          <button onClick={()=>setDel(item)} style={{background:C.redLight,border:"none",borderRadius:8,padding:6,cursor:"pointer",color:C.red,display:"flex",flexShrink:0}}><Trash2Icon size={14}/></button>
+          <button onClick={()=>openEdit(item)} style={{background:C.orangeLight,border:"none",borderRadius:8,padding:6,cursor:"pointer",color:C.orange,display:"flex",flexShrink:0}}><EditIcon size={13}/></button>
+          <button onClick={()=>setDel(item)} style={{background:C.redLight,border:"none",borderRadius:8,padding:6,cursor:"pointer",color:C.red,display:"flex",flexShrink:0}}><Trash2Icon size={13}/></button>
         </div>
       ))}
       </Card>
-      {showAdd&&(<ModalWrap><ModalHeader title="Nova Manutenção" icon={WrenchIcon} iconColor={C.amber} onClose={()=>setShowAdd(false)}/>
+      {showAdd&&(<ModalWrap><ModalHeader title={editingId?"Editar Manutenção":"Nova Manutenção"} icon={WrenchIcon} iconColor={C.amber} onClose={closeModal}/>
         <div style={{display:"flex",flexDirection:"column",gap:12}}>
           <div style={{display:"flex",flexDirection:"column",gap:5}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}><label style={{color:C.text2,fontSize:14,fontWeight:700,letterSpacing:0.4}}>Tipo de Serviço</label><button onClick={()=>setShowManage(true)} style={{background:"none",border:"none",cursor:"pointer",color:C.orange,fontSize:14,fontWeight:700,display:"flex",alignItems:"center",gap:3}}><EditIcon size={11}/> Gerenciar tipos</button></div>
@@ -4279,7 +4313,7 @@ const Manutencao=({manutencoes:items,onAddManutencao,onDeleteManutencao})=>{
           <Field label="Próxima Revisão (KM)" value={form.nextKm} onChange={v=>setForm(f=>({...f,nextKm:v}))} placeholder="152.500" suffix="km"/>
           <Field label="Custo (R$)" value={form.cost} onChange={v=>setForm(f=>({...f,cost:v}))} placeholder="320.00" prefix="R$"/>
         </div>
-        <PrimaryBtn onClick={add} style={{width:"100%",marginTop:16}}>Salvar →</PrimaryBtn>
+        <PrimaryBtn onClick={save} style={{width:"100%",marginTop:16}}>{editingId?"Salvar alterações →":"Salvar →"}</PrimaryBtn>
       </ModalWrap>)}
       {showManage&&(<ModalWrap><ModalHeader title="Tipos de Serviço" icon={WrenchIcon} iconColor={C.amber} onClose={()=>setShowManage(false)}/>
         <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:16}}>
@@ -5361,10 +5395,10 @@ const Perfil=({uid,metaMes,setMetaMes,faturamentoMes,saldoLiquidoMes,vehicles,se
         <div style={{color:"#93C5FD",fontSize:12,marginTop:10}}>
           {pct.toLocaleString("pt-BR",{maximumFractionDigits:0})}% da meta concluída · Baseado no faturamento dos fretes salvos
         </div>
-        <div style={{color:"#93C5FD",fontSize:11,marginTop:6,opacity:0.9}}>
+        <div style={{color:"#E0F2FE",fontSize:12,marginTop:6}}>
           {saldoLiquidoMes>=0
-            ? `Desses, ${formatMoeda(saldoLiquidoMes)} ficaram no seu bolso`
-            : `Atenção: mês com saldo negativo de ${formatMoeda(Math.abs(saldoLiquidoMes))}`}
+            ? <>Desses, <strong style={{fontWeight:800}}>{formatMoeda(saldoLiquidoMes)}</strong> ficaram no seu bolso</>
+            : <>Atenção: mês com saldo negativo de <strong style={{fontWeight:800}}>{formatMoeda(Math.abs(saldoLiquidoMes))}</strong></>}
         </div>
       </div>
 
@@ -5542,7 +5576,7 @@ const Perfil=({uid,metaMes,setMetaMes,faturamentoMes,saldoLiquidoMes,vehicles,se
           style={{flexShrink:0,padding:"8px 12px",background:"transparent",border:`1.5px solid ${C.red}88`,borderRadius:10,cursor:"pointer",color:C.red,fontWeight:600,fontSize:12,whiteSpace:"nowrap"}}>
           🗑 Apagar dados
         </button>
-        <p style={{margin:0,color:C.muted,fontSize:11,lineHeight:1.5}}>
+        <p style={{margin:0,color:"#475569",fontSize:12,lineHeight:1.5}}>
           Apaga fretes, despesas, manutenções e documentos. Use apenas para recomeçar do zero.
         </p>
       </div>
@@ -5738,6 +5772,15 @@ export default function App(){
     try{
       const saved=await addManutencaoWithFinanceiro(uid,item);
       setManutencoes(m=>[saved,...m]);
+    }catch{/* ignore */}
+  },[firebaseUser?.uid]);
+
+  const handleUpdateManutencao=useCallback(async(item)=>{
+    const uid=firebaseUser?.uid;
+    if(!uid||!item?.id)return;
+    try{
+      const saved=await updateManutencaoWithFinanceiro(uid,item.id,item);
+      setManutencoes(m=>m.map(x=>x.id===item.id?saved:x));
     }catch{/* ignore */}
   },[firebaseUser?.uid]);
 
@@ -5973,7 +6016,7 @@ export default function App(){
         {page==="financeiro"  &&<Financeiro historicoFretes={historicoFretes} manutencoes={manutencoes} despesas={despesas}/>}
         {page==="despesas"    &&<Despesas despesas={despesas} onAddDespesa={handleAddDespesa} onUpdateDespesa={handleUpdateDespesa} onDeleteDespesa={handleDeleteDespesa}/>}
         {page==="comparador"  &&<Comparador historicoFretes={historicoFretes} onAddFrete={handleAddFrete} onUpdateFrete={handleUpdateFrete} onDeleteFrete={handleDeleteFrete}/>}
-        {page==="manutencao"  &&<Manutencao manutencoes={manutencoes} onAddManutencao={handleAddManutencao} onDeleteManutencao={handleDeleteManutencao}/>}
+        {page==="manutencao"  &&<Manutencao manutencoes={manutencoes} onAddManutencao={handleAddManutencao} onUpdateManutencao={handleUpdateManutencao} onDeleteManutencao={handleDeleteManutencao}/>}
         {page==="documentos"  &&<Documentos docs={docs} onAddDocumento={handleAddDocumento} onDeleteDocumento={handleDeleteDocumento}/>}
         {page==="assinatura"  &&BETA_HIDE_PLANOS&&<PlanosBetaPlaceholder/>}
         {page==="assinatura"  &&!BETA_HIDE_PLANOS&&<Assinatura plan={plan} onChangePlan={handleChangePlan}/>}

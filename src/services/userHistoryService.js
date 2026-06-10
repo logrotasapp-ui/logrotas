@@ -226,6 +226,17 @@ export async function addManutencaoWithFinanceiro(uid, item) {
   return { id: maintRef.id, ...payload };
 }
 
+export async function updateManutencaoWithFinanceiro(uid, id, item) {
+  const payload = stripMeta(item);
+  await updateHistoryItem(uid, HISTORY_COLLECTIONS.manutencao, id, payload);
+  await deleteFinanceiroBySource(uid, HISTORY_COLLECTIONS.manutencao, id);
+  await addDoc(
+    colRef(uid, HISTORY_COLLECTIONS.financeiro),
+    financeiroPayload("manutencao", HISTORY_COLLECTIONS.manutencao, id, payload)
+  );
+  return { id, ...payload };
+}
+
 export async function deleteManutencaoWithFinanceiro(uid, id) {
   await deleteFinanceiroBySource(uid, HISTORY_COLLECTIONS.manutencao, id);
   await deleteHistoryItem(uid, HISTORY_COLLECTIONS.manutencao, id);
