@@ -1,0 +1,71 @@
+# LogRotas — Cursor Rules
+
+## Visão Geral do Projeto
+LogRotas é uma PWA React/JSX para motoristas de entrega e caminhoneiros brasileiros.
+- Deploy: Netlify (auto-deploy via GitHub main branch)
+- Backend: Firebase/Firestore (southamerica-east1)
+- Auth: Firebase Email/Password
+- APIs: Google Maps, Places, Geocoding, Directions, Vision (OCR)
+- Build: Vite
+
+## Estrutura do Projeto
+- `logrotas-v145.jsx` — componente principal com todas as telas
+- `firebase.js` — configuração Firebase
+- `app.jsx` — entry point
+- `src/services/` — serviços separados:
+  - `mapDisplayService.js` — exibição do mapa
+  - `mapMarkers.js` — marcadores do mapa
+  - `navigationSessionService.js` — sessão de navegação
+  - `offlineStorage.js` — armazenamento offline
+  - `romaneioParser.js` — parser de romaneio OCR
+  - `romaneioRouting.js` — roteamento de romaneio
+  - `routingService.js` — serviço de rotas
+  - `tripCalcService.js` — calculadora de viagem
+  - `userHistoryService.js` — histórico do usuário
+  - `userProfileService.js` — perfil do usuário
+
+## Regras Obrigatórias
+
+### Git e Deploy
+- SEMPRE executar `git add .` → `git commit -m "VXXX: descrição"` → `git push origin main` ao final
+- Versão incrementar sempre (V220 → V221 etc)
+- NUNCA commitar `.firebaserc` (está no .gitignore)
+- NUNCA hardcodar chaves API — usar sempre variáveis `import.meta.env.VITE_*`
+
+### Código
+- Linguagem: React JSX (não TypeScript)
+- Estilo: CSS-in-JS inline ou classes existentes — não adicionar bibliotecas novas
+- Firestore: coleção padrão `users/{uid}/{collection}/{docId}`
+- localStorage: usar `OFFLINE_KEYS` para persistência de campos de formulário
+- Não criar novos arquivos desnecessariamente — preferir editar os existentes
+- Não alterar lógica de cálculo ao fazer mudanças visuais
+- Não alterar componentes fora do escopo solicitado
+
+### UX e Visual
+- App em português brasileiro
+- Usuários são motoristas — interface deve ser simples e direta
+- Botões destrutivos (apagar) sempre com confirmação dialog
+- Vermelho destrutivo: usar tom claro (ex: #FCA5A5), não vermelho intenso
+- Cards com borda sutil e espaçamento entre eles
+- Campos opcionais não preenchidos mostrar "—" nos detalhes
+
+### Firebase/Firestore
+- Auth obrigatório para todas as operações Firestore
+- Regras de segurança já deployadas — não alterar sem autorização
+- Sistema beta: `betaCodes` collection, códigos BETA-LR-001 a BETA-LR-015
+- Durante beta: ocultar aba Planos e banner de propaganda (verificar flag `BETA_HIDE_PLANOS`)
+
+### APIs Google
+- Maps JavaScript API: mapas embutidos
+- Places API: autocomplete de endereços
+- Geocoding API: conversão endereço→coordenadas
+- Directions API: rotas otimizadas
+- Vision API: OCR de romaneios e etiquetas
+
+## O que NÃO fazer
+- Não instalar pacotes npm sem autorização explícita
+- Não refatorar código que não foi solicitado
+- Não alterar variáveis de ambiente
+- Não expor chaves API no código
+- Não criar rotas/navegação nova sem necessidade
+- Não alterar lógica de cálculo financeiro ao fazer ajustes visuais
