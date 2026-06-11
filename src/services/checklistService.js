@@ -51,6 +51,21 @@ export const CHECKLIST_MOTIVOS = [
   { id: "outro", label: "Outro" },
 ];
 
+export const CHECKLIST_FOTO_SLOTS = [
+  { id: "frente", label: "Frente", obrigatoria: true, emoji: "⬆️" },
+  { id: "traseira", label: "Traseira", obrigatoria: true, emoji: "⬇️" },
+  { id: "lateral_esquerda", label: "Lateral Esquerda", obrigatoria: true, emoji: "⬅️" },
+  { id: "lateral_direita", label: "Lateral Direita", obrigatoria: true, emoji: "➡️" },
+  { id: "guincho", label: "Veículo no Guincho", obrigatoria: true, emoji: "🪝" },
+  { id: "avarias", label: "Avarias", obrigatoria: false, emoji: "💥", multipla: true },
+];
+
+export const CHECKLIST_FOTOS_OBRIGATORIAS = CHECKLIST_FOTO_SLOTS.filter((s) => s.obrigatoria).map((s) => s.id);
+
+function assinaturaVazia() {
+  return { nome: "", documento: "", imagemUrl: "", dataHora: "", lat: null, lng: null };
+}
+
 function colRef(uid) {
   return collection(db, "users", uid, COLLECTION);
 }
@@ -67,6 +82,11 @@ function buildColetaVazia() {
     pneus: { dianteiro: null, traseiro: null, estepe: null },
     combustivel: null,
     observacoes: "",
+    fotos: [],
+    assinaturas: {
+      responsavel: assinaturaVazia(),
+      prestador: assinaturaVazia(),
+    },
     finalizadaEm: null,
   };
 }
@@ -145,6 +165,21 @@ export function coletaCompleta(checklist) {
   if (!coleta?.pneus?.traseiro) faltando.push("Pneu traseiro");
   if (!coleta?.pneus?.estepe) faltando.push("Estepe");
   if (!coleta?.combustivel) faltando.push("Nível de combustível");
+
+  const fotos = coleta?.fotos || [];
+  CHECKLIST_FOTO_SLOTS.filter((s) => s.obrigatoria).forEach((slot) => {
+    if (!fotos.some((f) => f.tipo === slot.id && f.url)) {
+      faltando.push(`Foto: ${slot.label}`);
+    }
+  });
+
+  const assin = coleta?.assinaturas || {};
+  if (!assin.responsavel?.nome?.trim()) faltando.push("Nome do responsável no local");
+  if (!assin.responsavel?.documento?.trim()) faltando.push("Documento do responsável no local");
+  if (!assin.responsavel?.imagemUrl) faltando.push("Assinatura do responsável no local");
+  if (!assin.prestador?.nome?.trim()) faltando.push("Nome do prestador");
+  if (!assin.prestador?.documento?.trim()) faltando.push("Documento do prestador");
+  if (!assin.prestador?.imagemUrl) faltando.push("Assinatura do prestador");
 
   return { completa: faltando.length === 0, faltando };
 }
