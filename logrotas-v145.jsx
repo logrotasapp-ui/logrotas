@@ -53,6 +53,8 @@ import { playWhooshSound } from "./src/utils/whooshSound.js";
 import DeliveryMap from "./src/components/DeliveryMap.js";
 import NavigationMap from "./src/components/NavigationMap.jsx";
 import ProgressOverlay from "./src/components/ProgressOverlay.jsx";
+import ChecklistVeiculo from "./src/components/ChecklistVeiculo.jsx";
+import { criarChecklist, buscarChecklistPorFrete } from "./src/services/checklistService.js";
 import { loadDeliveryRoutes, saveDeliveryRoute, deleteDeliveryRoute } from "./src/services/deliveryRouteService.js";
 import {
   saveDeliveryReportPdf,
@@ -100,7 +102,7 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="V236-parte1";
+const APP_VERSION="V237";
 const BETA_HIDE_PLANOS=true;
 
 const OfflineRestoredBanner=({show})=>show?(
@@ -4091,15 +4093,30 @@ const FreteDetRow=({label,value,valueStyle={},rowStyle={}})=>(
     <span style={{...FRETE_DET_V,...valueStyle}}>{value}</span>
   </div>
 );
-const Comparador=({historicoFretes,onAddFrete,onUpdateFrete,onDeleteFrete})=>{
+const isPerfilGuincheiro=(perfil)=>perfil?.tipo==="Guincheiro"||perfil?.profile==="guincheiro";
+const Comparador=({historicoFretes,onAddFrete,onUpdateFrete,onDeleteFrete,perfil,uid,onOpenChecklist})=>{
   const[del,setDel]=useState(null);
   const[detalhe,setDetalhe]=useState(null);
   const[showAdd,setShowAdd]=useState(false);
   const[editItem,setEditItem]=useState(null);
   const[filtroPeriodo,setFiltroPeriodo]=useState("este");
+  const[checklistFrete,setChecklistFrete]=useState(null);
+  const[checklistLoading,setChecklistLoading]=useState(false);
   const[form,setForm]=useState({origin:"",dest:"",date:"",distance:"",freteSugerido:"",custoTotal:"",lucro:"",vkm:"",adicional:"",veiculo:"",cargo:""});
   const fretesFiltrados=freteFiltrarPeriodo(historicoFretes,filtroPeriodo);
   const gruposMes=freteAgruparPorMes(fretesFiltrados);
+  const guincheiro=isPerfilGuincheiro(perfil);
+
+  useEffect(()=>{
+    if(!detalhe||!uid||!guincheiro){setChecklistFrete(null);return;}
+    let cancelled=false;
+    setChecklistLoading(true);
+    buscarChecklistPorFrete(uid,detalhe.id)
+      .then((c)=>{if(!cancelled)setChecklistFrete(c);})
+      .catch(()=>{if(!cancelled)setChecklistFrete(null);})
+      .finally(()=>{if(!cancelled)setChecklistLoading(false);});
+    return()=>{cancelled=true;};
+  },[detalhe,uid,guincheiro]);
 
   const add=async()=>{
     const now=new Date();
@@ -4308,6 +4325,15 @@ const Comparador=({historicoFretes,onAddFrete,onUpdateFrete,onDeleteFrete})=>{
               </>
             );
           })()}
+          {guincheiro&&(
+            <button
+              type="button"
+              disabled={checklistLoading}
+              onClick={()=>{onOpenChecklist?.(detalhe,checklistFrete);setDetalhe(null);}}
+              style={{width:"100%",minHeight:44,padding:"12px 16px",background:C.navyLight,border:`1.5px solid ${C.navy}33`,borderRadius:11,cursor:checklistLoading?"wait":"pointer",color:C.navy,fontWeight:700,fontSize:15,display:"flex",alignItems:"center",justifyContent:"center",gap:8,marginTop:14,opacity:checklistLoading?0.7:1,fontFamily:"'Sora',sans-serif"}}>
+              {checklistLoading?"⏳ Carregando…":checklistFrete?"📋 Ver Checklist":"📋 Iniciar Checklist"}
+            </button>
+          )}
           <div style={{display:"flex",gap:9,marginTop:16}}>
             <button onClick={()=>{setDel(detalhe);setDetalhe(null);}}
               style={{flex:1,minHeight:44,padding:"12px 8px",background:C.redLight,border:`1px solid ${C.red}33`,borderRadius:11,cursor:"pointer",color:C.red,fontWeight:700,fontSize:15,display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
@@ -5919,6 +5945,7 @@ export default function App(){
   const docsVencendo30=(docs||[]).filter(d=>{if(!d.expiry)return false;const[dia,mes,ano]=d.expiry.split("/");const dias=Math.ceil((new Date(ano,mes-1,dia)-hoje)/(1000*60*60*24));return dias<=30&&dias>=0;});
   const docsVencendo=(docs||[]).filter(d=>{if(!d.expiry)return false;const[dia,mes,ano]=d.expiry.split("/");const dias=Math.ceil((new Date(ano,mes-1,dia)-hoje)/(1000*60*60*24));return dias<=60&&dias>=0;});
   const[perfil,setPerfil]=useState({nome:"",email:"",telefone:"",tipo:"Motorista Autônomo",veiculo:""});
+  const[checklistScreen,setChecklistScreen]=useState(null);
   const[authReady,setAuthReady]=useState(false);
   const[firebaseUser,setFirebaseUser]=useState(null);
   const[splashDone,setSplashDone]=useState(false);
@@ -6049,6 +6076,21 @@ export default function App(){
     try{
       await deleteFreteWithFinanceiro(uid,id);
       setHistoricoFretes(h=>h.filter(x=>x.id!==id));
+    }catch{/* ignore */}
+  },[firebaseUser?.uid]);
+
+  const handleOpenChecklist=useCallback(async(frete,existente)=>{
+    const uid=firebaseUser?.uid;
+    if(!uid||!frete?.id)return;
+    try{
+      let checklist=existente||await buscarChecklistPorFrete(uid,frete.id);
+      if(!checklist){
+        checklist=await criarChecklist(uid,frete.id,{
+          origem:{endereco:frete.origin||""},
+          destino:{endereco:frete.dest||""},
+        });
+      }
+      setChecklistScreen({frete,checklist});
     }catch{/* ignore */}
   },[firebaseUser?.uid]);
 
@@ -6328,7 +6370,7 @@ export default function App(){
         {page==="dashboard"   &&<Dashboard onNav={setPage} setShowCalc={setShowCalc} setCalcMode={setCalcMode} historicoFretes={historicoFretes} manutencoes={manutencoes} docs={docs} despesas={despesas} perfil={perfil}/>}
         {page==="financeiro"  &&<Financeiro historicoFretes={historicoFretes} manutencoes={manutencoes} despesas={despesas}/>}
         {page==="despesas"    &&<Despesas despesas={despesas} onAddDespesa={handleAddDespesa} onUpdateDespesa={handleUpdateDespesa} onDeleteDespesa={handleDeleteDespesa}/>}
-        {page==="comparador"  &&<Comparador historicoFretes={historicoFretes} onAddFrete={handleAddFrete} onUpdateFrete={handleUpdateFrete} onDeleteFrete={handleDeleteFrete}/>}
+        {page==="comparador"  &&<Comparador historicoFretes={historicoFretes} onAddFrete={handleAddFrete} onUpdateFrete={handleUpdateFrete} onDeleteFrete={handleDeleteFrete} perfil={perfil} uid={firebaseUser?.uid} onOpenChecklist={handleOpenChecklist}/>}
         {page==="manutencao"  &&<Manutencao manutencoes={manutencoes} onAddManutencao={handleAddManutencao} onUpdateManutencao={handleUpdateManutencao} onDeleteManutencao={handleDeleteManutencao}/>}
         {page==="documentos"  &&<Documentos docs={docs} onAddDocumento={handleAddDocumento} onDeleteDocumento={handleDeleteDocumento}/>}
         {page==="assinatura"  &&BETA_HIDE_PLANOS&&<PlanosBetaPlaceholder/>}
@@ -6336,6 +6378,15 @@ export default function App(){
         {page==="perfil"      &&<Perfil uid={firebaseUser?.uid} metaMes={metaMes} setMetaMes={setMetaMes} faturamentoMes={faturamentoMes} saldoLiquidoMes={saldoLiquidoMes} vehicles={vehicles} setVehicles={setVehicles} perfil={perfil} setPerfil={setPerfil} onLimpar={limparTudo} onAdmin={()=>setShowAdmin(true)}/>}
       </div>
       {page!=="dashboard"&&(<button onClick={()=>{setCalcMode(null);setShowCalc(true);}} style={{position:"fixed",bottom:22,right:18,width:52,height:52,borderRadius:"50%",background:C.orange,border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",boxShadow:`0 4px 20px ${C.orange}55`,zIndex:90}}><RouteIcon size={22} color="#fff"/></button>)}
+      {checklistScreen&&(
+        <ChecklistVeiculo
+          checklist={checklistScreen.checklist}
+          frete={checklistScreen.frete}
+          uid={firebaseUser?.uid}
+          onClose={()=>setChecklistScreen(null)}
+          onSaved={(c)=>setChecklistScreen(s=>({...s,checklist:c}))}
+        />
+      )}
       {/* Modal notificações */}
       {showNotif&&(
         <div style={{position:"fixed",inset:0,background:"#00000044",zIndex:200,display:"flex",alignItems:"flex-start",justifyContent:"flex-end",padding:"58px 12px 0"}} onClick={()=>setShowNotif(false)}>

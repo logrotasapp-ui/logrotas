@@ -1,0 +1,198 @@
+import {
+  collection,
+  doc,
+  getDocs,
+  addDoc,
+  updateDoc,
+  query,
+  where,
+  serverTimestamp,
+} from "firebase/firestore";
+import { db } from "../firebase.js";
+
+const COLLECTION = "checklists";
+
+export const CHECKLIST_PERGUNTAS_PADRAO = [
+  { texto: "O veículo possui avarias visíveis na lataria?", resposta: null },
+  { texto: "As chaves e documentos estão disponíveis?", resposta: null },
+  { texto: "Há objetos soltos ou pertences no interior?", resposta: null },
+];
+
+export const CHECKLIST_ACESSORIOS_PADRAO = [
+  "Calotas",
+  "Roda de liga leve",
+  "Rádio/Multimídia",
+  "Banco",
+  "Tapete",
+  "Buzina",
+  "Chave de roda",
+  "Macaco",
+  "Triângulo",
+  "Estepe",
+];
+
+export const CHECKLIST_ESTADOS_ACESSORIO = ["bom", "ausente", "quebrado", "na"];
+export const CHECKLIST_ESTADOS_PNEU = ["bom", "regular", "ruim"];
+export const CHECKLIST_NIVEIS_COMBUSTIVEL = ["vazio", "1/4", "1/2", "3/4", "cheio"];
+
+export const CHECKLIST_TIPOS_SERVICO = [
+  { id: "reboque_leve", label: "Reboque leve" },
+  { id: "reboque_pesado", label: "Reboque pesado" },
+  { id: "pane_seca", label: "Pane seca" },
+  { id: "bateria", label: "Bateria" },
+  { id: "outro", label: "Outro" },
+];
+
+export const CHECKLIST_MOTIVOS = [
+  { id: "pane", label: "Pane" },
+  { id: "colisao", label: "Colisão" },
+  { id: "furto_roubo", label: "Furto/Roubo" },
+  { id: "transporte", label: "Transporte" },
+  { id: "outro", label: "Outro" },
+];
+
+function colRef(uid) {
+  return collection(db, "users", uid, COLLECTION);
+}
+
+function stripMeta(data) {
+  const { id, criadoEm, atualizadoEm, ...rest } = data || {};
+  return rest;
+}
+
+function buildColetaVazia() {
+  return {
+    perguntas: CHECKLIST_PERGUNTAS_PADRAO.map((p) => ({ ...p })),
+    acessorios: CHECKLIST_ACESSORIOS_PADRAO.map((item) => ({ item, estado: null })),
+    pneus: { dianteiro: null, traseiro: null, estepe: null },
+    combustivel: null,
+    observacoes: "",
+    finalizadaEm: null,
+  };
+}
+
+async function gerarNumero(uid) {
+  const ano = new Date().getFullYear();
+  const prefix = `${ano}-`;
+  const snap = await getDocs(colRef(uid));
+  let maxSeq = 0;
+  snap.docs.forEach((d) => {
+    const num = d.data()?.numero || "";
+    if (String(num).startsWith(prefix)) {
+      const seq = parseInt(String(num).slice(prefix.length), 10);
+      if (!Number.isNaN(seq) && seq > maxSeq) maxSeq = seq;
+    }
+  });
+  return `${ano}-${String(maxSeq + 1).padStart(4, "0")}`;
+}
+
+function buildNovoDocumento(freteId, dados = {}) {
+  return {
+    numero: "",
+    status: "coleta",
+    freteId,
+    cliente: {
+      nome: dados.cliente?.nome || "",
+      telefone: dados.cliente?.telefone || "",
+    },
+    veiculo: {
+      placa: dados.veiculo?.placa || "",
+      marca: dados.veiculo?.marca || "",
+      modelo: dados.veiculo?.modelo || "",
+      cor: dados.veiculo?.cor || "",
+    },
+    servico: {
+      tipo: dados.servico?.tipo || "",
+      motivo: dados.servico?.motivo || "",
+    },
+    origem: { endereco: dados.origem?.endereco || "" },
+    destino: { endereco: dados.destino?.endereco || "" },
+    coleta: buildColetaVazia(),
+    entrega: { enderecoConfirmado: "", finalizadaEm: null },
+  };
+}
+
+export function coletaCompleta(checklist) {
+  const faltando = [];
+  if (!checklist) return { completa: false, faltando: ["Checklist não encontrado"] };
+
+  const { cliente, veiculo, servico, origem, destino, coleta } = checklist;
+
+  if (!cliente?.nome?.trim()) faltando.push("Nome do cliente");
+  if (!cliente?.telefone?.trim()) faltando.push("Telefone do cliente");
+  if (!veiculo?.placa?.trim()) faltando.push("Placa do veículo");
+  if (!veiculo?.marca?.trim()) faltando.push("Marca do veículo");
+  if (!veiculo?.modelo?.trim()) faltando.push("Modelo do veículo");
+  if (!veiculo?.cor?.trim()) faltando.push("Cor do veículo");
+  if (!servico?.tipo) faltando.push("Tipo de serviço");
+  if (!servico?.motivo) faltando.push("Motivo do serviço");
+  if (!origem?.endereco?.trim()) faltando.push("Endereço de origem");
+  if (!destino?.endereco?.trim()) faltando.push("Endereço de destino");
+
+  const perguntas = coleta?.perguntas || [];
+  perguntas.forEach((p, i) => {
+    if (p.resposta !== "sim" && p.resposta !== "nao") {
+      faltando.push(`Pergunta ${i + 1}: ${p.texto}`);
+    }
+  });
+
+  const acessorios = coleta?.acessorios || [];
+  acessorios.forEach((a) => {
+    if (!a.estado) faltando.push(`Acessório: ${a.item}`);
+  });
+
+  if (!coleta?.pneus?.dianteiro) faltando.push("Pneu dianteiro");
+  if (!coleta?.pneus?.traseiro) faltando.push("Pneu traseiro");
+  if (!coleta?.pneus?.estepe) faltando.push("Estepe");
+  if (!coleta?.combustivel) faltando.push("Nível de combustível");
+
+  return { completa: faltando.length === 0, faltando };
+}
+
+export async function criarChecklist(uid, freteId, dados = {}) {
+  if (!uid || !freteId) throw new Error("uid e freteId são obrigatórios");
+
+  const numero = await gerarNumero(uid);
+  const payload = buildNovoDocumento(freteId, dados);
+  payload.numero = numero;
+
+  const ref = await addDoc(colRef(uid), {
+    ...payload,
+    criadoEm: serverTimestamp(),
+    atualizadoEm: serverTimestamp(),
+  });
+
+  return { id: ref.id, ...payload };
+}
+
+export async function atualizarChecklist(uid, checklistId, data) {
+  if (!uid || !checklistId) throw new Error("uid e checklistId são obrigatórios");
+
+  const payload = stripMeta(data);
+  await updateDoc(doc(db, "users", uid, COLLECTION, checklistId), {
+    ...payload,
+    atualizadoEm: serverTimestamp(),
+  });
+
+  return { id: checklistId, ...payload };
+}
+
+export async function buscarChecklistPorFrete(uid, freteId) {
+  if (!uid || !freteId) return null;
+
+  const q = query(colRef(uid), where("freteId", "==", freteId));
+  const snap = await getDocs(q);
+  if (snap.empty) return null;
+
+  const d = snap.docs[0];
+  return { id: d.id, ...d.data() };
+}
+
+export async function listarChecklists(uid) {
+  if (!uid) return [];
+
+  const snap = await getDocs(colRef(uid));
+  return snap.docs
+    .map((d) => ({ id: d.id, ...d.data() }))
+    .sort((a, b) => String(b.numero || "").localeCompare(String(a.numero || "")));
+}
