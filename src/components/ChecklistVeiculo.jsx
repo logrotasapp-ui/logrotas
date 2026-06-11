@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useCallback, useRef, useEffect, Component } from "react";
 import { createPortal } from "react-dom";
 import { ArrowLeftIcon, XIcon, CameraIcon, RefreshCwIcon } from "lucide-react";
 import {
@@ -13,6 +13,8 @@ import {
   CHECKLIST_FOTO_SLOTS,
   CHECKLIST_ENTREGA_FOTO_SLOTS,
   CHECKLIST_ACESSORIOS_PADRAO,
+  normalizeColetaData,
+  normalizeEntregaData,
 } from "../services/checklistService.js";
 import {
   stampAndCompressImage,
@@ -77,38 +79,11 @@ function assinaturaVazia() {
   return { nome: "", documento: "", imagemUrl: "", dataHora: "", lat: null, lng: null };
 }
 
-function normalizeEntrega(ent) {
-  const base = ent || {};
-  return {
-    fotos: base.fotos || [],
-    recebedor: {
-      nome: "",
-      documento: "",
-      mesmaPessoaColeta: null,
-      ...base.recebedor,
-    },
-    conferencia: base.conferencia ?? null,
-    assinaturas: {
-      recebedor: { ...assinaturaVazia(), ...base.assinaturas?.recebedor },
-      prestador: { ...assinaturaVazia(), ...base.assinaturas?.prestador },
-    },
-    finalizadaEm: base.finalizadaEm || null,
-  };
-}
-
 function normalizeChecklist(cl) {
-  const coleta = cl?.coleta || {};
   return {
     ...cl,
-    coleta: {
-      ...coleta,
-      fotos: coleta.fotos || [],
-      assinaturas: {
-        responsavel: { ...assinaturaVazia(), ...coleta.assinaturas?.responsavel },
-        prestador: { ...assinaturaVazia(), ...coleta.assinaturas?.prestador },
-      },
-    },
-    entrega: normalizeEntrega(cl?.entrega),
+    coleta: normalizeColetaData(cl?.coleta, cl),
+    entrega: normalizeEntregaData(cl?.entrega),
   };
 }
 
@@ -165,6 +140,95 @@ function BtnSelecao({ label, ativo, onClick, cor = C.navy }) {
       {label}
     </button>
   );
+}
+
+function FotoPreviewImg({ urlOrPath, alt, style }) {
+  const [src, setSrc] = useState(urlOrPath || "");
+  const objectUrlRef = useRef(null);
+  const fallbackTriedRef = useRef(false);
+
+  useEffect(() => {
+    fallbackTriedRef.current = false;
+    setSrc(urlOrPath || "");
+    return () => {
+      if (objectUrlRef.current) {
+        URL.revokeObjectURL(objectUrlRef.current);
+        objectUrlRef.current = null;
+      }
+    };
+  }, [urlOrPath]);
+
+  useEffect(() => {
+    if (!urlOrPath || urlOrPath.startsWith("blob:") || isChecklistDownloadUrl(urlOrPath)) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const blob = await getBlob(ref(storage, urlOrPath));
+        if (cancelled) return;
+        const objUrl = URL.createObjectURL(blob);
+        objectUrlRef.current = objUrl;
+        setSrc(objUrl);
+      } catch (err) {
+        console.error("[Checklist] Falha preview foto:", urlOrPath, err);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [urlOrPath]);
+
+  const handleError = async () => {
+    if (!urlOrPath || fallbackTriedRef.current || src !== urlOrPath) return;
+    fallbackTriedRef.current = true;
+    try {
+      const blob = await getBlob(ref(storage, urlOrPath));
+      const objUrl = URL.createObjectURL(blob);
+      objectUrlRef.current = objUrl;
+      setSrc(objUrl);
+    } catch (err) {
+      console.error("[Checklist] Falha fallback foto:", urlOrPath, err);
+    }
+  };
+
+  if (!src) return null;
+
+  return <img src={src} alt={alt} onError={handleError} style={style} />;
+}
+
+class AssinaturaErrorBoundary extends Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false };
+  }
+
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error) {
+    console.error("[Checklist] Erro no bloco de assinatura:", error);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div
+          style={{
+            background: C.redLight,
+            border: `1px solid ${C.red}33`,
+            borderRadius: 14,
+            padding: "14px 16px",
+            color: C.text2,
+            fontSize: 13,
+            lineHeight: 1.5,
+          }}
+        >
+          Não foi possível exibir este bloco de assinatura. Recarregue o checklist ou tente novamente.
+        </div>
+      );
+    }
+    return this.props.children;
+  }
 }
 
 function AssinaturaPreviewImg({ imagemUrl, bloco }) {
@@ -267,74 +331,94 @@ function ToastAviso({ mensagem }) {
 }
 
 function BlocoAssinatura({ titulo, assin, bloco, padRef, substituindo, onSubstituir, onCampoChange }) {
-  const temAssinaturaSalva = !!assin.imagemUrl?.trim() && isChecklistDownloadUrl(assin.imagemUrl);
+  const assinSafe = { ...assinaturaVazia(), ...(assin && typeof assin === "object" ? assin : {}) };
+  const temAssinaturaSalva = !!assinSafe.imagemUrl?.trim() && isChecklistDownloadUrl(assinSafe.imagemUrl);
   const mostrarPad = !temAssinaturaSalva || substituindo;
 
+  const handleCampo = (campo, valor) => {
+    try {
+      onCampoChange?.(campo, typeof valor === "string" ? valor : "");
+    } catch (err) {
+      console.error("[Checklist] Erro ao atualizar campo de assinatura:", bloco, campo, err);
+    }
+  };
+
+  const handleSubstituir = () => {
+    try {
+      onSubstituir?.();
+      padRef?.current?.clear?.();
+    } catch (err) {
+      console.error("[Checklist] Erro ao substituir assinatura:", bloco, err);
+    }
+  };
+
   return (
-    <div
-      style={{
-        background: C.surface,
-        border: `1px solid ${C.border}`,
-        borderRadius: 16,
-        padding: "16px 18px",
-      }}
-    >
-      <div style={{ color: C.navy, fontWeight: 800, fontSize: 15, fontFamily: "'Sora',sans-serif", marginBottom: 14 }}>
-        {titulo}
-      </div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 14 }}>
-        <Field
-          label="Nome completo"
-          value={assin.nome}
-          onChange={(v) => onCampoChange("nome", v)}
-          placeholder="Nome de quem assina"
-        />
-        <Field
-          label="Documento (RG/CPF)"
-          value={assin.documento}
-          onChange={(v) => onCampoChange("documento", v)}
-          placeholder="000.000.000-00"
-        />
-      </div>
-      {temAssinaturaSalva && !substituindo && (
-        <div
-          style={{
-            marginBottom: 14,
-            padding: 12,
-            background: C.navyLight,
-            border: `1px solid ${C.navy}22`,
-            borderRadius: 12,
-          }}
-        >
-          <AssinaturaPreviewImg imagemUrl={assin.imagemUrl} bloco={bloco} />
-          <button
-            type="button"
-            onClick={onSubstituir}
+    <AssinaturaErrorBoundary>
+      <div
+        style={{
+          background: C.surface,
+          border: `1px solid ${C.border}`,
+          borderRadius: 16,
+          padding: "16px 18px",
+        }}
+      >
+        <div style={{ color: C.navy, fontWeight: 800, fontSize: 15, fontFamily: "'Sora',sans-serif", marginBottom: 14 }}>
+          {titulo}
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 14 }}>
+          <Field
+            label="Nome completo"
+            value={assinSafe.nome ?? ""}
+            onChange={(v) => handleCampo("nome", v)}
+            placeholder="Nome de quem assina"
+          />
+          <Field
+            label="Documento (RG/CPF)"
+            value={assinSafe.documento ?? ""}
+            onChange={(v) => handleCampo("documento", v)}
+            placeholder="000.000.000-00"
+          />
+        </div>
+        {temAssinaturaSalva && !substituindo && (
+          <div
             style={{
-              marginTop: 10,
-              width: "100%",
-              padding: "10px 0",
-              background: C.navy,
-              border: "none",
-              borderRadius: 10,
-              color: "#fff",
-              fontWeight: 700,
-              fontSize: 13,
-              cursor: "pointer",
+              marginBottom: 14,
+              padding: 12,
+              background: C.navyLight,
+              border: `1px solid ${C.navy}22`,
+              borderRadius: 12,
             }}
           >
-            Substituir assinatura
-          </button>
-          <div style={{ color: C.muted, fontSize: 11, marginTop: 8 }}>
-            Salva em {assin.dataHora || "—"}
-            {assin.lat != null && assin.lng != null
-              ? ` · ${Number(assin.lat).toFixed(4)}, ${Number(assin.lng).toFixed(4)}`
-              : ""}
+            <AssinaturaPreviewImg imagemUrl={assinSafe.imagemUrl} bloco={bloco} />
+            <button
+              type="button"
+              onClick={handleSubstituir}
+              style={{
+                marginTop: 10,
+                width: "100%",
+                padding: "10px 0",
+                background: C.navy,
+                border: "none",
+                borderRadius: 10,
+                color: "#fff",
+                fontWeight: 700,
+                fontSize: 13,
+                cursor: "pointer",
+              }}
+            >
+              Substituir assinatura
+            </button>
+            <div style={{ color: C.muted, fontSize: 11, marginTop: 8 }}>
+              Salva em {assinSafe.dataHora || "—"}
+              {assinSafe.lat != null && assinSafe.lng != null
+                ? ` · ${Number(assinSafe.lat).toFixed(4)}, ${Number(assinSafe.lng).toFixed(4)}`
+                : ""}
+            </div>
           </div>
-        </div>
-      )}
-      {mostrarPad && <SignaturePad ref={padRef} hideClear={temAssinaturaSalva && substituindo} />}
-    </div>
+        )}
+        {mostrarPad && <SignaturePad ref={padRef} hideClear={temAssinaturaSalva && substituindo} />}
+      </div>
+    </AssinaturaErrorBoundary>
   );
 }
 
@@ -506,11 +590,19 @@ function PhotoSlot({ slot, foto, onCapture, uploading, onRemove }) {
         {uploading ? (
           <div style={{ color: C.navy, fontWeight: 700, fontSize: 13, padding: 20 }}>⏳ Enviando…</div>
         ) : temFoto ? (
-          <img
-            src={displayUrl}
-            alt={slot.label}
-            style={{ width: "100%", height: 140, objectFit: "cover", display: "block" }}
-          />
+          foto?.previewUrl ? (
+            <img
+              src={foto.previewUrl}
+              alt={slot.label}
+              style={{ width: "100%", height: 140, objectFit: "cover", display: "block" }}
+            />
+          ) : (
+            <FotoPreviewImg
+              urlOrPath={foto.url}
+              alt={slot.label}
+              style={{ width: "100%", height: 140, objectFit: "cover", display: "block" }}
+            />
+          )
         ) : (
           <div style={{ padding: 20, textAlign: "center" }}>
             <CameraIcon size={28} color={C.muted} style={{ margin: "0 auto 8px" }} />
@@ -646,20 +738,27 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
         if (entregaChanged) payload.entrega = entrega;
         const atualizado = await atualizarChecklist(uid, initial.id, payload);
         if (cancelled) return;
-        setChecklist((c) => ({
-          ...c,
-          ...(coletaChanged ? { coleta: atualizado.coleta || coleta } : {}),
-          ...(entregaChanged ? { entrega: atualizado.entrega || entrega } : {}),
-        }));
-        onSaved?.({ ...initial, ...payload });
+        setChecklist((c) => {
+          const merged = {
+            ...c,
+            ...(coletaChanged ? { coleta: normalizeColetaData(atualizado.coleta || coleta, c) } : {}),
+            ...(entregaChanged ? { entrega: normalizeEntregaData(atualizado.entrega || entrega) } : {}),
+          };
+          onSaved?.(merged);
+          return merged;
+        });
       } catch (err) {
         console.warn("[Checklist] Falha ao persistir migracao de URLs:", err);
         if (!cancelled) {
-          setChecklist((c) => ({
-            ...c,
-            ...(coletaChanged ? { coleta } : {}),
-            ...(entregaChanged ? { entrega } : {}),
-          }));
+          setChecklist((c) => {
+            const merged = {
+              ...c,
+              ...(coletaChanged ? { coleta: normalizeColetaData(coleta, c) } : {}),
+              ...(entregaChanged ? { entrega: normalizeEntregaData(entrega) } : {}),
+            };
+            onSaved?.(merged);
+            return merged;
+          });
         }
       }
     })();
@@ -684,14 +783,26 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
     async (dados) => {
       if (!uid || !checklist?.id) return null;
       const { status, ...rest } = dados;
-      const payload = status !== undefined ? { ...rest, status } : rest;
+      const payload = status !== undefined ? { ...rest, status } : { ...rest };
+      if (payload.coleta) {
+        payload.coleta = normalizeColetaData(payload.coleta, checklist);
+      }
+      if (payload.entrega) {
+        payload.entrega = normalizeEntregaData(payload.entrega);
+      }
       setSalvando(true);
       setErro("");
       try {
-        const atualizado = await atualizarChecklist(uid, checklist.id, payload);
-        setChecklist((c) => ({ ...c, ...atualizado }));
-        onSaved?.(atualizado);
-        return atualizado;
+        await atualizarChecklist(uid, checklist.id, payload);
+        let merged = null;
+        setChecklist((c) => {
+          merged = { ...c, ...payload, id: checklist.id };
+          merged.coleta = normalizeColetaData(merged.coleta, merged);
+          merged.entrega = normalizeEntregaData(merged.entrega);
+          return merged;
+        });
+        onSaved?.(merged);
+        return merged;
       } catch {
         setErro("Não foi possível salvar. Verifique sua conexão.");
         return null;
@@ -699,7 +810,7 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
         setSalvando(false);
       }
     },
-    [uid, checklist?.id, onSaved]
+    [uid, checklist?.id, checklist, onSaved]
   );
 
   const handleGerarPdf = async () => {
@@ -916,16 +1027,20 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
   };
 
   const updateAssinaturaCampo = (bloco, campo, valor) =>
-    setChecklist((c) => ({
-      ...c,
-      coleta: {
-        ...c.coleta,
-        assinaturas: {
-          ...c.coleta.assinaturas,
-          [bloco]: { ...c.coleta.assinaturas[bloco], [campo]: valor },
+    setChecklist((c) => {
+      const coleta = normalizeColetaData(c.coleta, c);
+      const assinAtual = coleta.assinaturas?.[bloco] || assinaturaVazia();
+      return {
+        ...c,
+        coleta: {
+          ...coleta,
+          assinaturas: {
+            ...coleta.assinaturas,
+            [bloco]: { ...assinAtual, [campo]: valor },
+          },
         },
-      },
-    }));
+      };
+    });
 
   const avancarEtapa4 = async () => {
     setTentouFinalizarColeta(true);
@@ -1031,16 +1146,18 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
     setChecklist((c) => ({ ...c, [campo]: { endereco: valor } }));
   const updatePergunta = (idx, resposta) =>
     setChecklist((c) => {
-      const perguntas = [...(c.coleta?.perguntas || [])];
+      const coleta = normalizeColetaData(c.coleta, c);
+      const perguntas = [...coleta.perguntas];
       perguntas[idx] = { ...perguntas[idx], resposta };
-      return { ...c, coleta: { ...c.coleta, perguntas } };
+      return { ...c, coleta: { ...coleta, perguntas } };
     });
   const updateAcessorio = (idx) =>
     setChecklist((c) => {
-      const acessorios = [...(c.coleta?.acessorios || [])];
+      const coleta = normalizeColetaData(c.coleta, c);
+      const acessorios = [...coleta.acessorios];
       const atual = acessorios[idx]?.estado;
       acessorios[idx] = { ...acessorios[idx], estado: proximoEstadoAcessorio(atual) };
-      return { ...c, coleta: { ...c.coleta, acessorios } };
+      return { ...c, coleta: { ...coleta, acessorios } };
     });
   const updatePneu = (campo, valor) =>
     setChecklist((c) => ({
@@ -1152,16 +1269,20 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
   };
 
   const updateAssinaturaEntregaCampo = (bloco, campo, valor) =>
-    setChecklist((c) => ({
-      ...c,
-      entrega: {
-        ...c.entrega,
-        assinaturas: {
-          ...c.entrega.assinaturas,
-          [bloco]: { ...c.entrega.assinaturas[bloco], [campo]: valor },
+    setChecklist((c) => {
+      const entrega = normalizeEntregaData(c.entrega);
+      const assinAtual = entrega.assinaturas?.[bloco] || assinaturaVazia();
+      return {
+        ...c,
+        entrega: {
+          ...entrega,
+          assinaturas: {
+            ...entrega.assinaturas,
+            [bloco]: { ...assinAtual, [campo]: valor },
+          },
         },
-      },
-    }));
+      };
+    });
 
   const finalizarEntrega = async () => {
     setTentouFinalizarEntrega(true);
@@ -1690,10 +1811,7 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
                   bloco={bloco}
                   padRef={padRef}
                   substituindo={substituirColeta[bloco]}
-                  onSubstituir={() => {
-                    setSubstituirColeta((s) => ({ ...s, [bloco]: true }));
-                    padRef.current?.clear?.();
-                  }}
+                  onSubstituir={() => setSubstituirColeta((s) => ({ ...s, [bloco]: true }))}
                   onCampoChange={(campo, valor) => updateAssinaturaCampo(bloco, campo, valor)}
                 />
               );
@@ -1976,10 +2094,7 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
                   bloco={bloco}
                   padRef={padRef}
                   substituindo={substituirEntrega[bloco]}
-                  onSubstituir={() => {
-                    setSubstituirEntrega((s) => ({ ...s, [bloco]: true }));
-                    padRef.current?.clear?.();
-                  }}
+                  onSubstituir={() => setSubstituirEntrega((s) => ({ ...s, [bloco]: true }))}
                   onCampoChange={(campo, valor) => updateAssinaturaEntregaCampo(bloco, campo, valor)}
                 />
               );

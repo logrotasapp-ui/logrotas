@@ -112,6 +112,92 @@ function buildEntregaVazia() {
   };
 }
 
+/**
+ * Mescla coleta salva (incl. parcial/legado) com defaults da vistoria.
+ * Suporta campos legados no nível raiz do documento (perguntas, acessorios, etc.).
+ */
+export function normalizeColetaData(coleta, checklistRoot = {}) {
+  const base = coleta && typeof coleta === "object" ? coleta : {};
+  const legacy = checklistRoot && typeof checklistRoot === "object" ? checklistRoot : {};
+
+  const rawPerguntas =
+    (Array.isArray(base.perguntas) && base.perguntas.length > 0 && base.perguntas) ||
+    (Array.isArray(legacy.perguntas) && legacy.perguntas.length > 0 && legacy.perguntas) ||
+    null;
+
+  const perguntas = CHECKLIST_PERGUNTAS_PADRAO.map((padrao, i) => {
+    const salva = rawPerguntas?.[i];
+    return {
+      texto: salva?.texto || padrao.texto,
+      resposta: salva?.resposta ?? null,
+    };
+  });
+
+  const rawAcessorios =
+    (Array.isArray(base.acessorios) && base.acessorios.length > 0 && base.acessorios) ||
+    (Array.isArray(legacy.acessorios) && legacy.acessorios.length > 0 && legacy.acessorios) ||
+    null;
+
+  const acessoriosMap = new Map();
+  (rawAcessorios || []).forEach((a) => {
+    if (a?.item) acessoriosMap.set(a.item, { item: a.item, estado: a.estado ?? null });
+  });
+  const acessorios = CHECKLIST_ACESSORIOS_PADRAO.map((item) => ({
+    item,
+    estado: acessoriosMap.get(item)?.estado ?? null,
+  }));
+
+  const rawPneus = base.pneus || legacy.pneus || {};
+
+  return {
+    ...base,
+    perguntas,
+    acessorios,
+    pneus: {
+      dianteiro: rawPneus.dianteiro ?? null,
+      traseiro: rawPneus.traseiro ?? null,
+      estepe: rawPneus.estepe ?? null,
+    },
+    combustivel: base.combustivel ?? legacy.combustivel ?? null,
+    observacoes: base.observacoes ?? legacy.observacoes ?? "",
+    fotos: Array.isArray(base.fotos) ? base.fotos : [],
+    assinaturas: {
+      responsavel: { ...assinaturaVazia(), ...base.assinaturas?.responsavel },
+      prestador: { ...assinaturaVazia(), ...base.assinaturas?.prestador },
+    },
+    finalizadaEm: base.finalizadaEm ?? null,
+  };
+}
+
+/** Mescla entrega salva com defaults; ignora stub legado { enderecoConfirmado }. */
+export function normalizeEntregaData(entrega) {
+  const base = entrega && typeof entrega === "object" ? entrega : {};
+  const legadoStub =
+    base.enderecoConfirmado !== undefined &&
+    !Array.isArray(base.fotos) &&
+    !base.recebedor &&
+    !base.conferencia &&
+    !base.assinaturas;
+
+  if (legadoStub) return buildEntregaVazia();
+
+  return {
+    fotos: Array.isArray(base.fotos) ? base.fotos : [],
+    recebedor: {
+      nome: "",
+      documento: "",
+      mesmaPessoaColeta: null,
+      ...(base.recebedor || {}),
+    },
+    conferencia: base.conferencia ?? null,
+    assinaturas: {
+      recebedor: { ...assinaturaVazia(), ...base.assinaturas?.recebedor },
+      prestador: { ...assinaturaVazia(), ...base.assinaturas?.prestador },
+    },
+    finalizadaEm: base.finalizadaEm || null,
+  };
+}
+
 async function gerarNumero(uid) {
   const ano = new Date().getFullYear();
   const prefix = `${ano}-`;
