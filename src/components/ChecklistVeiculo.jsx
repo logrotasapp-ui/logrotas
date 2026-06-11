@@ -87,6 +87,20 @@ function normalizeChecklist(cl) {
   };
 }
 
+/** Atualiza lista de fotos de coleta/entrega sem depender do callback assíncrono do setState. */
+function atualizarFotosLista(fotosAtuais, slotAtivo, foto, previewUrlRef = null) {
+  let fotos = [...(fotosAtuais || [])];
+  if (slotAtivo === "avarias") {
+    const idx = previewUrlRef ? fotos.findIndex((f) => f.previewUrl === previewUrlRef) : -1;
+    if (idx >= 0) fotos[idx] = foto;
+    else fotos.push(foto);
+  } else {
+    fotos = fotos.filter((f) => f.tipo !== slotAtivo);
+    fotos.push(foto);
+  }
+  return fotos;
+}
+
 function proximoEstadoAcessorio(atual) {
   if (!atual) return CHECKLIST_ESTADOS_ACESSORIO[0];
   const idx = CHECKLIST_ESTADOS_ACESSORIO.indexOf(atual);
@@ -717,6 +731,9 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
   const prestadorPadRef = useRef(null);
   const recebedorEntregaPadRef = useRef(null);
   const prestadorEntregaPadRef = useRef(null);
+  const checklistRef = useRef(checklist);
+  const migrationRanRef = useRef(null);
+  checklistRef.current = checklist;
 
   const validacao = coletaCompleta(checklist);
   const validacaoEntrega = entregaCompleta(checklist);
@@ -733,10 +750,14 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
 
   useEffect(() => {
     if (!uid || !initial?.id) return;
+    if (migrationRanRef.current === initial.id) return;
+    migrationRanRef.current = initial.id;
+
     let cancelled = false;
     (async () => {
-      const { coleta, changed: coletaChanged } = await migrateChecklistColetaMedia(initial?.coleta);
-      const { entrega, changed: entregaChanged } = await migrateChecklistEntregaMedia(initial?.entrega);
+      const atual = checklistRef.current;
+      const { coleta, changed: coletaChanged } = await migrateChecklistColetaMedia(atual?.coleta);
+      const { entrega, changed: entregaChanged } = await migrateChecklistEntregaMedia(atual?.entrega);
       if (cancelled || (!coletaChanged && !entregaChanged)) return;
       try {
         const payload = {};
@@ -744,27 +765,25 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
         if (entregaChanged) payload.entrega = entrega;
         const atualizado = await atualizarChecklist(uid, initial.id, payload);
         if (cancelled) return;
-        setChecklist((c) => {
-          const merged = {
-            ...c,
-            ...(coletaChanged ? { coleta: normalizeColetaData(atualizado.coleta || coleta, c) } : {}),
-            ...(entregaChanged ? { entrega: normalizeEntregaData(atualizado.entrega || entrega) } : {}),
-          };
-          onSaved?.(merged);
-          return merged;
-        });
+        const merged = {
+          ...checklistRef.current,
+          ...(coletaChanged ? { coleta: normalizeColetaData(atualizado.coleta || coleta, checklistRef.current) } : {}),
+          ...(entregaChanged ? { entrega: normalizeEntregaData(atualizado.entrega || entrega) } : {}),
+          id: initial.id,
+        };
+        setChecklist(merged);
+        onSaved?.(merged);
       } catch (err) {
         console.warn("[Checklist] Falha ao persistir migracao de URLs:", err);
         if (!cancelled) {
-          setChecklist((c) => {
-            const merged = {
-              ...c,
-              ...(coletaChanged ? { coleta: normalizeColetaData(coleta, c) } : {}),
-              ...(entregaChanged ? { entrega: normalizeEntregaData(entrega) } : {}),
-            };
-            onSaved?.(merged);
-            return merged;
-          });
+          const merged = {
+            ...checklistRef.current,
+            ...(coletaChanged ? { coleta: normalizeColetaData(coleta, checklistRef.current) } : {}),
+            ...(entregaChanged ? { entrega: normalizeEntregaData(entrega) } : {}),
+            id: initial.id,
+          };
+          setChecklist(merged);
+          onSaved?.(merged);
         }
       }
     })();
@@ -809,9 +828,14 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
         return null;
       }
       const { status, ...rest } = dados;
-      const payload = status !== undefined ? { ...rest, status } : { ...rest };
+      const payload = {};
+      if (status !== undefined) payload.status = status;
+      Object.entries(rest).forEach(([key, val]) => {
+        if (val !== null && val !== undefined) payload[key] = val;
+      });
+      const base = checklistRef.current || checklist;
       if (payload.coleta) {
-        payload.coleta = normalizeColetaData(payload.coleta, checklist);
+        payload.coleta = normalizeColetaData(payload.coleta, base);
       }
       if (payload.entrega) {
         payload.entrega = normalizeEntregaData(payload.entrega);
@@ -820,9 +844,12 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
       setErro("");
       try {
         await atualizarChecklist(uid, checklistId, payload);
-        const merged = { ...checklist, ...payload, id: checklistId };
-        merged.coleta = normalizeColetaData(merged.coleta, merged);
-        merged.entrega = normalizeEntregaData(merged.entrega);
+        const merged = { ...base, id: checklistId };
+        Object.entries(payload).forEach(([key, val]) => {
+          merged[key] = val;
+        });
+        if (merged.coleta) merged.coleta = normalizeColetaData(merged.coleta, merged);
+        if (merged.entrega) merged.entrega = normalizeEntregaData(merged.entrega);
         if (!merged?.id) {
           console.warn("[Checklist] Retorno antecipado: merged sem id após gravar", {
             checklistId,
@@ -832,6 +859,7 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
           return null;
         }
         setChecklist(merged);
+        checklistRef.current = merged;
         onSaved?.(merged);
         console.log("[Checklist] salvar() concluído com sucesso", { checklistId });
         return merged;
@@ -908,7 +936,19 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
       setToastMsg(msg);
       return;
     }
-    setEtapa(id);
+    if (id === etapa) return;
+    void (async () => {
+      const atual = checklistRef.current;
+      if (etapa === 2 && id !== 2 && atual?.coleta) {
+        console.log("[Checklist] Auto-save vistoria ao trocar aba", { de: etapa, para: id });
+        await salvar({ coleta: atual.coleta });
+      }
+      if (etapa === 3 && id !== 3 && atual?.coleta) {
+        console.log("[Checklist] Auto-save fotos ao trocar aba", { de: etapa, para: id });
+        await salvar({ coleta: atual.coleta });
+      }
+      setEtapa(id);
+    })();
   };
 
   const avancarEtapa1 = async () => {
@@ -966,14 +1006,26 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
   const handleArquivoFoto = async (e) => {
     const file = e.target.files?.[0];
     e.target.value = "";
-    if (!file || !slotAtivo || !uid || !checklist?.id) return;
+    if (!file || !slotAtivo || !uid || !checklist?.id) {
+      console.warn("[Checklist] Foto ignorada: arquivo/slot/uid/id ausente", {
+        temArquivo: !!file,
+        slotAtivo,
+        uid: !!uid,
+        checklistId: checklist?.id,
+      });
+      return;
+    }
 
     const isEntrega = fotoContexto === "entrega";
+    const checklistId = checklist.id;
+    console.log("[Checklist] Foto capturada", { slot: slotAtivo, contexto: fotoContexto, checklistId });
+
     if (isEntrega) setUploadingEntregaSlot(slotAtivo);
     else setUploadingSlot(slotAtivo);
     setErro("");
 
     let previewUrl = null;
+    let fotoPersistida = false;
     try {
       const gps = await getDriverGeolocation({ preferFresh: true });
       const lat = gps?.lat ?? null;
@@ -983,6 +1035,7 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
       const stamp = buildPhotoStampText(lat, lng, now);
       const blob = await stampAndCompressImage(file, stamp);
       previewUrl = URL.createObjectURL(blob);
+      console.log("[Checklist] Foto comprimida, preview local criado", { slot: slotAtivo });
 
       const slots = isEntrega ? CHECKLIST_ENTREGA_FOTO_SLOTS : CHECKLIST_FOTO_SLOTS;
       const slotInfo = slots.find((s) => s.id === slotAtivo);
@@ -996,24 +1049,17 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
         lng,
       };
 
+      const base = checklistRef.current || checklist;
       if (isEntrega) {
-        let fotos = [...(checklist.entrega?.fotos || [])];
-        if (slotAtivo === "avarias") fotos.push(novaFoto);
-        else {
-          fotos = fotos.filter((f) => f.tipo !== slotAtivo);
-          fotos.push(novaFoto);
-        }
-        const entrega = { ...checklist.entrega, fotos };
+        const fotos = atualizarFotosLista(base.entrega?.fotos, slotAtivo, novaFoto);
+        const entrega = { ...base.entrega, fotos };
         setChecklist((c) => ({ ...c, entrega }));
+        checklistRef.current = { ...base, entrega };
       } else {
-        let fotos = [...(checklist.coleta?.fotos || [])];
-        if (slotAtivo === "avarias") fotos.push(novaFoto);
-        else {
-          fotos = fotos.filter((f) => f.tipo !== slotAtivo);
-          fotos.push(novaFoto);
-        }
-        const coleta = { ...checklist.coleta, fotos };
+        const fotos = atualizarFotosLista(base.coleta?.fotos, slotAtivo, novaFoto);
+        const coleta = { ...base.coleta, fotos };
         setChecklist((c) => ({ ...c, coleta }));
+        checklistRef.current = { ...base, coleta };
       }
 
       const nomeArquivo =
@@ -1022,57 +1068,54 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
           : isEntrega
             ? `entrega_${slotAtivo}`
             : slotAtivo;
+      console.log("[Checklist] Enviando foto ao Storage", { nomeArquivo, checklistId });
       const url = isEntrega
-        ? await uploadChecklistEntregaImage(uid, checklist.id, nomeArquivo, blob)
-        : await uploadChecklistImage(uid, checklist.id, nomeArquivo, blob);
+        ? await uploadChecklistEntregaImage(uid, checklistId, nomeArquivo, blob)
+        : await uploadChecklistImage(uid, checklistId, nomeArquivo, blob);
+      console.log("[Checklist] Upload concluído", { slot: slotAtivo, url: url?.slice(0, 80) });
 
       const fotoFinal = { ...novaFoto, url };
       delete fotoFinal.previewUrl;
 
+      const atual = checklistRef.current || checklist;
       if (isEntrega) {
-        let entregaSalvar = null;
-        setChecklist((c) => {
-          let fotos = [...(c.entrega?.fotos || [])];
-          if (slotAtivo === "avarias") {
-            const idx = fotos.findIndex((f) => f.previewUrl === previewUrl);
-            if (idx >= 0) fotos[idx] = fotoFinal;
-            else fotos.push(fotoFinal);
-          } else {
-            fotos = fotos.filter((f) => f.tipo !== slotAtivo);
-            fotos.push(fotoFinal);
-          }
-          entregaSalvar = { ...c.entrega, fotos };
-          return { ...c, entrega: entregaSalvar };
+        const fotos = atualizarFotosLista(atual.entrega?.fotos, slotAtivo, fotoFinal, previewUrl);
+        const entregaSalvar = { ...atual.entrega, fotos };
+        setChecklist((c) => ({ ...c, entrega: entregaSalvar }));
+        checklistRef.current = { ...atual, entrega: entregaSalvar };
+        console.log("[Checklist] Persistindo foto entrega no Firestore", {
+          slot: slotAtivo,
+          totalFotos: fotos.length,
         });
-        await salvar({ entrega: entregaSalvar });
+        const ok = await salvar({ entrega: entregaSalvar });
+        console.log("[Checklist] Foto entrega salva", { ok: !!ok, slot: slotAtivo });
+        fotoPersistida = !!ok;
       } else {
-        let coletaSalvar = null;
-        setChecklist((c) => {
-          let fotos = [...(c.coleta?.fotos || [])];
-          if (slotAtivo === "avarias") {
-            const idx = fotos.findIndex((f) => f.previewUrl === previewUrl);
-            if (idx >= 0) fotos[idx] = fotoFinal;
-            else fotos.push(fotoFinal);
-          } else {
-            fotos = fotos.filter((f) => f.tipo !== slotAtivo);
-            fotos.push(fotoFinal);
-          }
-          coletaSalvar = { ...c.coleta, fotos };
-          return { ...c, coleta: coletaSalvar };
+        const fotos = atualizarFotosLista(atual.coleta?.fotos, slotAtivo, fotoFinal, previewUrl);
+        const coletaSalvar = { ...atual.coleta, fotos };
+        setChecklist((c) => ({ ...c, coleta: coletaSalvar }));
+        checklistRef.current = { ...atual, coleta: coletaSalvar };
+        console.log("[Checklist] Persistindo foto coleta no Firestore", {
+          slot: slotAtivo,
+          totalFotos: fotos.length,
         });
-        await salvar({ coleta: coletaSalvar });
+        const ok = await salvar({ coleta: coletaSalvar });
+        console.log("[Checklist] Foto coleta salva", { ok: !!ok, slot: slotAtivo });
+        fotoPersistida = !!ok;
       }
-    } catch {
+    } catch (err) {
+      console.error("[Checklist] Falha no fluxo de foto:", err);
+      const base = checklistRef.current || checklist;
       if (isEntrega) {
-        const fotos = (checklist.entrega?.fotos || []).filter((f) => f.previewUrl !== previewUrl);
+        const fotos = (base.entrega?.fotos || []).filter((f) => f.previewUrl !== previewUrl);
         setChecklist((c) => ({ ...c, entrega: { ...c.entrega, fotos } }));
       } else {
-        const fotos = (checklist.coleta?.fotos || []).filter((f) => f.previewUrl !== previewUrl);
+        const fotos = (base.coleta?.fotos || []).filter((f) => f.previewUrl !== previewUrl);
         setChecklist((c) => ({ ...c, coleta: { ...c.coleta, fotos } }));
       }
       setErro("Falha ao enviar foto. Tente novamente.");
     } finally {
-      if (previewUrl) URL.revokeObjectURL(previewUrl);
+      if (previewUrl && fotoPersistida) URL.revokeObjectURL(previewUrl);
       if (isEntrega) setUploadingEntregaSlot(null);
       else setUploadingSlot(null);
       setSlotAtivo(null);
