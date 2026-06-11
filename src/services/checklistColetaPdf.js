@@ -1,3 +1,5 @@
+import { ref, getBlob } from "firebase/storage";
+import { storage } from "../firebase.js";
 import {
   CHECKLIST_TIPOS_SERVICO,
   CHECKLIST_MOTIVOS,
@@ -61,28 +63,56 @@ function blobToDataUrl(blob) {
 }
 
 /**
- * fetch(downloadURL) -> blob -> FileReader -> dataURL (timeout 10s)
+ * Firebase Storage SDK (getBlob) -> FileReader -> dataURL (timeout 10s por imagem)
  */
-async function fetchImageDataUrl(url, context = "") {
-  if (!url) return null;
-
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), IMAGE_FETCH_TIMEOUT_MS);
+async function fetchImageDataUrl(urlOrPath, context = "") {
+  if (!urlOrPath) return null;
 
   try {
-    const res = await fetch(url, { mode: "cors", signal: controller.signal });
-    if (!res.ok) {
-      console.error("[Checklist PDF] HTTP ao carregar imagem:", context, url, res.status);
-      return null;
-    }
-    const blob = await res.blob();
+    const blob = await Promise.race([
+      getBlob(ref(storage, urlOrPath)),
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error("timeout 10s")), IMAGE_FETCH_TIMEOUT_MS)
+      ),
+    ]);
     return await blobToDataUrl(blob);
   } catch (err) {
-    console.error("[Checklist PDF] Falha ao carregar imagem:", context, url, err);
+    console.error("[Checklist PDF] Falha ao carregar imagem:", context, urlOrPath, err);
     return null;
-  } finally {
-    clearTimeout(timer);
   }
+}
+
+async function preloadChecklistImages({ fotosGrid, coleta, assinBlocks }) {
+  const tasks = [
+    ...fotosGrid.map((foto) => {
+      const slotLabel =
+        CHECKLIST_FOTO_SLOTS.find((s) => s.id === foto.tipo)?.label || foto.label || foto.tipo;
+      return {
+        mapKey: `foto:${foto.tipo}:${foto.url}`,
+        promise: fetchImageDataUrl(foto.url, `foto:${slotLabel}`),
+      };
+    }),
+    ...assinBlocks.map(({ key }) => {
+      const assin = coleta?.assinaturas?.[key] || {};
+      return {
+        mapKey: `assinatura:${key}`,
+        promise: fetchImageDataUrl(assin.imagemUrl, `assinatura:${key}`),
+      };
+    }),
+  ];
+
+  const settled = await Promise.allSettled(tasks.map((t) => t.promise));
+  const cache = {};
+  tasks.forEach((task, i) => {
+    const result = settled[i];
+    if (result.status === "fulfilled") {
+      cache[task.mapKey] = result.value;
+    } else {
+      cache[task.mapKey] = null;
+      console.error("[Checklist PDF] Falha ao carregar imagem:", task.mapKey, result.reason);
+    }
+  });
+  return cache;
 }
 
 function imageFormat(dataUrl) {
@@ -240,6 +270,12 @@ export async function generateChecklistColetaPdf({ checklist, frete, perfil }) {
 
   sectionTitle("FOTOS DA VISTORIA");
 
+  const assinBlocks = [
+    { key: "responsavel", titulo: "Responsavel no local" },
+    { key: "prestador", titulo: "Prestador" },
+  ];
+  const imageCache = await preloadChecklistImages({ fotosGrid, coleta, assinBlocks });
+
   let col = 0;
   let rowStartY = y;
 
@@ -250,7 +286,7 @@ export async function generateChecklistColetaPdf({ checklist, frete, perfil }) {
 
     const slotLabel =
       CHECKLIST_FOTO_SLOTS.find((s) => s.id === foto.tipo)?.label || foto.label || foto.tipo;
-    const dataUrl = await fetchImageDataUrl(foto.url, `foto:${slotLabel}`);
+    const dataUrl = imageCache[`foto:${foto.tipo}:${foto.url}`];
 
     if (dataUrl) {
       try {
@@ -286,10 +322,6 @@ export async function generateChecklistColetaPdf({ checklist, frete, perfil }) {
   y += 4;
 
   sectionTitle("ASSINATURAS");
-  const assinBlocks = [
-    { key: "responsavel", titulo: "Responsavel no local" },
-    { key: "prestador", titulo: "Prestador" },
-  ];
 
   for (const { key, titulo } of assinBlocks) {
     const assin = coleta?.assinaturas?.[key] || {};
@@ -300,7 +332,7 @@ export async function generateChecklistColetaPdf({ checklist, frete, perfil }) {
     doc.text(titulo, margin, y);
     y += 6;
 
-    const sigUrl = await fetchImageDataUrl(assin.imagemUrl, `assinatura:${key}`);
+    const sigUrl = imageCache[`assinatura:${key}`];
     if (sigUrl) {
       try {
         ensureSpace(28);

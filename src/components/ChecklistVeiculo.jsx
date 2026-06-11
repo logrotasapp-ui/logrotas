@@ -21,9 +21,11 @@ import {
   isChecklistDownloadUrl,
 } from "../services/storageService.js";
 import { getDriverGeolocation } from "../services/routingService.js";
+import { ref, getBlob } from "firebase/storage";
+import { storage } from "../firebase.js";
 import SignaturePad from "./SignaturePad.jsx";
 import {
-  saveChecklistColetaPdf,
+  generateChecklistColetaPdf,
   shareChecklistColetaWhatsApp,
 } from "../services/checklistColetaPdf.js";
 import { sharePdfFileViaSystem } from "../services/deliveryReportPdf.js";
@@ -137,6 +139,54 @@ function BtnSelecao({ label, ativo, onClick, cor = C.navy }) {
   );
 }
 
+function AssinaturaPreviewImg({ imagemUrl, bloco }) {
+  const [src, setSrc] = useState(imagemUrl);
+  const objectUrlRef = useRef(null);
+  const fallbackTriedRef = useRef(false);
+
+  useEffect(() => {
+    fallbackTriedRef.current = false;
+    setSrc(imagemUrl);
+    return () => {
+      if (objectUrlRef.current) {
+        URL.revokeObjectURL(objectUrlRef.current);
+        objectUrlRef.current = null;
+      }
+    };
+  }, [imagemUrl]);
+
+  const handleError = async () => {
+    if (!imagemUrl || fallbackTriedRef.current) return;
+    fallbackTriedRef.current = true;
+    try {
+      const blob = await getBlob(ref(storage, imagemUrl));
+      const objUrl = URL.createObjectURL(blob);
+      objectUrlRef.current = objUrl;
+      setSrc(objUrl);
+    } catch (err) {
+      console.error("[Checklist] Falha preview assinatura:", bloco, err);
+    }
+  };
+
+  return (
+    <img
+      src={src}
+      alt={`Assinatura ${bloco}`}
+      onError={handleError}
+      style={{
+        width: "100%",
+        minHeight: 80,
+        maxHeight: 140,
+        objectFit: "contain",
+        border: `1px solid ${C.border}`,
+        borderRadius: 10,
+        background: "#fff",
+        display: "block",
+      }}
+    />
+  );
+}
+
 function AvisoIncompleto({ validacao, tentouFinalizarColeta }) {
   if (!tentouFinalizarColeta || validacao.completa) return null;
   return (
@@ -220,7 +270,14 @@ function EtapaPdfColeta({ checklist, frete, perfil, gerandoPdf, onGerarPdf, onWh
           opacity: gerandoPdf ? 0.7 : 1,
         }}
       >
-        {gerandoPdf ? "Gerando PDF…" : "📄 Gerar PDF da Coleta"}
+        {gerandoPdf ? (
+          <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+            <RefreshCwIcon size={16} style={{ animation: "lr-btn-spin 1s linear infinite" }} />
+            Gerando PDF...
+          </span>
+        ) : (
+          "📄 Gerar PDF da Coleta"
+        )}
       </button>
       <button
         type="button"
@@ -438,11 +495,14 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
 
   const handleGerarPdf = async () => {
     if (gerandoPdf || !coletaOk) return;
+    if (pdfBlobCache) {
+      setShowPdfShare(true);
+      return;
+    }
     setGerandoPdf(true);
     setErro("");
     try {
-      const { blob, filename, method } = await saveChecklistColetaPdf(pdfParams);
-      if (method === "cancelled") return;
+      const { blob, filename } = await generateChecklistColetaPdf(pdfParams);
       setPdfBlobCache(blob);
       setPdfFilenameCache(filename);
       setShowPdfShare(true);
@@ -685,6 +745,7 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
         fontFamily: "'DM Sans',sans-serif",
       }}
     >
+      <style>{`@keyframes lr-btn-spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}`}</style>
       <input
         ref={fileInputRef}
         type="file"
@@ -1110,22 +1171,7 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
                       <div style={{ color: C.navy, fontWeight: 700, fontSize: 12, marginBottom: 8 }}>
                         Assinatura salva
                       </div>
-                      <img
-                        src={assin.imagemUrl}
-                        alt={`Assinatura ${bloco}`}
-                        crossOrigin="anonymous"
-                        referrerPolicy="no-referrer"
-                        style={{
-                          width: "100%",
-                          minHeight: 80,
-                          maxHeight: 140,
-                          objectFit: "contain",
-                          border: `1px solid ${C.border}`,
-                          borderRadius: 10,
-                          background: "#fff",
-                          display: "block",
-                        }}
-                      />
+                      <AssinaturaPreviewImg imagemUrl={assin.imagemUrl} bloco={bloco} />
                       <div style={{ color: C.muted, fontSize: 11, marginTop: 10 }}>
                         Assine novamente abaixo para substituir.
                       </div>
@@ -1226,6 +1272,31 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
                 Compartilhe o laudo da coleta:
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                {pdfBlobCache && (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      try {
+                        await sharePdfFileViaSystem(pdfBlobCache, pdfFilenameCache || "checklist-coleta.pdf");
+                      } catch {
+                        shareChecklistColetaWhatsApp(pdfParams);
+                      }
+                    }}
+                    style={{
+                      width: "100%",
+                      padding: 13,
+                      background: C.navy,
+                      border: "none",
+                      borderRadius: 12,
+                      cursor: "pointer",
+                      color: "#fff",
+                      fontWeight: 700,
+                      fontSize: 14,
+                    }}
+                  >
+                    📄 Enviar PDF no WhatsApp
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => shareChecklistColetaWhatsApp(pdfParams)}
@@ -1241,40 +1312,11 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
                     fontSize: 14,
                   }}
                 >
-                  Compartilhar no WhatsApp
+                  💬 Enviar resumo em texto
                 </button>
-                {pdfBlobCache && (
-                  <button
-                    type="button"
-                    onClick={async () => {
-                      try {
-                        await sharePdfFileViaSystem(pdfBlobCache, pdfFilenameCache || "checklist-coleta.pdf");
-                      } catch {
-                        shareChecklistColetaWhatsApp(pdfParams);
-                      }
-                    }}
-                    style={{
-                      width: "100%",
-                      padding: 13,
-                      background: "#128C7E",
-                      border: "none",
-                      borderRadius: 12,
-                      cursor: "pointer",
-                      color: "#fff",
-                      fontWeight: 700,
-                      fontSize: 14,
-                    }}
-                  >
-                    WhatsApp / compartilhar PDF
-                  </button>
-                )}
                 <button
                   type="button"
-                  onClick={() => {
-                    setShowPdfShare(false);
-                    setPdfBlobCache(null);
-                    setPdfFilenameCache("");
-                  }}
+                  onClick={() => setShowPdfShare(false)}
                   style={{
                     width: "100%",
                     padding: 12,
@@ -1289,6 +1331,9 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
                 >
                   Fechar
                 </button>
+                <div style={{ color: C.muted, fontSize: 11, lineHeight: 1.4, marginTop: 2 }}>
+                  O PDF também fica em Downloads.
+                </div>
               </div>
             </div>
           </div>,
