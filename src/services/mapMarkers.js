@@ -1,5 +1,73 @@
 /** Marcadores Google Maps — mesma aparência do mapa expandido de entregas. */
 
+const RENDER_OFFSET_M = 8;
+
+function metersToLatDelta(m) {
+  return m / 111320;
+}
+
+function metersToLngDelta(m, lat) {
+  const cos = Math.cos((lat * Math.PI) / 180);
+  return m / (111320 * (cos || 1));
+}
+
+function renderLocationKey(lng, lat) {
+  return `${Number(lng).toFixed(5)},${Number(lat).toFixed(5)}`;
+}
+
+/**
+ * V236 — deslocamento visual (lat/lng) só na renderização quando paradas compartilham coordenadas.
+ * Não altera coords originais dos dados.
+ * @param {Array<{ lng: number, lat: number }>} items
+ * @returns {Array<{ lng: number, lat: number, renderLng: number, renderLat: number }>}
+ */
+export function applyMarkerRenderOffsets(items) {
+  const list = (items || []).map((it) => ({
+    ...it,
+    lng: Number(it.lng),
+    lat: Number(it.lat),
+  }));
+  const buckets = new Map();
+  for (const it of list) {
+    const key = renderLocationKey(it.lng, it.lat);
+    if (!buckets.has(key)) buckets.set(key, []);
+    buckets.get(key).push(it);
+  }
+  for (const group of buckets.values()) {
+    if (group.length <= 1) {
+      const only = group[0];
+      only.renderLng = only.lng;
+      only.renderLat = only.lat;
+      continue;
+    }
+    const centerLng = group.reduce((s, g) => s + g.lng, 0) / group.length;
+    const centerLat = group.reduce((s, g) => s + g.lat, 0) / group.length;
+    group.forEach((it, i) => {
+      const ang = (i / group.length) * 2 * Math.PI - Math.PI / 2;
+      it.renderLng = centerLng + metersToLngDelta(RENDER_OFFSET_M * Math.cos(ang), centerLat);
+      it.renderLat = centerLat + metersToLatDelta(RENDER_OFFSET_M * Math.sin(ang));
+    });
+  }
+  return list;
+}
+
+/** V229 — cor do agrupamento: pendente sempre azul; verde só se todos entregues. */
+export function resolveClusterFillColor(markers) {
+  let hasPendente = false;
+  let hasNaoEntregue = false;
+  let allEntregue = markers?.length > 0;
+  for (const m of markers || []) {
+    const s = m.__stopStatus || "pendente";
+    if (s === "pendente") hasPendente = true;
+    if (s === "nao_entregue") hasNaoEntregue = true;
+    if (s !== "entregue") allEntregue = false;
+  }
+  if (hasPendente) return "#3B82F6";
+  if (hasNaoEntregue) return "#FCA5A5";
+  if (allEntregue) return "#22C55E";
+  return "#3B82F6";
+}
+
 export function createNumberedStopMarker(lng, lat, order, { entregue = false, naoEntregue = false, isCurrent = false } = {}) {
   let fillColor = "#3B82F6";
   if (naoEntregue) fillColor = "#FCA5A5";

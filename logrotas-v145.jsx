@@ -1,5 +1,5 @@
 ﻿import { useState, useRef, useEffect, useCallback, useMemo } from "react";
-import { createPortal } from "react-dom";
+import { createPortal, flushSync } from "react-dom";
 import {
   calculateRouteCosts,
   calculateFreteQuote,
@@ -100,7 +100,7 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="V235";
+const APP_VERSION="V236-parte1";
 const BETA_HIDE_PLANOS=true;
 
 const OfflineRestoredBanner=({show})=>show?(
@@ -1942,6 +1942,19 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
   };
   const cancelarPacoteNaParada=()=>setDupQueue(q=>q.slice(1));
 
+  // V236 — overlay imediato no toque em importar (antes do OCR assíncrono)
+  const handleImportStart=useCallback(()=>{
+    flushSync(()=>{
+      overlayFlowRef.current="importar";
+      setOverlayMsg("Lendo arquivo...");
+      setProcessandoFoto(true);
+    });
+  },[]);
+  const handleImportEnd=useCallback(()=>{
+    setOverlayMsg("");
+    setProcessandoFoto(false);
+  },[]);
+
   // Geocoding Google com proximity (GPS + cadeia) p/ endereços do OCR (Vision)
   // V169 — paradas com confianca ok|warn; feedback para FAIL
   const handleScannerSuccess=async(novasParadas,meta)=>{
@@ -1951,6 +1964,8 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
     const novas=Array.isArray(novasParadas)?novasParadas:[];
     if(novas.length===0){
       setErroFoto("Nenhum endereço válido após limpeza do texto.");
+      setProcessandoFoto(false);
+      setOverlayMsg("");
       return;
     }
     if(meta?.failedCount>0){
@@ -1960,7 +1975,7 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
       );
     }
     setProcessandoFoto(true);
-    // V235 — overlay com progresso real da geocodificação ("X de Y")
+    // V236 — fase de geocodificação após leitura do arquivo
     overlayFlowRef.current="importar";
     setOverlayMsg(`📍 Localizando endereços... 0 de ${novas.length}`);
     try{
@@ -2128,6 +2143,8 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
         onSuccess={handleScannerSuccess}
         onError={setErroFoto}
         onProcessingChange={setProcessandoFoto}
+        onImportStart={handleImportStart}
+        onImportEnd={handleImportEnd}
         accentColor={OTIMIZAR_AZUL}
         accentDark={OTIMIZAR_AZUL_MID}
         accentLight="#EEF4FF"
@@ -3025,7 +3042,7 @@ const TripCalcModal=({onClose,vehicles})=>{
           {isElec
             ?<Field label="⚡ Energia (R$/kWh)" value={combustivel} onChange={setCombustivel} placeholder="Ex: 1.85" prefix="R$" calc/>
             :<Field label="⛽ Combustível (R$/L)" value={combustivel} onChange={setCombustivel} placeholder="Ex: 6.49" prefix="R$" calc/>}
-          <Field label={isElec?"⚡ Consumo (kWh/100km)":"⛽ Consumo (km/L)"} value={consumo} onChange={setConsumo} placeholder={isElec?"Ex: 0,20":`Ex: ${veiculo.consumption}`} suffix={isElec?"kWh/100km":"km/L"} calc/>
+          <Field label={isElec?"⚡ Consumo (kWh/100km)":"⛽ Consumo (km/L)"} value={consumo} onChange={setConsumo} placeholder={isElec?"Ex: 15":`Ex: ${veiculo.consumption}`} suffix={isElec?"kWh/100km":"km/L"} calc/>
         </div>
 
         {/* Erro */}
@@ -3448,7 +3465,7 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
             {isElec
               ?<Field label="⚡ Energia (R$/kWh)" value={fuelPrice} onChange={setFuelPrice} placeholder="1.85" prefix="R$" calc/>
               :<Field label="⛽ Combustível (R$/L)" value={fuelPrice} onChange={setFuelPrice} placeholder="Ex: 6.49" prefix="R$" calc/>}
-            <Field label={isElec?"⚡ Consumo (kWh/100km)":"⛽ Consumo (km/L)"} value={consumo} onChange={setConsumo} placeholder={isElec?"Ex: 0,20":"Ex: 12"} suffix={isElec?"kWh/100km":"km/L"} calc/>
+            <Field label={isElec?"⚡ Consumo (kWh/100km)":"⛽ Consumo (km/L)"} value={consumo} onChange={setConsumo} placeholder={isElec?"Ex: 15":"Ex: 12"} suffix={isElec?"kWh/100km":"km/L"} calc/>
             {isTruck&&<>
               <Field label="🟦 ARLA 32 (R$/L) — coloque 0 se não usar" value={arlaPrice} onChange={setArlaPrice} placeholder="Ex: 4.50" prefix="R$" calc/>
               <Field label="🟦 Consumo ARLA 32 (L/100km)" value={arlaConsumption} onChange={setArlaConsumption} placeholder="3.5" suffix="L/100km" hint="Padrão: 3.5 L por 100km" calc/>

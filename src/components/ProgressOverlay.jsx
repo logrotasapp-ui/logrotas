@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
 
 /**
- * V235 — Overlay de progresso do LogRotas (otimização + importação de endereços).
+ * V236 — Overlay de progresso do LogRotas (otimização + importação de endereços).
  * Spinner de 12 bolinhas alternando azul/laranja da marca, com rastro que esmaece.
  * - Fundo semitransparente bloqueia duplo clique.
  * - Timeout de segurança (60s) fecha o overlay via onTimeout (nunca fica preso).
  * - Transição suave de entrada/saída (fade).
+ * - Sem card branco: spinner e texto centralizados sobre o fundo escurecido.
  */
 
 const AZUL = "#2563EB";     // azul primário (botões principais)
@@ -109,27 +110,23 @@ export default function ProgressOverlay({ visible, message, onTimeout }) {
       <style>{SPINNER_CSS}</style>
       <div
         style={{
-          background: "#fff",
-          borderRadius: 18,
-          padding: "28px 30px",
           display: "flex",
           flexDirection: "column",
           alignItems: "center",
           gap: 16,
           maxWidth: 300,
-          width: "100%",
-          boxShadow: "0 10px 40px #1E3A8A33",
           textAlign: "center",
         }}
       >
         <BrandDotSpinner />
         <div
           style={{
-            color: "#1E3A8A",
+            color: "#fff",
             fontWeight: 700,
             fontSize: 14,
             lineHeight: 1.45,
             fontFamily: "'Sora',sans-serif",
+            textShadow: "0 1px 6px #1E3A8A88",
           }}
         >
           {message || "Processando…"}

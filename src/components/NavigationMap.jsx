@@ -3,6 +3,7 @@ import { API_KEYS } from "../services/apiConfig.js";
 import { waitForGoogleMaps } from "../services/googleMapsLoader.js";
 import { getDriverGeolocation } from "../services/routingService.js";
 import {
+  applyMarkerRenderOffsets,
   createNumberedStopMarker,
   createDriverTriangleMarker,
   packageCountAtCoords,
@@ -71,13 +72,20 @@ export default function NavigationMap({
         infoWindowRef.current = new window.google.maps.InfoWindow({ maxWidth: 280 });
       }
 
-      paradas.forEach((p, i) => {
-        if (!p?.coords?.length) return;
-        const [lng, lat] = p.coords;
+      const positioned = applyMarkerRenderOffsets(
+        paradas
+          .map((p, i) => {
+            if (!p?.coords?.length) return null;
+            const [lng, lat] = p.coords;
+            return { lng, lat, parada: p, index: i };
+          })
+          .filter(Boolean)
+      );
+
+      positioned.forEach(({ lng, lat, renderLng, renderLat, parada: p, index: i }) => {
         const status = resolveStatus(p);
-        const entregue = status === "entregue" || status === "nao_entregue";
         const isCurrent = i === currentStopIndex && status === "pendente";
-        const marker = createNumberedStopMarker(lng, lat, i + 1, {
+        const marker = createNumberedStopMarker(renderLng, renderLat, i + 1, {
           entregue: status === "entregue",
           naoEntregue: status === "nao_entregue",
           isCurrent,

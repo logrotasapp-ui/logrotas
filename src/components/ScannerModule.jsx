@@ -30,6 +30,8 @@ export default function ScannerModule({
   onSuccess,
   onError,
   onProcessingChange,
+  onImportStart,
+  onImportEnd,
   onCancel,
   accentColor = "#22C55E",
   accentDark = "#16A34A",
@@ -102,9 +104,10 @@ export default function ScannerModule({
     setBusy(false);
     setProgress(0);
     setStatusText("");
+    onImportEnd?.();
     resetToMenu();
     onCancel?.();
-  }, [resetToMenu, setBusy, onCancel]);
+  }, [resetToMenu, setBusy, onCancel, onImportEnd]);
 
   useEffect(() => {
     return () => {
@@ -120,6 +123,7 @@ export default function ScannerModule({
 
       abortRef.current.aborted = false;
       const signal = abortRef.current;
+      onImportStart?.();
       setBusy(true);
       setProgress(0);
       setStatusText("Enviando para leitura…");
@@ -141,6 +145,7 @@ export default function ScannerModule({
         ]);
       } catch (err) {
         abortRef.current.aborted = true;
+        onImportEnd?.();
         onError?.(err?.message || SCAN_ERROR);
         resetToMenu();
         return;
@@ -151,11 +156,13 @@ export default function ScannerModule({
       }
 
       if (signal.aborted) {
+        onImportEnd?.();
         resetToMenu();
         return;
       }
 
       if (!out.ok) {
+        onImportEnd?.();
         onError?.(out.error || SCAN_ERROR);
         resetToMenu();
         return;
@@ -166,6 +173,7 @@ export default function ScannerModule({
       const slice = paradas.slice(0, Math.max(0, limit));
 
       if (slice.length === 0) {
+        onImportEnd?.();
         onError?.("Nenhum endereço disponível (limite de paradas atingido).");
         resetToMenu();
         return;
@@ -178,7 +186,7 @@ export default function ScannerModule({
         failedCount: out.failedCount || 0,
       });
     },
-    [disabled, processing, maxToAdd, onSuccess, onError, setBusy, resetToMenu]
+    [disabled, processing, maxToAdd, onSuccess, onError, onImportStart, onImportEnd, setBusy, resetToMenu]
   );
 
   const handleCancelProcessing = () => {
@@ -186,6 +194,7 @@ export default function ScannerModule({
     setBusy(false);
     setProgress(0);
     setStatusText("");
+    onImportEnd?.();
     resetToMenu();
   };
 

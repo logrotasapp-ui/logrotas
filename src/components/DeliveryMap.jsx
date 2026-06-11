@@ -2,7 +2,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { MarkerClusterer } from "@googlemaps/markerclusterer";
 import { API_KEYS } from "../services/apiConfig.js";
 import { buildDeliveryMapFeatures } from "../services/mapDisplayService.js";
-import { buildStopInfoHtml } from "../services/mapMarkers.js";
+import {
+  applyMarkerRenderOffsets,
+  buildStopInfoHtml,
+  resolveClusterFillColor,
+} from "../services/mapMarkers.js";
 import { waitForGoogleMaps } from "../services/googleMapsLoader.js";
 import { getDriverGeolocation } from "../services/routingService.js";
 import GoogleLocationIcon from "./GoogleLocationIcon.jsx";
@@ -10,8 +14,8 @@ import GoogleLocationIcon from "./GoogleLocationIcon.jsx";
 const DEFAULT_CENTER = { lat: -23.5505, lng: -46.6333 };
 
 class DeliveryClusterRenderer {
-  render({ count, position }) {
-    const color = count < 5 ? "#22C55E" : count < 12 ? "#16A34A" : "#15803D";
+  render({ count, position, markers }) {
+    const color = resolveClusterFillColor(markers);
     const scale = count < 5 ? 20 : count < 12 ? 26 : 32;
     return new window.google.maps.Marker({
       position,
@@ -203,10 +207,17 @@ export default function DeliveryMap({
           return;
         }
 
-        const markers = features.map((f) => {
-          const [lng, lat] = f.geometry.coordinates;
+        const positioned = applyMarkerRenderOffsets(
+          features.map((f) => {
+            const [lng, lat] = f.geometry.coordinates;
+            return { lng, lat, feature: f };
+          })
+        );
+
+        const markers = positioned.map(({ lng, lat, renderLng, renderLat, feature: f }) => {
           const { packageCount, orders, status, endereco, motivo, order } = f.properties;
-          const marker = createNumberedMarker(lng, lat, order, status || "pendente");
+          const marker = createNumberedMarker(renderLng, renderLat, order, status || "pendente");
+          marker.__stopStatus = status || "pendente";
           marker.__deliveryData = { packageCount, orders };
           marker.addListener("click", () => {
             if (!infoWindowRef.current) {
