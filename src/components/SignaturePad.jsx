@@ -21,7 +21,7 @@ function getCoalescedPointers(canvas, evt) {
   return events.map((e) => getPointer(canvas, e));
 }
 
-const SignaturePad = forwardRef(function SignaturePad({ height = 140, onChange }, ref) {
+const SignaturePad = forwardRef(function SignaturePad({ height = 140, onChange, hideClear = false }, ref) {
   const wrapRef = useRef(null);
   const canvasRef = useRef(null);
   const drawingRef = useRef(false);
@@ -153,23 +153,25 @@ const SignaturePad = forwardRef(function SignaturePad({ height = 140, onChange }
           onPointerLeave={onPointerUp}
         />
       </div>
-      <button
-        type="button"
-        onClick={clear}
-        style={{
-          marginTop: 8,
-          padding: "7px 14px",
-          background: C.subtle,
-          border: `1px solid ${C.border}`,
-          borderRadius: 9,
-          color: C.navy,
-          fontWeight: 700,
-          fontSize: 12,
-          cursor: "pointer",
-        }}
-      >
-        Limpar assinatura
-      </button>
+      {!hideClear && (
+        <button
+          type="button"
+          onClick={clear}
+          style={{
+            marginTop: 8,
+            padding: "7px 14px",
+            background: C.subtle,
+            border: `1px solid ${C.border}`,
+            borderRadius: 9,
+            color: C.navy,
+            fontWeight: 700,
+            fontSize: 12,
+            cursor: "pointer",
+          }}
+        >
+          Limpar assinatura
+        </button>
+      )}
     </div>
   );
 });

@@ -4,20 +4,25 @@ import { ArrowLeftIcon, XIcon, CameraIcon, RefreshCwIcon } from "lucide-react";
 import {
   atualizarChecklist,
   coletaCompleta,
+  entregaCompleta,
   CHECKLIST_TIPOS_SERVICO,
   CHECKLIST_MOTIVOS,
   CHECKLIST_ESTADOS_ACESSORIO,
   CHECKLIST_ESTADOS_PNEU,
   CHECKLIST_NIVEIS_COMBUSTIVEL,
   CHECKLIST_FOTO_SLOTS,
+  CHECKLIST_ENTREGA_FOTO_SLOTS,
+  CHECKLIST_ACESSORIOS_PADRAO,
 } from "../services/checklistService.js";
 import {
   stampAndCompressImage,
   compressImageToJpegBlob,
   uploadChecklistImage,
+  uploadChecklistEntregaImage,
   formatStampDataHora,
   buildPhotoStampText,
   migrateChecklistColetaMedia,
+  migrateChecklistEntregaMedia,
   isChecklistDownloadUrl,
 } from "../services/storageService.js";
 import { getDriverGeolocation } from "../services/routingService.js";
@@ -26,7 +31,9 @@ import { storage } from "../firebase.js";
 import SignaturePad from "./SignaturePad.jsx";
 import {
   generateChecklistColetaPdf,
+  generateChecklistCompletoPdf,
   shareChecklistColetaWhatsApp,
+  shareChecklistCompletoWhatsApp,
 } from "../services/checklistColetaPdf.js";
 import { sharePdfFileViaSystem } from "../services/deliveryReportPdf.js";
 
@@ -54,6 +61,7 @@ const ETAPAS = [
   { id: 3, label: "Fotos" },
   { id: 4, label: "Assinaturas" },
   { id: 5, label: "PDF" },
+  { id: 6, label: "Entrega", requerColeta: true },
 ];
 
 const ACESSORIO_CORES = {
@@ -69,6 +77,25 @@ function assinaturaVazia() {
   return { nome: "", documento: "", imagemUrl: "", dataHora: "", lat: null, lng: null };
 }
 
+function normalizeEntrega(ent) {
+  const base = ent || {};
+  return {
+    fotos: base.fotos || [],
+    recebedor: {
+      nome: "",
+      documento: "",
+      mesmaPessoaColeta: null,
+      ...base.recebedor,
+    },
+    conferencia: base.conferencia ?? null,
+    assinaturas: {
+      recebedor: { ...assinaturaVazia(), ...base.assinaturas?.recebedor },
+      prestador: { ...assinaturaVazia(), ...base.assinaturas?.prestador },
+    },
+    finalizadaEm: base.finalizadaEm || null,
+  };
+}
+
 function normalizeChecklist(cl) {
   const coleta = cl?.coleta || {};
   return {
@@ -81,6 +108,7 @@ function normalizeChecklist(cl) {
         prestador: { ...assinaturaVazia(), ...coleta.assinaturas?.prestador },
       },
     },
+    entrega: normalizeEntrega(cl?.entrega),
   };
 }
 
@@ -187,7 +215,7 @@ function AssinaturaPreviewImg({ imagemUrl, bloco }) {
   );
 }
 
-function AvisoIncompleto({ validacao, tentouFinalizarColeta }) {
+function AvisoIncompleto({ validacao, tentouFinalizarColeta, titulo = "Checklist incompleto" }) {
   if (!tentouFinalizarColeta || validacao.completa) return null;
   return (
     <div
@@ -199,7 +227,7 @@ function AvisoIncompleto({ validacao, tentouFinalizarColeta }) {
       }}
     >
       <div style={{ color: C.orange, fontWeight: 800, fontSize: 14, fontFamily: "'Sora',sans-serif", marginBottom: 8 }}>
-        ⚠️ Checklist incompleto
+        ⚠️ {titulo}
       </div>
       <ul style={{ margin: 0, paddingLeft: 18, color: C.text2, fontSize: 13, lineHeight: 1.6 }}>
         {validacao.faltando.map((item) => (
@@ -210,7 +238,118 @@ function AvisoIncompleto({ validacao, tentouFinalizarColeta }) {
   );
 }
 
-function EtapaPdfColeta({ checklist, frete, perfil, gerandoPdf, onGerarPdf, onWhatsApp, coletaOk }) {
+function ToastAviso({ mensagem }) {
+  if (!mensagem) return null;
+  return createPortal(
+    <div
+      style={{
+        position: "fixed",
+        bottom: 24,
+        left: "50%",
+        transform: "translateX(-50%)",
+        zIndex: 500,
+        background: C.navy,
+        color: "#fff",
+        padding: "12px 18px",
+        borderRadius: 12,
+        fontSize: 13,
+        fontWeight: 600,
+        maxWidth: 320,
+        textAlign: "center",
+        boxShadow: "0 8px 24px #1E3A8A44",
+        lineHeight: 1.45,
+      }}
+    >
+      {mensagem}
+    </div>,
+    document.body
+  );
+}
+
+function BlocoAssinatura({ titulo, assin, bloco, padRef, substituindo, onSubstituir, onCampoChange }) {
+  const temAssinaturaSalva = !!assin.imagemUrl?.trim() && isChecklistDownloadUrl(assin.imagemUrl);
+  const mostrarPad = !temAssinaturaSalva || substituindo;
+
+  return (
+    <div
+      style={{
+        background: C.surface,
+        border: `1px solid ${C.border}`,
+        borderRadius: 16,
+        padding: "16px 18px",
+      }}
+    >
+      <div style={{ color: C.navy, fontWeight: 800, fontSize: 15, fontFamily: "'Sora',sans-serif", marginBottom: 14 }}>
+        {titulo}
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 14 }}>
+        <Field
+          label="Nome completo"
+          value={assin.nome}
+          onChange={(v) => onCampoChange("nome", v)}
+          placeholder="Nome de quem assina"
+        />
+        <Field
+          label="Documento (RG/CPF)"
+          value={assin.documento}
+          onChange={(v) => onCampoChange("documento", v)}
+          placeholder="000.000.000-00"
+        />
+      </div>
+      {temAssinaturaSalva && !substituindo && (
+        <div
+          style={{
+            marginBottom: 14,
+            padding: 12,
+            background: C.navyLight,
+            border: `1px solid ${C.navy}22`,
+            borderRadius: 12,
+          }}
+        >
+          <AssinaturaPreviewImg imagemUrl={assin.imagemUrl} bloco={bloco} />
+          <button
+            type="button"
+            onClick={onSubstituir}
+            style={{
+              marginTop: 10,
+              width: "100%",
+              padding: "10px 0",
+              background: C.navy,
+              border: "none",
+              borderRadius: 10,
+              color: "#fff",
+              fontWeight: 700,
+              fontSize: 13,
+              cursor: "pointer",
+            }}
+          >
+            Substituir assinatura
+          </button>
+          <div style={{ color: C.muted, fontSize: 11, marginTop: 8 }}>
+            Salva em {assin.dataHora || "—"}
+            {assin.lat != null && assin.lng != null
+              ? ` · ${Number(assin.lat).toFixed(4)}, ${Number(assin.lng).toFixed(4)}`
+              : ""}
+          </div>
+        </div>
+      )}
+      {mostrarPad && <SignaturePad ref={padRef} hideClear={temAssinaturaSalva && substituindo} />}
+    </div>
+  );
+}
+
+function EtapaPdfColeta({
+  checklist,
+  frete,
+  perfil,
+  gerandoPdf,
+  gerandoPdfCompleto,
+  onGerarPdf,
+  onGerarPdfCompleto,
+  onWhatsApp,
+  coletaOk,
+  entregaConcluida,
+}) {
   if (!coletaOk) {
     return (
       <div
@@ -246,16 +385,17 @@ function EtapaPdfColeta({ checklist, frete, perfil, gerandoPdf, onGerarPdf, onWh
       >
         <div style={{ fontSize: 40, marginBottom: 10 }}>✅</div>
         <div style={{ color: C.green, fontWeight: 800, fontSize: 16, fontFamily: "'Sora',sans-serif" }}>
-          Coleta concluída
+          {entregaConcluida ? "Checklist completo" : "Coleta concluída"}
         </div>
         <div style={{ color: C.text2, fontSize: 13, marginTop: 8, lineHeight: 1.5 }}>
-          Gere o laudo em PDF com fotos, vistoria e assinaturas do checklist {checklist?.numero || ""}.
+          Gere o laudo em PDF do checklist {checklist?.numero || ""}.
+          {!entregaConcluida && " O PDF completo fica disponível após finalizar a entrega."}
         </div>
       </div>
       <button
         type="button"
         onClick={onGerarPdf}
-        disabled={gerandoPdf}
+        disabled={gerandoPdf || gerandoPdfCompleto}
         style={{
           width: "100%",
           padding: "14px 0",
@@ -265,9 +405,9 @@ function EtapaPdfColeta({ checklist, frete, perfil, gerandoPdf, onGerarPdf, onWh
           color: "#fff",
           fontWeight: 800,
           fontSize: 15,
-          cursor: gerandoPdf ? "wait" : "pointer",
+          cursor: gerandoPdf || gerandoPdfCompleto ? "wait" : "pointer",
           fontFamily: "'Sora',sans-serif",
-          opacity: gerandoPdf ? 0.7 : 1,
+          opacity: gerandoPdf || gerandoPdfCompleto ? 0.7 : 1,
         }}
       >
         {gerandoPdf ? (
@@ -276,7 +416,34 @@ function EtapaPdfColeta({ checklist, frete, perfil, gerandoPdf, onGerarPdf, onWh
             Gerando PDF...
           </span>
         ) : (
-          "📄 Gerar PDF da Coleta"
+          "📄 PDF da Coleta"
+        )}
+      </button>
+      <button
+        type="button"
+        onClick={onGerarPdfCompleto}
+        disabled={!entregaConcluida || gerandoPdf || gerandoPdfCompleto}
+        style={{
+          width: "100%",
+          padding: "14px 0",
+          background: entregaConcluida ? C.green : C.subtle,
+          border: entregaConcluida ? "none" : `1.5px solid ${C.border}`,
+          borderRadius: 12,
+          color: entregaConcluida ? "#fff" : C.muted,
+          fontWeight: 800,
+          fontSize: 15,
+          cursor: !entregaConcluida || gerandoPdf || gerandoPdfCompleto ? "not-allowed" : "pointer",
+          fontFamily: "'Sora',sans-serif",
+          opacity: gerandoPdfCompleto ? 0.7 : 1,
+        }}
+      >
+        {gerandoPdfCompleto ? (
+          <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+            <RefreshCwIcon size={16} style={{ animation: "lr-btn-spin 1s linear infinite" }} />
+            Gerando PDF...
+          </span>
+        ) : (
+          "📋 PDF Completo"
         )}
       </button>
       <button
@@ -308,7 +475,8 @@ function EtapaPdfColeta({ checklist, frete, perfil, gerandoPdf, onGerarPdf, onWh
 }
 
 function PhotoSlot({ slot, foto, onCapture, uploading, onRemove }) {
-  const temFoto = !!foto?.url;
+  const displayUrl = foto?.previewUrl || foto?.url;
+  const temFoto = !!displayUrl;
   return (
     <div
       style={{
@@ -339,7 +507,7 @@ function PhotoSlot({ slot, foto, onCapture, uploading, onRemove }) {
           <div style={{ color: C.navy, fontWeight: 700, fontSize: 13, padding: 20 }}>⏳ Enviando…</div>
         ) : temFoto ? (
           <img
-            src={foto.url}
+            src={displayUrl}
             alt={slot.label}
             style={{ width: "100%", height: 140, objectFit: "cover", display: "block" }}
           />
@@ -363,7 +531,7 @@ function PhotoSlot({ slot, foto, onCapture, uploading, onRemove }) {
               textAlign: "left",
             }}
           >
-            {foto.dataHora}
+            {foto.dataHora || (uploading ? "Enviando…" : "")}
             {foto.lat != null && foto.lng != null ? ` · ${foto.lat.toFixed(4)}, ${foto.lng.toFixed(4)}` : ""}
           </div>
         )}
@@ -440,31 +608,59 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
   const [uploadingSlot, setUploadingSlot] = useState(null);
   const [slotAtivo, setSlotAtivo] = useState(null);
   const [gerandoPdf, setGerandoPdf] = useState(false);
+  const [gerandoPdfCompleto, setGerandoPdfCompleto] = useState(false);
   const [showPdfShare, setShowPdfShare] = useState(false);
   const [pdfBlobCache, setPdfBlobCache] = useState(null);
   const [pdfFilenameCache, setPdfFilenameCache] = useState("");
+  const [pdfModalTipo, setPdfModalTipo] = useState("coleta");
+  const [tentouFinalizarEntrega, setTentouFinalizarEntrega] = useState(false);
+  const [uploadingEntregaSlot, setUploadingEntregaSlot] = useState(null);
+  const [fotoContexto, setFotoContexto] = useState("coleta");
+  const [mostrarDivergencias, setMostrarDivergencias] = useState(false);
+  const [toastMsg, setToastMsg] = useState("");
+  const [substituirColeta, setSubstituirColeta] = useState({ responsavel: false, prestador: false });
+  const [substituirEntrega, setSubstituirEntrega] = useState({ recebedor: false, prestador: false });
   const fileInputRef = useRef(null);
   const responsavelPadRef = useRef(null);
   const prestadorPadRef = useRef(null);
+  const recebedorEntregaPadRef = useRef(null);
+  const prestadorEntregaPadRef = useRef(null);
 
   const validacao = coletaCompleta(checklist);
-  const coletaOk = checklist?.status === "aguardando_entrega" || validacao.completa;
+  const validacaoEntrega = entregaCompleta(checklist);
+  const coletaOk = checklist?.status === "aguardando_entrega" || checklist?.status === "concluido" || validacao.completa;
+  const entregaHabilitada = checklist?.status === "aguardando_entrega" || checklist?.status === "concluido";
+  const entregaConcluida = checklist?.status === "concluido";
   const pdfParams = { checklist, frete, perfil };
 
   useEffect(() => {
     if (!uid || !initial?.id) return;
     let cancelled = false;
     (async () => {
-      const { coleta, changed } = await migrateChecklistColetaMedia(initial?.coleta);
-      if (cancelled || !changed) return;
+      const { coleta, changed: coletaChanged } = await migrateChecklistColetaMedia(initial?.coleta);
+      const { entrega, changed: entregaChanged } = await migrateChecklistEntregaMedia(initial?.entrega);
+      if (cancelled || (!coletaChanged && !entregaChanged)) return;
       try {
-        const atualizado = await atualizarChecklist(uid, initial.id, { coleta });
+        const payload = {};
+        if (coletaChanged) payload.coleta = coleta;
+        if (entregaChanged) payload.entrega = entrega;
+        const atualizado = await atualizarChecklist(uid, initial.id, payload);
         if (cancelled) return;
-        setChecklist((c) => ({ ...c, coleta: atualizado.coleta || coleta }));
-        onSaved?.({ ...initial, coleta: atualizado.coleta || coleta });
+        setChecklist((c) => ({
+          ...c,
+          ...(coletaChanged ? { coleta: atualizado.coleta || coleta } : {}),
+          ...(entregaChanged ? { entrega: atualizado.entrega || entrega } : {}),
+        }));
+        onSaved?.({ ...initial, ...payload });
       } catch (err) {
         console.warn("[Checklist] Falha ao persistir migracao de URLs:", err);
-        if (!cancelled) setChecklist((c) => ({ ...c, coleta }));
+        if (!cancelled) {
+          setChecklist((c) => ({
+            ...c,
+            ...(coletaChanged ? { coleta } : {}),
+            ...(entregaChanged ? { entrega } : {}),
+          }));
+        }
       }
     })();
     return () => {
@@ -472,14 +668,27 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
     };
   }, [uid, initial?.id]);
 
+  useEffect(() => {
+    if (!toastMsg) return;
+    const t = setTimeout(() => setToastMsg(""), 4500);
+    return () => clearTimeout(t);
+  }, [toastMsg]);
+
+  useEffect(() => {
+    if (checklist.entrega?.conferencia?.conforme === false) {
+      setMostrarDivergencias(true);
+    }
+  }, [checklist.entrega?.conferencia?.conforme]);
+
   const salvar = useCallback(
     async (dados) => {
       if (!uid || !checklist?.id) return null;
-      const { status = "coleta", ...rest } = dados;
+      const { status, ...rest } = dados;
+      const payload = status !== undefined ? { ...rest, status } : rest;
       setSalvando(true);
       setErro("");
       try {
-        const atualizado = await atualizarChecklist(uid, checklist.id, { ...rest, status });
+        const atualizado = await atualizarChecklist(uid, checklist.id, payload);
         setChecklist((c) => ({ ...c, ...atualizado }));
         onSaved?.(atualizado);
         return atualizado;
@@ -494,8 +703,9 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
   );
 
   const handleGerarPdf = async () => {
-    if (gerandoPdf || !coletaOk) return;
-    if (pdfBlobCache) {
+    if (gerandoPdf || gerandoPdfCompleto || !coletaOk) return;
+    if (pdfBlobCache && pdfModalTipo === "coleta") {
+      setPdfModalTipo("coleta");
       setShowPdfShare(true);
       return;
     }
@@ -505,12 +715,47 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
       const { blob, filename } = await generateChecklistColetaPdf(pdfParams);
       setPdfBlobCache(blob);
       setPdfFilenameCache(filename);
+      setPdfModalTipo("coleta");
       setShowPdfShare(true);
     } catch {
       setErro("Não foi possível gerar o PDF.");
     } finally {
       setGerandoPdf(false);
     }
+  };
+
+  const handleGerarPdfCompleto = async () => {
+    if (gerandoPdf || gerandoPdfCompleto || !entregaConcluida) return;
+    if (pdfBlobCache && pdfModalTipo === "completo") {
+      setShowPdfShare(true);
+      return;
+    }
+    setGerandoPdfCompleto(true);
+    setErro("");
+    try {
+      const { blob, filename } = await generateChecklistCompletoPdf(pdfParams);
+      setPdfBlobCache(blob);
+      setPdfFilenameCache(filename);
+      setPdfModalTipo("completo");
+      setShowPdfShare(true);
+    } catch {
+      setErro("Não foi possível gerar o PDF completo.");
+    } finally {
+      setGerandoPdfCompleto(false);
+    }
+  };
+
+  const irParaEtapa = (id) => {
+    const etapaInfo = ETAPAS.find((e) => e.id === id);
+    if (etapaInfo?.requerColeta && !entregaHabilitada) {
+      const val = coletaCompleta(checklist);
+      const msg = val.faltando.length
+        ? `Complete a coleta primeiro: ${val.faltando.slice(0, 3).join(", ")}${val.faltando.length > 3 ? "…" : ""}`
+        : "Finalize a coleta antes de registrar a entrega.";
+      setToastMsg(msg);
+      return;
+    }
+    setEtapa(id);
   };
 
   const avancarEtapa1 = async () => {
@@ -534,7 +779,8 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
     if (ok) setEtapa(4);
   };
 
-  const abrirCaptura = (slotId) => {
+  const abrirCaptura = (slotId, contexto = "coleta") => {
+    setFotoContexto(contexto);
     setSlotAtivo(slotId);
     fileInputRef.current?.click();
   };
@@ -544,8 +790,12 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
     e.target.value = "";
     if (!file || !slotAtivo || !uid || !checklist?.id) return;
 
-    setUploadingSlot(slotAtivo);
+    const isEntrega = fotoContexto === "entrega";
+    if (isEntrega) setUploadingEntregaSlot(slotAtivo);
+    else setUploadingSlot(slotAtivo);
     setErro("");
+
+    let previewUrl = null;
     try {
       const gps = await getDriverGeolocation({ preferFresh: true });
       const lat = gps?.lat ?? null;
@@ -554,39 +804,111 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
       const dataHora = formatStampDataHora(now);
       const stamp = buildPhotoStampText(lat, lng, now);
       const blob = await stampAndCompressImage(file, stamp);
-      const slotInfo = CHECKLIST_FOTO_SLOTS.find((s) => s.id === slotAtivo);
-      const nomeArquivo = slotAtivo === "avarias" ? `avarias_${Date.now()}` : slotAtivo;
-      const url = await uploadChecklistImage(uid, checklist.id, nomeArquivo, blob);
+      previewUrl = URL.createObjectURL(blob);
 
+      const slots = isEntrega ? CHECKLIST_ENTREGA_FOTO_SLOTS : CHECKLIST_FOTO_SLOTS;
+      const slotInfo = slots.find((s) => s.id === slotAtivo);
       const novaFoto = {
         tipo: slotAtivo,
         label: slotInfo?.label || slotAtivo,
-        url,
+        url: "",
+        previewUrl,
         dataHora,
         lat,
         lng,
       };
 
-      let fotos = [...(checklist.coleta?.fotos || [])];
-      if (slotAtivo === "avarias") {
-        fotos.push(novaFoto);
+      if (isEntrega) {
+        let fotos = [...(checklist.entrega?.fotos || [])];
+        if (slotAtivo === "avarias") fotos.push(novaFoto);
+        else {
+          fotos = fotos.filter((f) => f.tipo !== slotAtivo);
+          fotos.push(novaFoto);
+        }
+        const entrega = { ...checklist.entrega, fotos };
+        setChecklist((c) => ({ ...c, entrega }));
       } else {
-        fotos = fotos.filter((f) => f.tipo !== slotAtivo);
-        fotos.push(novaFoto);
+        let fotos = [...(checklist.coleta?.fotos || [])];
+        if (slotAtivo === "avarias") fotos.push(novaFoto);
+        else {
+          fotos = fotos.filter((f) => f.tipo !== slotAtivo);
+          fotos.push(novaFoto);
+        }
+        const coleta = { ...checklist.coleta, fotos };
+        setChecklist((c) => ({ ...c, coleta }));
       }
 
-      const coleta = { ...checklist.coleta, fotos };
-      setChecklist((c) => ({ ...c, coleta }));
-      await salvar({ coleta });
+      const nomeArquivo =
+        slotAtivo === "avarias"
+          ? `avarias_${Date.now()}`
+          : isEntrega
+            ? `entrega_${slotAtivo}`
+            : slotAtivo;
+      const url = isEntrega
+        ? await uploadChecklistEntregaImage(uid, checklist.id, nomeArquivo, blob)
+        : await uploadChecklistImage(uid, checklist.id, nomeArquivo, blob);
+
+      const fotoFinal = { ...novaFoto, url };
+      delete fotoFinal.previewUrl;
+
+      if (isEntrega) {
+        let entregaSalvar = null;
+        setChecklist((c) => {
+          let fotos = [...(c.entrega?.fotos || [])];
+          if (slotAtivo === "avarias") {
+            const idx = fotos.findIndex((f) => f.previewUrl === previewUrl);
+            if (idx >= 0) fotos[idx] = fotoFinal;
+            else fotos.push(fotoFinal);
+          } else {
+            fotos = fotos.filter((f) => f.tipo !== slotAtivo);
+            fotos.push(fotoFinal);
+          }
+          entregaSalvar = { ...c.entrega, fotos };
+          return { ...c, entrega: entregaSalvar };
+        });
+        await salvar({ entrega: entregaSalvar });
+      } else {
+        let coletaSalvar = null;
+        setChecklist((c) => {
+          let fotos = [...(c.coleta?.fotos || [])];
+          if (slotAtivo === "avarias") {
+            const idx = fotos.findIndex((f) => f.previewUrl === previewUrl);
+            if (idx >= 0) fotos[idx] = fotoFinal;
+            else fotos.push(fotoFinal);
+          } else {
+            fotos = fotos.filter((f) => f.tipo !== slotAtivo);
+            fotos.push(fotoFinal);
+          }
+          coletaSalvar = { ...c.coleta, fotos };
+          return { ...c, coleta: coletaSalvar };
+        });
+        await salvar({ coleta: coletaSalvar });
+      }
     } catch {
+      if (isEntrega) {
+        const fotos = (checklist.entrega?.fotos || []).filter((f) => f.previewUrl !== previewUrl);
+        setChecklist((c) => ({ ...c, entrega: { ...c.entrega, fotos } }));
+      } else {
+        const fotos = (checklist.coleta?.fotos || []).filter((f) => f.previewUrl !== previewUrl);
+        setChecklist((c) => ({ ...c, coleta: { ...c.coleta, fotos } }));
+      }
       setErro("Falha ao enviar foto. Tente novamente.");
     } finally {
-      setUploadingSlot(null);
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+      if (isEntrega) setUploadingEntregaSlot(null);
+      else setUploadingSlot(null);
       setSlotAtivo(null);
     }
   };
 
-  const removerFotoAvaria = async (idx) => {
+  const removerFotoAvaria = async (idx, contexto = "coleta") => {
+    if (contexto === "entrega") {
+      const fotos = (checklist.entrega?.fotos || []).filter((_, i) => i !== idx);
+      const entrega = { ...checklist.entrega, fotos };
+      setChecklist((c) => ({ ...c, entrega }));
+      await salvar({ entrega });
+      return;
+    }
     const fotos = (checklist.coleta?.fotos || []).filter((_, i) => i !== idx);
     const coleta = { ...checklist.coleta, fotos };
     setChecklist((c) => ({ ...c, coleta }));
@@ -730,9 +1052,237 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
   const updateObservacoes = (valor) =>
     setChecklist((c) => ({ ...c, coleta: { ...c.coleta, observacoes: valor } }));
 
+  const updateRecebedor = (campo, valor) =>
+    setChecklist((c) => ({
+      ...c,
+      entrega: {
+        ...c.entrega,
+        recebedor: { ...c.entrega.recebedor, [campo]: valor },
+      },
+    }));
+
+  const usarMesmaPessoaColeta = async () => {
+    const resp = checklist.coleta?.assinaturas?.responsavel || {};
+    const entrega = {
+      ...checklist.entrega,
+      recebedor: {
+        nome: resp.nome || "",
+        documento: resp.documento || "",
+        mesmaPessoaColeta: true,
+      },
+    };
+    setChecklist((c) => ({ ...c, entrega }));
+    await salvar({ entrega });
+  };
+
+  const usarOutraPessoa = async () => {
+    const entrega = {
+      ...checklist.entrega,
+      recebedor: { nome: "", documento: "", mesmaPessoaColeta: false },
+    };
+    setChecklist((c) => ({ ...c, entrega }));
+    await salvar({ entrega });
+  };
+
+  const marcarConforme = async () => {
+    const entrega = {
+      ...checklist.entrega,
+      conferencia: { conforme: true },
+    };
+    setMostrarDivergencias(false);
+    setChecklist((c) => ({ ...c, entrega }));
+    await salvar({ entrega });
+  };
+
+  const marcarDivergencia = async () => {
+    const entrega = {
+      ...checklist.entrega,
+      conferencia: {
+        conforme: false,
+        divergencias: checklist.entrega?.conferencia?.divergencias || [],
+        observacao: checklist.entrega?.conferencia?.observacao || "",
+      },
+    };
+    setMostrarDivergencias(true);
+    setChecklist((c) => ({ ...c, entrega }));
+    await salvar({ entrega });
+  };
+
+  const toggleDivergenciaItem = (item, estadoColeta) => {
+    const conf = checklist.entrega?.conferencia || { conforme: false, divergencias: [], observacao: "" };
+    const divergencias = [...(conf.divergencias || [])];
+    const idx = divergencias.findIndex((d) => d.item === item);
+    if (idx < 0) {
+      divergencias.push({ item, estadoColeta, estadoEntrega: CHECKLIST_ESTADOS_ACESSORIO[0] });
+    } else {
+      const atual = divergencias[idx].estadoEntrega;
+      const nextIdx = (CHECKLIST_ESTADOS_ACESSORIO.indexOf(atual) + 1) % CHECKLIST_ESTADOS_ACESSORIO.length;
+      divergencias[idx] = { ...divergencias[idx], estadoEntrega: CHECKLIST_ESTADOS_ACESSORIO[nextIdx] };
+    }
+    setChecklist((c) => ({
+      ...c,
+      entrega: {
+        ...c.entrega,
+        conferencia: { ...conf, conforme: false, divergencias },
+      },
+    }));
+  };
+
+  const removerDivergenciaItem = (item) => {
+    const conf = checklist.entrega?.conferencia || {};
+    const divergencias = (conf.divergencias || []).filter((d) => d.item !== item);
+    setChecklist((c) => ({
+      ...c,
+      entrega: {
+        ...c.entrega,
+        conferencia: { ...conf, conforme: false, divergencias },
+      },
+    }));
+  };
+
+  const updateObservacaoDivergencia = (valor) => {
+    const conf = checklist.entrega?.conferencia || { conforme: false, divergencias: [] };
+    setChecklist((c) => ({
+      ...c,
+      entrega: {
+        ...c.entrega,
+        conferencia: { ...conf, conforme: false, observacao: valor },
+      },
+    }));
+  };
+
+  const updateAssinaturaEntregaCampo = (bloco, campo, valor) =>
+    setChecklist((c) => ({
+      ...c,
+      entrega: {
+        ...c.entrega,
+        assinaturas: {
+          ...c.entrega.assinaturas,
+          [bloco]: { ...c.entrega.assinaturas[bloco], [campo]: valor },
+        },
+      },
+    }));
+
+  const finalizarEntrega = async () => {
+    setTentouFinalizarEntrega(true);
+
+    const recebedor = checklist.entrega?.recebedor || {};
+    const rec = checklist.entrega?.assinaturas?.recebedor || {};
+    const prest = checklist.entrega?.assinaturas?.prestador || {};
+
+    if (!recebedor.nome?.trim() || !recebedor.documento?.trim()) {
+      setErro("Preencha quem recebeu o veículo.");
+      return;
+    }
+    if (!rec.nome?.trim() || !rec.documento?.trim()) {
+      setErro("Preencha nome e documento do recebedor (assinatura).");
+      return;
+    }
+    if (!prest.nome?.trim() || !prest.documento?.trim()) {
+      setErro("Preencha nome e documento do prestador (entrega).");
+      return;
+    }
+
+    const recPadNovo = !recebedorEntregaPadRef.current?.isEmpty?.();
+    const prestPadNovo = !prestadorEntregaPadRef.current?.isEmpty?.();
+    const recSalva = checklist.entrega?.assinaturas?.recebedor?.imagemUrl;
+    const prestSalva = checklist.entrega?.assinaturas?.prestador?.imagemUrl;
+
+    if (!recPadNovo && !recSalva) {
+      setErro("Assinatura do recebedor é obrigatória.");
+      return;
+    }
+    if (!prestPadNovo && !prestSalva) {
+      setErro("Assinatura do prestador é obrigatória.");
+      return;
+    }
+
+    const val = entregaCompleta({
+      ...checklist,
+      entrega: {
+        ...checklist.entrega,
+        assinaturas: {
+          recebedor: { ...rec, imagemUrl: recSalva || "pending" },
+          prestador: { ...prest, imagemUrl: prestSalva || "pending" },
+        },
+      },
+    });
+    if (!val.completa) return;
+
+    setSalvando(true);
+    setErro("");
+    try {
+      const gps = await getDriverGeolocation({ preferFresh: true });
+      const lat = gps?.lat ?? null;
+      const lng = gps?.lng ?? null;
+      const dataHora = formatStampDataHora();
+
+      let recUrl = recSalva || "";
+      let prestUrl = prestSalva || "";
+
+      if (recPadNovo) {
+        const recBlob = await recebedorEntregaPadRef.current.toBlob();
+        const recJpeg = await compressImageToJpegBlob(recBlob);
+        recUrl = await uploadChecklistEntregaImage(uid, checklist.id, `assinatura_recebedor_${Date.now()}`, recJpeg);
+      }
+      if (prestPadNovo) {
+        const prestBlob = await prestadorEntregaPadRef.current.toBlob();
+        const prestJpeg = await compressImageToJpegBlob(prestBlob);
+        prestUrl = await uploadChecklistEntregaImage(uid, checklist.id, `assinatura_prestador_${Date.now()}`, prestJpeg);
+      }
+
+      const assinRecSalva = checklist.entrega?.assinaturas?.recebedor || {};
+      const assinPrestSalva = checklist.entrega?.assinaturas?.prestador || {};
+
+      const entregaAtualizada = {
+        ...checklist.entrega,
+        recebedor: {
+          nome: recebedor.nome.trim(),
+          documento: recebedor.documento.trim(),
+          mesmaPessoaColeta: recebedor.mesmaPessoaColeta,
+        },
+        assinaturas: {
+          recebedor: {
+            nome: rec.nome.trim(),
+            documento: rec.documento.trim(),
+            imagemUrl: recUrl,
+            dataHora: recPadNovo ? dataHora : assinRecSalva.dataHora || dataHora,
+            lat: recPadNovo ? lat : assinRecSalva.lat ?? lat,
+            lng: recPadNovo ? lng : assinRecSalva.lng ?? lng,
+          },
+          prestador: {
+            nome: prest.nome.trim(),
+            documento: prest.documento.trim(),
+            imagemUrl: prestUrl,
+            dataHora: prestPadNovo ? dataHora : assinPrestSalva.dataHora || dataHora,
+            lat: prestPadNovo ? lat : assinPrestSalva.lat ?? lat,
+            lng: prestPadNovo ? lng : assinPrestSalva.lng ?? lng,
+          },
+        },
+        finalizadaEm: new Date().toISOString(),
+      };
+
+      const status = "concluido";
+      setChecklist((c) => ({ ...c, entrega: entregaAtualizada, status }));
+      const ok = await salvar({ entrega: entregaAtualizada, status });
+      if (ok) {
+        recebedorEntregaPadRef.current?.clear?.();
+        prestadorEntregaPadRef.current?.clear?.();
+        setSubstituirEntrega({ recebedor: false, prestador: false });
+      }
+    } catch {
+      setErro("Falha ao finalizar entrega. Tente novamente.");
+    } finally {
+      setSalvando(false);
+    }
+  };
+
   const fotos = checklist.coleta?.fotos || [];
   const fotoPorSlot = (slotId) => fotos.find((f) => f.tipo === slotId);
   const fotosAvarias = fotos.filter((f) => f.tipo === "avarias");
+  const fotosEntrega = checklist.entrega?.fotos || [];
+  const fotoEntregaPorSlot = (slotId) => fotosEntrega.find((f) => f.tipo === slotId);
+  const fotosAvariasEntrega = fotosEntrega.filter((f) => f.tipo === "avarias");
 
   return (
     <div
@@ -793,6 +1343,7 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
             <div style={{ color: C.muted, fontSize: 11, marginTop: 2 }}>
               {checklist?.numero || "—"}
               {checklist?.status === "aguardando_entrega" && " · ✅ Coleta concluída"}
+              {checklist?.status === "concluido" && " · ✅ Entrega concluída"}
               {frete ? ` · ${frete.origin || ""} → ${frete.dest || ""}` : ""}
             </div>
           </div>
@@ -815,23 +1366,25 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
         <div style={{ display: "flex", gap: 4, marginTop: 12, overflowX: "auto", scrollbarWidth: "none" }}>
           {ETAPAS.map((e) => {
             const ativo = etapa === e.id;
+            const bloqueada = e.requerColeta && !entregaHabilitada;
             return (
               <button
                 key={e.id}
                 type="button"
-                onClick={() => setEtapa(e.id)}
+                onClick={() => irParaEtapa(e.id)}
                 style={{
                   flex: "1 0 auto",
                   minWidth: 56,
                   padding: "7px 6px",
                   border: "none",
                   borderRadius: 10,
-                  cursor: "pointer",
-                  background: ativo ? C.navy : C.subtle,
-                  color: ativo ? "#fff" : C.text2,
+                  cursor: bloqueada ? "not-allowed" : "pointer",
+                  background: ativo ? C.navy : bloqueada ? "#E8ECF2" : C.subtle,
+                  color: ativo ? "#fff" : bloqueada ? C.muted : C.text2,
                   fontWeight: 700,
                   fontSize: 11,
                   fontFamily: "'Sora',sans-serif",
+                  opacity: bloqueada ? 0.65 : 1,
                 }}
               >
                 {e.id}·{e.label}
@@ -1129,62 +1682,20 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
               { bloco: "prestador", titulo: "🪝 Prestador", padRef: prestadorPadRef },
             ].map(({ bloco, titulo, padRef }) => {
               const assin = checklist.coleta?.assinaturas?.[bloco] || assinaturaVazia();
-              const temAssinaturaSalva =
-                !!assin.imagemUrl?.trim() && isChecklistDownloadUrl(assin.imagemUrl);
               return (
-                <div
+                <BlocoAssinatura
                   key={bloco}
-                  style={{
-                    background: C.surface,
-                    border: `1px solid ${C.border}`,
-                    borderRadius: 16,
-                    padding: "16px 18px",
+                  titulo={titulo}
+                  assin={assin}
+                  bloco={bloco}
+                  padRef={padRef}
+                  substituindo={substituirColeta[bloco]}
+                  onSubstituir={() => {
+                    setSubstituirColeta((s) => ({ ...s, [bloco]: true }));
+                    padRef.current?.clear?.();
                   }}
-                >
-                  <div style={{ color: C.navy, fontWeight: 800, fontSize: 15, fontFamily: "'Sora',sans-serif", marginBottom: 14 }}>
-                    {titulo}
-                  </div>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 14 }}>
-                    <Field
-                      label="Nome completo"
-                      value={assin.nome}
-                      onChange={(v) => updateAssinaturaCampo(bloco, "nome", v)}
-                      placeholder="Nome de quem assina"
-                    />
-                    <Field
-                      label="Documento (RG/CPF)"
-                      value={assin.documento}
-                      onChange={(v) => updateAssinaturaCampo(bloco, "documento", v)}
-                      placeholder="000.000.000-00"
-                    />
-                  </div>
-                  {temAssinaturaSalva && (
-                    <div
-                      style={{
-                        marginBottom: 14,
-                        padding: 12,
-                        background: C.navyLight,
-                        border: `1px solid ${C.navy}22`,
-                        borderRadius: 12,
-                      }}
-                    >
-                      <div style={{ color: C.navy, fontWeight: 700, fontSize: 12, marginBottom: 8 }}>
-                        Assinatura salva
-                      </div>
-                      <AssinaturaPreviewImg imagemUrl={assin.imagemUrl} bloco={bloco} />
-                      <div style={{ color: C.muted, fontSize: 11, marginTop: 10 }}>
-                        Assine novamente abaixo para substituir.
-                      </div>
-                      <div style={{ color: C.muted, fontSize: 11, marginTop: 4 }}>
-                        Salva em {assin.dataHora || "—"}
-                        {assin.lat != null && assin.lng != null
-                          ? ` · ${Number(assin.lat).toFixed(4)}, ${Number(assin.lng).toFixed(4)}`
-                          : ""}
-                      </div>
-                    </div>
-                  )}
-                  <SignaturePad ref={padRef} />
-                </div>
+                  onCampoChange={(campo, valor) => updateAssinaturaCampo(bloco, campo, valor)}
+                />
               );
             })}
             <button
@@ -1232,12 +1743,289 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
             frete={frete}
             perfil={perfil}
             gerandoPdf={gerandoPdf}
+            gerandoPdfCompleto={gerandoPdfCompleto}
             coletaOk={coletaOk}
+            entregaConcluida={entregaConcluida}
             onGerarPdf={handleGerarPdf}
+            onGerarPdfCompleto={handleGerarPdfCompleto}
             onWhatsApp={() => shareChecklistColetaWhatsApp(pdfParams)}
           />
         )}
+
+        {etapa === 6 && entregaHabilitada && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            <AvisoIncompleto
+              validacao={validacaoEntrega}
+              tentouFinalizarColeta={tentouFinalizarEntrega}
+              titulo="Entrega incompleta"
+            />
+
+            <div style={{ color: C.navy, fontWeight: 800, fontSize: 15, fontFamily: "'Sora',sans-serif" }}>
+              📸 Fotos da entrega
+            </div>
+            <div style={{ color: C.text2, fontSize: 13, lineHeight: 1.5 }}>
+              Tire as 4 fotos obrigatórias com carimbo de data/hora e GPS.
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              {CHECKLIST_ENTREGA_FOTO_SLOTS.filter((s) => !s.multipla).map((slot) => (
+                <PhotoSlot
+                  key={slot.id}
+                  slot={slot}
+                  foto={fotoEntregaPorSlot(slot.id)}
+                  uploading={uploadingEntregaSlot === slot.id}
+                  onCapture={() => abrirCaptura(slot.id, "entrega")}
+                />
+              ))}
+            </div>
+            <div style={{ color: C.navy, fontWeight: 800, fontSize: 14, fontFamily: "'Sora',sans-serif", marginTop: 4 }}>
+              💥 Avarias da entrega (opcional)
+            </div>
+            {fotosAvariasEntrega.map((foto, idx) => {
+              const globalIdx = fotosEntrega.indexOf(foto);
+              return (
+                <PhotoSlot
+                  key={`entrega-avarias-${globalIdx}`}
+                  slot={CHECKLIST_ENTREGA_FOTO_SLOTS.find((s) => s.id === "avarias")}
+                  foto={foto}
+                  uploading={uploadingEntregaSlot === "avarias"}
+                  onCapture={() => abrirCaptura("avarias", "entrega")}
+                  onRemove={() => removerFotoAvaria(globalIdx, "entrega")}
+                />
+              );
+            })}
+            <button
+              type="button"
+              onClick={() => abrirCaptura("avarias", "entrega")}
+              disabled={!!uploadingEntregaSlot}
+              style={{
+                width: "100%",
+                padding: "12px 0",
+                background: C.subtle,
+                border: `2px dashed ${C.border}`,
+                borderRadius: 12,
+                color: C.text2,
+                fontWeight: 700,
+                fontSize: 14,
+                cursor: uploadingEntregaSlot ? "wait" : "pointer",
+              }}
+            >
+              + Adicionar foto de avaria
+            </button>
+
+            <div style={{ color: C.navy, fontWeight: 800, fontSize: 15, fontFamily: "'Sora',sans-serif", marginTop: 8 }}>
+              👤 Quem recebe o veículo
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <BtnSelecao
+                label="Mesma pessoa da coleta"
+                ativo={checklist.entrega?.recebedor?.mesmaPessoaColeta === true}
+                onClick={usarMesmaPessoaColeta}
+              />
+              <BtnSelecao
+                label="Outra pessoa"
+                ativo={checklist.entrega?.recebedor?.mesmaPessoaColeta === false}
+                onClick={usarOutraPessoa}
+              />
+            </div>
+            <Field
+              label="Nome completo"
+              value={checklist.entrega?.recebedor?.nome || ""}
+              onChange={(v) => updateRecebedor("nome", v)}
+              placeholder="Nome de quem recebe"
+            />
+            <Field
+              label="Documento (RG/CPF)"
+              value={checklist.entrega?.recebedor?.documento || ""}
+              onChange={(v) => updateRecebedor("documento", v)}
+              placeholder="000.000.000-00"
+            />
+
+            <div style={{ color: C.navy, fontWeight: 800, fontSize: 15, fontFamily: "'Sora',sans-serif", marginTop: 8 }}>
+              🔍 Conferência
+            </div>
+            <button
+              type="button"
+              onClick={marcarConforme}
+              style={{
+                width: "100%",
+                padding: "14px 0",
+                background: checklist.entrega?.conferencia?.conforme === true ? C.green : C.navy,
+                border: "none",
+                borderRadius: 12,
+                color: "#fff",
+                fontWeight: 800,
+                fontSize: 15,
+                cursor: "pointer",
+                fontFamily: "'Sora',sans-serif",
+              }}
+            >
+              ✅ Veículo conforme a coleta
+            </button>
+            <button
+              type="button"
+              onClick={marcarDivergencia}
+              style={{
+                width: "100%",
+                padding: "13px 0",
+                background: checklist.entrega?.conferencia?.conforme === false ? C.orangeLight : C.subtle,
+                border: `2px solid ${checklist.entrega?.conferencia?.conforme === false ? C.orange : C.border}`,
+                borderRadius: 12,
+                color: checklist.entrega?.conferencia?.conforme === false ? C.orange : C.text2,
+                fontWeight: 700,
+                fontSize: 14,
+                cursor: "pointer",
+              }}
+            >
+              ⚠️ Há divergência
+            </button>
+            {mostrarDivergencias && checklist.entrega?.conferencia?.conforme === false && (
+              <div
+                style={{
+                  background: C.surface,
+                  border: `1px solid ${C.border}`,
+                  borderRadius: 14,
+                  padding: "14px 16px",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 10,
+                }}
+              >
+                <div style={{ color: C.text2, fontSize: 13, lineHeight: 1.5 }}>
+                  Toque nos itens divergentes para marcar o estado na entrega:
+                </div>
+                {(checklist.coleta?.acessorios || CHECKLIST_ACESSORIOS_PADRAO.map((item) => ({ item, estado: null }))).map(
+                  (a) => {
+                    const divergente = (checklist.entrega?.conferencia?.divergencias || []).find((d) => d.item === a.item);
+                    const cores = divergente ? ACESSORIO_CORES[divergente.estadoEntrega] || ACESSORIO_CORES.bom : null;
+                    return (
+                      <div
+                        key={a.item}
+                        style={{
+                          display: "flex",
+                          gap: 8,
+                          alignItems: "stretch",
+                        }}
+                      >
+                        <button
+                          type="button"
+                          onClick={() => toggleDivergenciaItem(a.item, a.estado)}
+                          style={{
+                            flex: 1,
+                            display: "flex",
+                            justifyContent: "space-between",
+                            alignItems: "center",
+                            padding: "10px 12px",
+                            borderRadius: 10,
+                            border: `2px solid ${divergente ? cores.border : C.border}`,
+                            background: divergente ? cores.bg : "#fff",
+                            cursor: "pointer",
+                            textAlign: "left",
+                          }}
+                        >
+                          <span style={{ color: C.text, fontWeight: 700, fontSize: 13 }}>{a.item}</span>
+                          <span style={{ color: divergente ? cores.text : C.muted, fontSize: 12, fontWeight: 700 }}>
+                            {divergente
+                              ? `Coleta: ${ACESSORIO_CORES[a.estado]?.label || a.estado || "—"} → ${cores.label}`
+                              : `Coleta: ${ACESSORIO_CORES[a.estado]?.label || a.estado || "—"}`}
+                          </span>
+                        </button>
+                        {divergente && (
+                          <button
+                            type="button"
+                            onClick={() => removerDivergenciaItem(a.item)}
+                            style={{
+                              background: C.redLight,
+                              border: `1px solid ${C.red}33`,
+                              borderRadius: 10,
+                              padding: "0 12px",
+                              cursor: "pointer",
+                              color: C.red,
+                              fontWeight: 700,
+                              fontSize: 14,
+                            }}
+                          >
+                            ✕
+                          </button>
+                        )}
+                      </div>
+                    );
+                  }
+                )}
+                <Field
+                  label="Observação"
+                  value={checklist.entrega?.conferencia?.observacao || ""}
+                  onChange={updateObservacaoDivergencia}
+                  placeholder="Descreva as divergências encontradas"
+                />
+              </div>
+            )}
+
+            <div style={{ color: C.navy, fontWeight: 800, fontSize: 15, fontFamily: "'Sora',sans-serif", marginTop: 8 }}>
+              ✍️ Assinaturas da entrega
+            </div>
+            {[
+              { bloco: "recebedor", titulo: "✍️ Recebedor", padRef: recebedorEntregaPadRef },
+              { bloco: "prestador", titulo: "🪝 Prestador", padRef: prestadorEntregaPadRef },
+            ].map(({ bloco, titulo, padRef }) => {
+              const assin = checklist.entrega?.assinaturas?.[bloco] || assinaturaVazia();
+              return (
+                <BlocoAssinatura
+                  key={bloco}
+                  titulo={titulo}
+                  assin={assin}
+                  bloco={bloco}
+                  padRef={padRef}
+                  substituindo={substituirEntrega[bloco]}
+                  onSubstituir={() => {
+                    setSubstituirEntrega((s) => ({ ...s, [bloco]: true }));
+                    padRef.current?.clear?.();
+                  }}
+                  onCampoChange={(campo, valor) => updateAssinaturaEntregaCampo(bloco, campo, valor)}
+                />
+              );
+            })}
+
+            <button
+              type="button"
+              onClick={finalizarEntrega}
+              disabled={entregaConcluida || salvando || !!uploadingEntregaSlot}
+              style={{
+                width: "100%",
+                padding: "14px 0",
+                background: entregaConcluida ? C.green : validacaoEntrega.completa ? C.green : C.orange,
+                border: "none",
+                borderRadius: 12,
+                color: "#fff",
+                fontWeight: 800,
+                fontSize: 15,
+                cursor: entregaConcluida || salvando || uploadingEntregaSlot ? "default" : "pointer",
+                fontFamily: "'Sora',sans-serif",
+                opacity: entregaConcluida || salvando || uploadingEntregaSlot ? 0.7 : 1,
+              }}
+            >
+              {salvando ? "Salvando…" : entregaConcluida ? "Entrega concluída" : "Finalizar entrega"}
+            </button>
+            {entregaConcluida && (
+              <div
+                style={{
+                  background: C.greenLight,
+                  border: `1px solid ${C.green}33`,
+                  borderRadius: 12,
+                  padding: "12px 16px",
+                  color: C.green,
+                  fontWeight: 700,
+                  fontSize: 14,
+                  textAlign: "center",
+                }}
+              >
+                ✅ Entrega finalizada — checklist completo
+              </div>
+            )}
+          </div>
+        )}
       </div>
+
+      <ToastAviso mensagem={toastMsg} />
 
       {showPdfShare &&
         createPortal(
@@ -1269,7 +2057,9 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
                 PDF gerado!
               </div>
               <div style={{ color: C.muted, fontSize: 13, marginBottom: 18, lineHeight: 1.5 }}>
-                Compartilhe o laudo da coleta:
+                {pdfModalTipo === "completo"
+                  ? "Compartilhe o laudo completo (coleta + entrega):"
+                  : "Compartilhe o laudo da coleta:"}
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                 {pdfBlobCache && (
@@ -1277,9 +2067,14 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
                     type="button"
                     onClick={async () => {
                       try {
-                        await sharePdfFileViaSystem(pdfBlobCache, pdfFilenameCache || "checklist-coleta.pdf");
+                        await sharePdfFileViaSystem(
+                          pdfBlobCache,
+                          pdfFilenameCache ||
+                            (pdfModalTipo === "completo" ? "checklist-completo.pdf" : "checklist-coleta.pdf")
+                        );
                       } catch {
-                        shareChecklistColetaWhatsApp(pdfParams);
+                        if (pdfModalTipo === "completo") shareChecklistCompletoWhatsApp(pdfParams);
+                        else shareChecklistColetaWhatsApp(pdfParams);
                       }
                     }}
                     style={{
@@ -1299,7 +2094,11 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
                 )}
                 <button
                   type="button"
-                  onClick={() => shareChecklistColetaWhatsApp(pdfParams)}
+                  onClick={() =>
+                    pdfModalTipo === "completo"
+                      ? shareChecklistCompletoWhatsApp(pdfParams)
+                      : shareChecklistColetaWhatsApp(pdfParams)
+                  }
                   style={{
                     width: "100%",
                     padding: 13,

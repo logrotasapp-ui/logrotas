@@ -167,3 +167,63 @@ export async function uploadChecklistImage(uid, checklistId, nomeArquivo, blob) 
   }
   return downloadUrl;
 }
+
+/**
+ * Upload de imagem da entrega: users/{uid}/checklists/{checklistId}/entrega/{nome}.jpg
+ */
+export async function uploadChecklistEntregaImage(uid, checklistId, nomeArquivo, blob) {
+  if (!uid || !checklistId || !nomeArquivo) {
+    throw new Error("uid, checklistId e nomeArquivo são obrigatórios");
+  }
+  const safeName = nomeArquivo.replace(/[^a-zA-Z0-9_-]/g, "_");
+  const path = `users/${uid}/checklists/${checklistId}/entrega/${safeName}.jpg`;
+  const storageRef = ref(storage, path);
+  await uploadBytes(storageRef, blob, { contentType: "image/jpeg" });
+  const downloadUrl = await getDownloadURL(storageRef);
+  if (!isChecklistDownloadUrl(downloadUrl)) {
+    throw new Error("URL de download inválida após upload.");
+  }
+  return downloadUrl;
+}
+
+/**
+ * Migra fotos e assinaturas da entrega que guardam caminho em vez de URL de download.
+ */
+export async function migrateChecklistEntregaMedia(entrega) {
+  if (!entrega) return { entrega, changed: false };
+
+  let changed = false;
+  const fotos = await Promise.all(
+    (entrega.fotos || []).map(async (foto) => {
+      if (!foto?.url || isChecklistDownloadUrl(foto.url)) return foto;
+      try {
+        const url = await resolveChecklistDownloadUrl(foto.url);
+        if (url && url !== foto.url) {
+          changed = true;
+          return { ...foto, url };
+        }
+      } catch (err) {
+        console.warn("[Checklist] Falha ao migrar URL da foto entrega:", foto.url, err);
+      }
+      return foto;
+    })
+  );
+
+  const assinaturas = { ...(entrega.assinaturas || {}) };
+  for (const key of ["recebedor", "prestador"]) {
+    const assin = assinaturas[key];
+    if (!assin?.imagemUrl || isChecklistDownloadUrl(assin.imagemUrl)) continue;
+    try {
+      const imagemUrl = await resolveChecklistDownloadUrl(assin.imagemUrl);
+      if (imagemUrl && imagemUrl !== assin.imagemUrl) {
+        assinaturas[key] = { ...assin, imagemUrl };
+        changed = true;
+      }
+    } catch (err) {
+      console.warn("[Checklist] Falha ao migrar URL da assinatura entrega:", assin.imagemUrl, err);
+    }
+  }
+
+  if (!changed) return { entrega, changed: false };
+  return { entrega: { ...entrega, fotos, assinaturas }, changed: true };
+}

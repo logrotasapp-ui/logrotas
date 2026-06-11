@@ -60,6 +60,14 @@ export const CHECKLIST_FOTO_SLOTS = [
   { id: "avarias", label: "Avarias", obrigatoria: false, emoji: "💥", multipla: true },
 ];
 
+export const CHECKLIST_ENTREGA_FOTO_SLOTS = [
+  { id: "frente", label: "Frente", obrigatoria: true, emoji: "⬆️" },
+  { id: "traseira", label: "Traseira", obrigatoria: true, emoji: "⬇️" },
+  { id: "lateral_esquerda", label: "Lateral Esquerda", obrigatoria: true, emoji: "⬅️" },
+  { id: "lateral_direita", label: "Lateral Direita", obrigatoria: true, emoji: "➡️" },
+  { id: "avarias", label: "Avarias da entrega", obrigatoria: false, emoji: "💥", multipla: true },
+];
+
 export const CHECKLIST_FOTOS_OBRIGATORIAS = CHECKLIST_FOTO_SLOTS.filter((s) => s.obrigatoria).map((s) => s.id);
 
 function assinaturaVazia() {
@@ -85,6 +93,19 @@ function buildColetaVazia() {
     fotos: [],
     assinaturas: {
       responsavel: assinaturaVazia(),
+      prestador: assinaturaVazia(),
+    },
+    finalizadaEm: null,
+  };
+}
+
+function buildEntregaVazia() {
+  return {
+    fotos: [],
+    recebedor: { nome: "", documento: "", mesmaPessoaColeta: null },
+    conferencia: null,
+    assinaturas: {
+      recebedor: assinaturaVazia(),
       prestador: assinaturaVazia(),
     },
     finalizadaEm: null,
@@ -128,7 +149,7 @@ function buildNovoDocumento(freteId, dados = {}) {
     origem: { endereco: dados.origem?.endereco || "" },
     destino: { endereco: dados.destino?.endereco || "" },
     coleta: buildColetaVazia(),
-    entrega: { enderecoConfirmado: "", finalizadaEm: null },
+    entrega: buildEntregaVazia(),
   };
 }
 
@@ -180,6 +201,41 @@ export function coletaCompleta(checklist) {
   if (!assin.prestador?.nome?.trim()) faltando.push("Nome do prestador");
   if (!assin.prestador?.documento?.trim()) faltando.push("Documento do prestador");
   if (!assin.prestador?.imagemUrl) faltando.push("Assinatura do prestador");
+
+  return { completa: faltando.length === 0, faltando };
+}
+
+export function entregaCompleta(checklist) {
+  const faltando = [];
+  if (!checklist) return { completa: false, faltando: ["Checklist não encontrado"] };
+
+  const { entrega } = checklist;
+  const fotos = entrega?.fotos || [];
+
+  CHECKLIST_ENTREGA_FOTO_SLOTS.filter((s) => s.obrigatoria).forEach((slot) => {
+    if (!fotos.some((f) => f.tipo === slot.id && f.url)) {
+      faltando.push(`Foto entrega: ${slot.label}`);
+    }
+  });
+
+  if (!entrega?.recebedor?.nome?.trim()) faltando.push("Nome de quem recebeu o veículo");
+  if (!entrega?.recebedor?.documento?.trim()) faltando.push("Documento de quem recebeu o veículo");
+
+  const conf = entrega?.conferencia;
+  if (conf?.conforme !== true && conf?.conforme !== false) {
+    faltando.push("Conferência na entrega");
+  }
+  if (conf?.conforme === false) {
+    if (!conf.divergencias?.length) faltando.push("Marque ao menos um item divergente");
+  }
+
+  const assin = entrega?.assinaturas || {};
+  if (!assin.recebedor?.nome?.trim()) faltando.push("Nome do recebedor (assinatura)");
+  if (!assin.recebedor?.documento?.trim()) faltando.push("Documento do recebedor (assinatura)");
+  if (!assin.recebedor?.imagemUrl) faltando.push("Assinatura do recebedor");
+  if (!assin.prestador?.nome?.trim()) faltando.push("Nome do prestador (entrega)");
+  if (!assin.prestador?.documento?.trim()) faltando.push("Documento do prestador (entrega)");
+  if (!assin.prestador?.imagemUrl) faltando.push("Assinatura do prestador (entrega)");
 
   return { completa: faltando.length === 0, faltando };
 }

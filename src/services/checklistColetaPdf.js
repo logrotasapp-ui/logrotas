@@ -4,6 +4,7 @@ import {
   CHECKLIST_TIPOS_SERVICO,
   CHECKLIST_MOTIVOS,
   CHECKLIST_FOTO_SLOTS,
+  CHECKLIST_ENTREGA_FOTO_SLOTS,
 } from "./checklistService.js";
 
 const IMAGE_FETCH_TIMEOUT_MS = 10000;
@@ -82,11 +83,23 @@ async function fetchImageDataUrl(urlOrPath, context = "") {
   }
 }
 
-async function preloadChecklistImages({ fotosGrid, coleta, assinBlocks }) {
+function slotLabelForFoto(foto, slots) {
+  return slots.find((s) => s.id === foto.tipo)?.label || foto.label || foto.tipo;
+}
+
+async function preloadChecklistImages({
+  fotosGrid,
+  coleta,
+  assinBlocks,
+  entregaFotosGrid = [],
+  entregaAssinBlocks = [],
+  entrega,
+  fotoSlots = CHECKLIST_FOTO_SLOTS,
+  entregaFotoSlots = CHECKLIST_ENTREGA_FOTO_SLOTS,
+}) {
   const tasks = [
     ...fotosGrid.map((foto) => {
-      const slotLabel =
-        CHECKLIST_FOTO_SLOTS.find((s) => s.id === foto.tipo)?.label || foto.label || foto.tipo;
+      const slotLabel = slotLabelForFoto(foto, fotoSlots);
       return {
         mapKey: `foto:${foto.tipo}:${foto.url}`,
         promise: fetchImageDataUrl(foto.url, `foto:${slotLabel}`),
@@ -97,6 +110,20 @@ async function preloadChecklistImages({ fotosGrid, coleta, assinBlocks }) {
       return {
         mapKey: `assinatura:${key}`,
         promise: fetchImageDataUrl(assin.imagemUrl, `assinatura:${key}`),
+      };
+    }),
+    ...entregaFotosGrid.map((foto) => {
+      const slotLabel = slotLabelForFoto(foto, entregaFotoSlots);
+      return {
+        mapKey: `entrega-foto:${foto.tipo}:${foto.url}`,
+        promise: fetchImageDataUrl(foto.url, `entrega-foto:${slotLabel}`),
+      };
+    }),
+    ...entregaAssinBlocks.map(({ key }) => {
+      const assin = entrega?.assinaturas?.[key] || {};
+      return {
+        mapKey: `entrega-assinatura:${key}`,
+        promise: fetchImageDataUrl(assin.imagemUrl, `entrega-assinatura:${key}`),
       };
     }),
   ];
@@ -159,10 +186,165 @@ export function buildChecklistColetaShareText({ checklist, frete, perfil }) {
   return lines.join("\n").trim();
 }
 
+function renderFotosGrid(doc, {
+  fotosGrid,
+  imageCache,
+  fotoSlots,
+  keyPrefix,
+  margin,
+  contentWidth,
+  yRef,
+  sectionLabel,
+}) {
+  const ensureSpace = (need = 12) => {
+    if (yRef.y + need > 285) {
+      doc.addPage();
+      yRef.y = 16;
+    }
+  };
+
+  const cellW = (contentWidth - 4) / 2;
+  const imgH = 42;
+  const titleBlockH = 14;
+  const firstRowH = imgH + 16;
+
+  if (fotosGrid.length > 0 && yRef.y + titleBlockH + firstRowH > 285) {
+    doc.addPage();
+    yRef.y = 16;
+  }
+
+  ensureSpace(14);
+  doc.setFillColor(238, 244, 255);
+  doc.rect(margin, yRef.y - 5, contentWidth, 9, "F");
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(11);
+  doc.setTextColor(30, 58, 138);
+  doc.text(stripEmojis(sectionLabel), margin + 2, yRef.y);
+  doc.setTextColor(0, 0, 0);
+  yRef.y += 10;
+
+  let col = 0;
+  let rowStartY = yRef.y;
+
+  for (const foto of fotosGrid) {
+    ensureSpace(imgH + 14);
+    const x = margin + col * (cellW + 4);
+    if (col === 0) rowStartY = yRef.y;
+
+    const slotLabel = slotLabelForFoto(foto, fotoSlots);
+    const dataUrl = imageCache[`${keyPrefix}:${foto.tipo}:${foto.url}`];
+
+    if (dataUrl) {
+      try {
+        doc.addImage(dataUrl, imageFormat(dataUrl), x, rowStartY, cellW, imgH);
+      } catch (err) {
+        console.error("[Checklist PDF] addImage falhou:", slotLabel, err);
+        drawPlaceholder(doc, x, rowStartY, cellW, imgH, "Sem foto");
+      }
+    } else {
+      drawPlaceholder(doc, x, rowStartY, cellW, imgH, "Sem foto");
+    }
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(8);
+    doc.text(stripEmojis(slotLabel), x, rowStartY + imgH + 4);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(7);
+    const stamp = `${foto.dataHora || "-"} - ${formatCoords(foto.lat, foto.lng)}`;
+    wrapLines(doc, stamp, cellW).forEach((ln, i) => {
+      doc.text(ln, x, rowStartY + imgH + 8 + i * 3.5);
+    });
+
+    col += 1;
+    if (col >= 2) {
+      col = 0;
+      yRef.y = rowStartY + imgH + 16;
+    }
+  }
+  if (col === 1) yRef.y = rowStartY + imgH + 16;
+  if (fotosGrid.length === 0) {
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(10);
+    wrapLines(doc, "Nenhuma foto registrada.", contentWidth).forEach((ln) => {
+      ensureSpace(5);
+      doc.text(ln, margin, yRef.y);
+      yRef.y += 5;
+    });
+  }
+  yRef.y += 4;
+}
+
+function renderAssinaturasBlock(doc, {
+  assinBlocks,
+  assinaturas,
+  imageCache,
+  keyPrefix,
+  margin,
+  contentWidth,
+  yRef,
+  sectionLabel,
+}) {
+  const ensureSpace = (need = 12) => {
+    if (yRef.y + need > 285) {
+      doc.addPage();
+      yRef.y = 16;
+    }
+  };
+
+  const line = (text, bold = false) => {
+    ensureSpace(6);
+    doc.setFont("helvetica", bold ? "bold" : "normal");
+    doc.setFontSize(10);
+    wrapLines(doc, stripEmojis(text), contentWidth).forEach((ln) => {
+      ensureSpace(5);
+      doc.text(ln, margin, yRef.y);
+      yRef.y += 5;
+    });
+  };
+
+  ensureSpace(14);
+  doc.setFillColor(238, 244, 255);
+  doc.rect(margin, yRef.y - 5, contentWidth, 9, "F");
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(11);
+  doc.setTextColor(30, 58, 138);
+  doc.text(stripEmojis(sectionLabel), margin + 2, yRef.y);
+  doc.setTextColor(0, 0, 0);
+  yRef.y += 10;
+
+  for (const { key, titulo } of assinBlocks) {
+    const assin = assinaturas?.[key] || {};
+    ensureSpace(52);
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(10);
+    doc.text(titulo, margin, yRef.y);
+    yRef.y += 6;
+
+    const sigUrl = imageCache[`${keyPrefix}:${key}`];
+    if (sigUrl) {
+      try {
+        ensureSpace(28);
+        doc.addImage(sigUrl, imageFormat(sigUrl), margin, yRef.y, 80, 22);
+        yRef.y += 26;
+      } catch (err) {
+        console.error("[Checklist PDF] addImage assinatura falhou:", key, err);
+        line("(Assinatura nao carregada)");
+      }
+    } else {
+      line("(Sem assinatura)");
+    }
+
+    line(`Nome: ${assin.nome || "-"} - Doc: ${assin.documento || "-"}`);
+    line(`${assin.dataHora || "-"} - ${formatCoords(assin.lat, assin.lng)}`);
+    yRef.y += 4;
+  }
+}
+
 /**
- * @param {{ checklist: object, frete?: object, perfil?: object }} params
+ * @param {{ checklist: object, frete?: object, perfil?: object, includeEntrega?: boolean }} params
  */
-export async function generateChecklistColetaPdf({ checklist, frete, perfil }) {
+export async function generateChecklistColetaPdf({ checklist, frete, perfil, includeEntrega = false }) {
   const { jsPDF } = await import("jspdf");
   const doc = new jsPDF({ unit: "mm", format: "a4" });
   const margin = 14;
@@ -200,12 +382,12 @@ export async function generateChecklistColetaPdf({ checklist, frete, perfil }) {
     });
   };
 
-  const { cliente, veiculo, servico, origem, destino, coleta, numero } = checklist || {};
+  const { cliente, veiculo, servico, origem, destino, coleta, entrega, numero } = checklist || {};
 
   doc.setFont("helvetica", "bold");
   doc.setFontSize(15);
   doc.setTextColor(30, 58, 138);
-  doc.text("CHECKLIST DE VEICULO - COLETA", margin, y);
+  doc.text(includeEntrega ? "CHECKLIST DE VEICULO - COMPLETO" : "CHECKLIST DE VEICULO - COLETA", margin, y);
   y += 8;
   doc.setFontSize(12);
   doc.text(`No ${numero || "-"}`, margin, y);
@@ -258,97 +440,107 @@ export async function generateChecklistColetaPdf({ checklist, frete, perfil }) {
     ...fotos.filter((f) => f.tipo === "avarias"),
   ];
 
-  const cellW = (contentWidth - 4) / 2;
-  const imgH = 42;
-  const titleBlockH = 14;
-  const firstRowH = imgH + 16;
-
-  if (fotosGrid.length > 0 && y + titleBlockH + firstRowH > 285) {
-    doc.addPage();
-    y = 16;
-  }
-
-  sectionTitle("FOTOS DA VISTORIA");
-
   const assinBlocks = [
     { key: "responsavel", titulo: "Responsavel no local" },
     { key: "prestador", titulo: "Prestador" },
   ];
-  const imageCache = await preloadChecklistImages({ fotosGrid, coleta, assinBlocks });
 
-  let col = 0;
-  let rowStartY = y;
+  const entregaFotos = entrega?.fotos || [];
+  const entregaObrigatorias = CHECKLIST_ENTREGA_FOTO_SLOTS.filter((s) => s.obrigatoria).map((s) => s.id);
+  const entregaFotosGrid = [
+    ...entregaObrigatorias.map((id) => entregaFotos.find((f) => f.tipo === id)).filter(Boolean),
+    ...entregaFotos.filter((f) => f.tipo === "avarias"),
+  ];
+  const entregaAssinBlocks = [
+    { key: "recebedor", titulo: "Recebedor" },
+    { key: "prestador", titulo: "Prestador" },
+  ];
 
-  for (const foto of fotosGrid) {
-    ensureSpace(imgH + 14);
-    const x = margin + col * (cellW + 4);
-    if (col === 0) rowStartY = y;
+  const imageCache = await preloadChecklistImages({
+    fotosGrid,
+    coleta,
+    assinBlocks,
+    entregaFotosGrid: includeEntrega ? entregaFotosGrid : [],
+    entregaAssinBlocks: includeEntrega ? entregaAssinBlocks : [],
+    entrega,
+  });
 
-    const slotLabel =
-      CHECKLIST_FOTO_SLOTS.find((s) => s.id === foto.tipo)?.label || foto.label || foto.tipo;
-    const dataUrl = imageCache[`foto:${foto.tipo}:${foto.url}`];
+  const yRef = { y };
+  renderFotosGrid(doc, {
+    fotosGrid,
+    imageCache,
+    fotoSlots: CHECKLIST_FOTO_SLOTS,
+    keyPrefix: "foto",
+    margin,
+    contentWidth,
+    yRef,
+    sectionLabel: "FOTOS DA VISTORIA",
+  });
+  y = yRef.y;
 
-    if (dataUrl) {
-      try {
-        doc.addImage(dataUrl, imageFormat(dataUrl), x, rowStartY, cellW, imgH);
-      } catch (err) {
-        console.error("[Checklist PDF] addImage falhou:", slotLabel, err);
-        drawPlaceholder(doc, x, rowStartY, cellW, imgH, "Sem foto");
-      }
-    } else {
-      drawPlaceholder(doc, x, rowStartY, cellW, imgH, "Sem foto");
-    }
+  renderAssinaturasBlock(doc, {
+    assinBlocks,
+    assinaturas: coleta?.assinaturas,
+    imageCache,
+    keyPrefix: "assinatura",
+    margin,
+    contentWidth,
+    yRef,
+    sectionLabel: "ASSINATURAS",
+  });
+  y = yRef.y;
 
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(8);
-    doc.text(stripEmojis(slotLabel), x, rowStartY + imgH + 4);
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(7);
-    const stamp = `${foto.dataHora || "-"} - ${formatCoords(foto.lat, foto.lng)}`;
-    wrapLines(doc, stamp, cellW).forEach((ln, i) => {
-      doc.text(ln, x, rowStartY + imgH + 8 + i * 3.5);
+  if (includeEntrega) {
+    yRef.y = y;
+    renderFotosGrid(doc, {
+      fotosGrid: entregaFotosGrid,
+      imageCache,
+      fotoSlots: CHECKLIST_ENTREGA_FOTO_SLOTS,
+      keyPrefix: "entrega-foto",
+      margin,
+      contentWidth,
+      yRef,
+      sectionLabel: "ENTREGA - FOTOS",
     });
+    y = yRef.y;
 
-    col += 1;
-    if (col >= 2) {
-      col = 0;
-      y = rowStartY + imgH + 16;
-    }
-  }
-  if (col === 1) y = rowStartY + imgH + 16;
-  if (fotosGrid.length === 0) {
-    line("Nenhuma foto registrada.");
-  }
-  y += 4;
-
-  sectionTitle("ASSINATURAS");
-
-  for (const { key, titulo } of assinBlocks) {
-    const assin = coleta?.assinaturas?.[key] || {};
-    ensureSpace(52);
-
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(10);
-    doc.text(titulo, margin, y);
-    y += 6;
-
-    const sigUrl = imageCache[`assinatura:${key}`];
-    if (sigUrl) {
-      try {
-        ensureSpace(28);
-        doc.addImage(sigUrl, imageFormat(sigUrl), margin, y, 80, 22);
-        y += 26;
-      } catch (err) {
-        console.error("[Checklist PDF] addImage assinatura falhou:", key, err);
-        line("(Assinatura nao carregada)");
+    sectionTitle("CONFERENCIA NA ENTREGA");
+    const conf = entrega?.conferencia;
+    if (conf?.conforme === true) {
+      line("Veiculo conforme a coleta");
+    } else if (conf?.conforme === false) {
+      line("Houve divergencia na entrega:", true);
+      (conf.divergencias || []).forEach((d) => {
+        line(
+          `- ${stripEmojis(d.item)}: coleta ${labelAcessorio(d.estadoColeta)} -> entrega ${labelAcessorio(d.estadoEntrega)}`
+        );
+      });
+      if (conf.observacao?.trim()) {
+        line("Observacao:", true);
+        line(conf.observacao);
       }
     } else {
-      line("(Sem assinatura)");
+      line("Conferencia nao registrada");
     }
+    y += 3;
 
-    line(`Nome: ${assin.nome || "-"} - Doc: ${assin.documento || "-"}`);
-    line(`${assin.dataHora || "-"} - ${formatCoords(assin.lat, assin.lng)}`);
-    y += 4;
+    sectionTitle("QUEM RECEBEU");
+    line(`Nome: ${entrega?.recebedor?.nome || "-"}`);
+    line(`Documento: ${entrega?.recebedor?.documento || "-"}`);
+    y += 3;
+
+    yRef.y = y;
+    renderAssinaturasBlock(doc, {
+      assinBlocks: entregaAssinBlocks,
+      assinaturas: entrega?.assinaturas,
+      imageCache,
+      keyPrefix: "entrega-assinatura",
+      margin,
+      contentWidth,
+      yRef,
+      sectionLabel: "ASSINATURAS DA ENTREGA",
+    });
+    y = yRef.y;
   }
 
   const totalPages = doc.getNumberOfPages();
@@ -364,9 +556,45 @@ export async function generateChecklistColetaPdf({ checklist, frete, perfil }) {
   }
 
   const safeNum = (numero || "coleta").replace(/\//g, "-");
-  const filename = `checklist-coleta-${safeNum}.pdf`;
+  const filename = includeEntrega
+    ? `checklist-completo-${safeNum}.pdf`
+    : `checklist-coleta-${safeNum}.pdf`;
   const blob = doc.output("blob");
   return { doc, blob, filename };
+}
+
+/**
+ * @param {{ checklist: object, frete?: object, perfil?: object }} params
+ */
+export async function generateChecklistCompletoPdf(params) {
+  return generateChecklistColetaPdf({ ...params, includeEntrega: true });
+}
+
+/**
+ * @param {{ checklist: object, frete?: object, perfil?: object }} params
+ */
+export function buildChecklistCompletoShareText({ checklist, frete, perfil }) {
+  const base = buildChecklistColetaShareText({ checklist, frete, perfil });
+  const { entrega } = checklist || {};
+  const conf = entrega?.conferencia;
+  const lines = [
+    base,
+    "",
+    "ENTREGA",
+    `Recebedor: ${entrega?.recebedor?.nome || "-"}`,
+    `Conferencia: ${conf?.conforme === true ? "Conforme" : conf?.conforme === false ? "Com divergencia" : "-"}`,
+    `Fotos entrega: ${(entrega?.fotos || []).length}`,
+    `Entrega finalizada: ${entrega?.finalizadaEm ? "Sim" : "Nao"}`,
+  ];
+  return lines.join("\n").trim();
+}
+
+/**
+ * @param {{ checklist: object, frete?: object, perfil?: object }} params
+ */
+export function shareChecklistCompletoWhatsApp(params) {
+  const text = buildChecklistCompletoShareText(params);
+  window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, "_blank");
 }
 
 function triggerAnchorDownload(url, filename) {
