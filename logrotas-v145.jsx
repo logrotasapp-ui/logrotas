@@ -6091,7 +6091,9 @@ export default function App(){
         });
       }
       setChecklistScreen({frete,checklist});
-    }catch{/* ignore */}
+    }catch(err){
+      console.error("[Checklist] Falha ao abrir/criar checklist:",err);
+    }
   },[firebaseUser?.uid]);
 
   const handleAddDespesa=useCallback(async(item)=>{

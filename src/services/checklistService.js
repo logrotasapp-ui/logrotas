@@ -83,6 +83,22 @@ function stripMeta(data) {
   return rest;
 }
 
+/** Firestore rejeita campos `undefined` — remove recursivamente antes de gravar. */
+function sanitizeFirestoreData(value) {
+  if (value === undefined) return undefined;
+  if (value === null || typeof value !== "object") return value;
+  if (Array.isArray(value)) {
+    return value.map((item) => sanitizeFirestoreData(item)).filter((item) => item !== undefined);
+  }
+  const out = {};
+  Object.entries(value).forEach(([key, val]) => {
+    if (val === undefined) return;
+    const cleaned = sanitizeFirestoreData(val);
+    if (cleaned !== undefined) out[key] = cleaned;
+  });
+  return out;
+}
+
 function buildColetaVazia() {
   return {
     perguntas: CHECKLIST_PERGUNTAS_PADRAO.map((p) => ({ ...p })),
@@ -334,7 +350,7 @@ export async function criarChecklist(uid, freteId, dados = {}) {
   payload.numero = numero;
 
   const ref = await addDoc(colRef(uid), {
-    ...payload,
+    ...sanitizeFirestoreData(payload),
     criadoEm: serverTimestamp(),
     atualizadoEm: serverTimestamp(),
   });
@@ -345,7 +361,7 @@ export async function criarChecklist(uid, freteId, dados = {}) {
 export async function atualizarChecklist(uid, checklistId, data) {
   if (!uid || !checklistId) throw new Error("uid e checklistId são obrigatórios");
 
-  const payload = stripMeta(data);
+  const payload = sanitizeFirestoreData(stripMeta(data));
   await updateDoc(doc(db, "users", uid, COLLECTION, checklistId), {
     ...payload,
     atualizadoEm: serverTimestamp(),

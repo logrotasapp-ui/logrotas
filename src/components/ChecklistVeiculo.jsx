@@ -779,9 +779,22 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
     }
   }, [checklist.entrega?.conferencia?.conforme]);
 
+  const notificarErroSalvar = useCallback((mensagem, err) => {
+    console.error("[Checklist] Falha ao salvar:", mensagem, err || "");
+    setErro(mensagem);
+    setToastMsg(mensagem);
+  }, []);
+
   const salvar = useCallback(
     async (dados) => {
-      if (!uid || !checklist?.id) return null;
+      const checklistId = checklist?.id;
+      if (!uid || !checklistId) {
+        const mensagem = !uid
+          ? "Usuário não autenticado. Faça login novamente."
+          : "Checklist sem identificador. Feche e abra o checklist novamente.";
+        notificarErroSalvar(mensagem, { uid: !!uid, checklistId });
+        return null;
+      }
       const { status, ...rest } = dados;
       const payload = status !== undefined ? { ...rest, status } : { ...rest };
       if (payload.coleta) {
@@ -793,24 +806,29 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
       setSalvando(true);
       setErro("");
       try {
-        await atualizarChecklist(uid, checklist.id, payload);
+        await atualizarChecklist(uid, checklistId, payload);
         let merged = null;
         setChecklist((c) => {
-          merged = { ...c, ...payload, id: checklist.id };
+          merged = { ...c, ...payload, id: checklistId };
           merged.coleta = normalizeColetaData(merged.coleta, merged);
           merged.entrega = normalizeEntregaData(merged.entrega);
           return merged;
         });
         onSaved?.(merged);
         return merged;
-      } catch {
-        setErro("Não foi possível salvar. Verifique sua conexão.");
+      } catch (err) {
+        const codigo = err?.code ? ` (${err.code})` : "";
+        const detalhe = err?.message ? `: ${err.message}` : "";
+        notificarErroSalvar(
+          `Não foi possível salvar${codigo}${detalhe}. Verifique sua conexão.`,
+          err
+        );
         return null;
       } finally {
         setSalvando(false);
       }
     },
-    [uid, checklist?.id, checklist, onSaved]
+    [uid, checklist, onSaved, notificarErroSalvar]
   );
 
   const handleGerarPdf = async () => {
