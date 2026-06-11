@@ -378,7 +378,7 @@ export async function buscarChecklistPorFrete(uid, freteId) {
   if (snap.empty) return null;
 
   const d = snap.docs[0];
-  return { id: d.id, ...d.data() };
+  return { ...d.data(), id: d.id };
 }
 
 export async function listarChecklists(uid) {
@@ -386,6 +386,6 @@ export async function listarChecklists(uid) {
 
   const snap = await getDocs(colRef(uid));
   return snap.docs
-    .map((d) => ({ id: d.id, ...d.data() }))
+    .map((d) => ({ ...d.data(), id: d.id }))
     .sort((a, b) => String(b.numero || "").localeCompare(String(a.numero || "")));
 }

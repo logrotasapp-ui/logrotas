@@ -102,7 +102,7 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="V241";
+const APP_VERSION="V243";
 const BETA_HIDE_PLANOS=true;
 
 const OfflineRestoredBanner=({show})=>show?(
@@ -4329,7 +4329,7 @@ const Comparador=({historicoFretes,onAddFrete,onUpdateFrete,onDeleteFrete,perfil
             <button
               type="button"
               disabled={checklistLoading}
-              onClick={()=>{onOpenChecklist?.(detalhe,checklistFrete);setDetalhe(null);}}
+              onClick={()=>{onOpenChecklist?.(detalhe,checklistFrete?.id?checklistFrete:null);setDetalhe(null);}}
               style={{width:"100%",minHeight:44,padding:"12px 16px",background:C.navyLight,border:`1.5px solid ${C.navy}33`,borderRadius:11,cursor:checklistLoading?"wait":"pointer",color:C.navy,fontWeight:700,fontSize:15,display:"flex",alignItems:"center",justifyContent:"center",gap:8,marginTop:14,opacity:checklistLoading?0.7:1,fontFamily:"'Sora',sans-serif"}}>
               {checklistLoading?"⏳ Carregando…":checklistFrete?"📋 Ver Checklist":"📋 Iniciar Checklist"}
             </button>
@@ -6081,15 +6081,24 @@ export default function App(){
 
   const handleOpenChecklist=useCallback(async(frete,existente)=>{
     const uid=firebaseUser?.uid;
-    if(!uid||!frete?.id)return;
+    if(!uid||!frete?.id){
+      console.warn("[Checklist] handleOpenChecklist abortado: uid ou frete.id ausente",{uid:!!uid,freteId:frete?.id});
+      return;
+    }
     try{
-      let checklist=existente||await buscarChecklistPorFrete(uid,frete.id);
-      if(!checklist){
+      let checklist=existente?.id?existente:await buscarChecklistPorFrete(uid,frete.id);
+      if(!checklist?.id){
+        console.log("[Checklist] Criando checklist novo para frete",frete.id);
         checklist=await criarChecklist(uid,frete.id,{
           origem:{endereco:frete.origin||""},
           destino:{endereco:frete.dest||""},
         });
       }
+      if(!checklist?.id){
+        console.error("[Checklist] Checklist sem id após buscar/criar",{freteId:frete.id,checklist});
+        return;
+      }
+      console.log("[Checklist] Abrindo checklist",{checklistId:checklist.id,freteId:frete.id,novo:!existente?.id});
       setChecklistScreen({frete,checklist});
     }catch(err){
       console.error("[Checklist] Falha ao abrir/criar checklist:",err);
@@ -6380,8 +6389,9 @@ export default function App(){
         {page==="perfil"      &&<Perfil uid={firebaseUser?.uid} metaMes={metaMes} setMetaMes={setMetaMes} faturamentoMes={faturamentoMes} saldoLiquidoMes={saldoLiquidoMes} vehicles={vehicles} setVehicles={setVehicles} perfil={perfil} setPerfil={setPerfil} onLimpar={limparTudo} onAdmin={()=>setShowAdmin(true)}/>}
       </div>
       {page!=="dashboard"&&(<button onClick={()=>{setCalcMode(null);setShowCalc(true);}} style={{position:"fixed",bottom:22,right:18,width:52,height:52,borderRadius:"50%",background:C.orange,border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",boxShadow:`0 4px 20px ${C.orange}55`,zIndex:90}}><RouteIcon size={22} color="#fff"/></button>)}
-      {checklistScreen&&(
+      {checklistScreen?.checklist?.id&&(
         <ChecklistVeiculo
+          key={checklistScreen.checklist.id}
           checklist={checklistScreen.checklist}
           frete={checklistScreen.frete}
           uid={firebaseUser?.uid}

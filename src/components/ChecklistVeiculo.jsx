@@ -726,6 +726,12 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
   const pdfParams = { checklist, frete, perfil };
 
   useEffect(() => {
+    if (!initial?.id || checklist?.id) return;
+    console.warn("[Checklist] State sem id — sincronizando da prop", { propId: initial.id });
+    setChecklist((c) => ({ ...c, id: initial.id }));
+  }, [initial?.id, checklist?.id]);
+
+  useEffect(() => {
     if (!uid || !initial?.id) return;
     let cancelled = false;
     (async () => {
@@ -787,11 +793,18 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
 
   const salvar = useCallback(
     async (dados) => {
-      const checklistId = checklist?.id;
+      const checklistId = checklist?.id || initial?.id;
+      console.log("[Checklist] salvar() iniciado", { checklistId, uid: !!uid });
       if (!uid || !checklistId) {
         const mensagem = !uid
           ? "Usuário não autenticado. Faça login novamente."
           : "Checklist sem identificador. Feche e abra o checklist novamente.";
+        console.warn("[Checklist] salvar() retorno antecipado: sem uid ou checklistId", {
+          uid: !!uid,
+          checklistId,
+          stateId: checklist?.id,
+          propId: initial?.id,
+        });
         notificarErroSalvar(mensagem, { uid: !!uid, checklistId });
         return null;
       }
@@ -828,7 +841,7 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
         setSalvando(false);
       }
     },
-    [uid, checklist, onSaved, notificarErroSalvar]
+    [uid, checklist, initial?.id, onSaved, notificarErroSalvar]
   );
 
   const handleGerarPdf = async () => {
@@ -888,14 +901,39 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
   };
 
   const avancarEtapa1 = async () => {
-    const ok = await salvar({
-      cliente: checklist.cliente,
-      veiculo: checklist.veiculo,
-      servico: checklist.servico,
-      origem: checklist.origem,
-      destino: checklist.destino,
-    });
-    if (ok) setEtapa(2);
+    const checklistId = checklist?.id || initial?.id;
+    console.log("[Checklist] Salvar clicado", { etapa, checklistId, uid: !!uid, salvando });
+    if (salvando) {
+      console.warn("[Checklist] Retorno antecipado: salvando em andamento");
+      return;
+    }
+    if (!uid) {
+      console.warn("[Checklist] Retorno antecipado: uid ausente");
+      notificarErroSalvar("Usuário não autenticado. Faça login novamente.");
+      return;
+    }
+    if (!checklistId) {
+      console.warn("[Checklist] Retorno antecipado: checklist sem id", {
+        stateId: checklist?.id,
+        propId: initial?.id,
+      });
+      notificarErroSalvar("Checklist sem identificador. Feche e abra o checklist novamente.");
+      return;
+    }
+    try {
+      const ok = await salvar({
+        cliente: checklist.cliente,
+        veiculo: checklist.veiculo,
+        servico: checklist.servico,
+        origem: checklist.origem,
+        destino: checklist.destino,
+      });
+      console.log("[Checklist] Salvar etapa 1 concluído", { ok: !!ok });
+      if (ok) setEtapa(2);
+    } catch (err) {
+      console.error("[Checklist] Erro não tratado em avancarEtapa1:", err);
+      notificarErroSalvar("Falha inesperada ao salvar. Tente novamente.", err);
+    }
   };
 
   const avancarEtapa2 = async () => {
@@ -1428,7 +1466,7 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
       style={{
         position: "fixed",
         inset: 0,
-        zIndex: 300,
+        zIndex: 950,
         background: C.bg,
         overflowY: "auto",
         fontFamily: "'DM Sans',sans-serif",
@@ -1593,7 +1631,7 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
             </div>
             <button
               type="button"
-              onClick={avancarEtapa1}
+              onClick={() => void avancarEtapa1()}
               disabled={salvando}
               style={{
                 width: "100%",
