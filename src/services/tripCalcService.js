@@ -14,6 +14,7 @@ export function calculateTripCosts(input) {
     defaultConsumo,
     combustivelPreco,
     pedagioTotalReais,
+    totalAxles,
   } = input;
 
   if (!distanciaKm || parseFloat(distanciaKm) <= 0) {
@@ -33,7 +34,11 @@ export function calculateTripCosts(input) {
   const custoComb = isElec
     ? (dist / 100) * cons * preco
     : (dist / cons) * preco;
-  const custoPed = (parseFloat(pedagioTotalReais) || 0) * (roundTrip ? 2 : 1);
+  // V234 — pedágio POR EIXO: o valor informado é a tarifa base (1 eixo);
+  // escala com os eixos do veículo (carretinha = +1 eixo) e dobra na ida e volta
+  const eixos = Math.max(1, parseInt(totalAxles, 10) || 1);
+  const custoPed =
+    (parseFloat(pedagioTotalReais) || 0) * eixos * (roundTrip ? 2 : 1);
   const total = custoComb + custoPed;
 
   return {
@@ -45,6 +50,7 @@ export function calculateTripCosts(input) {
       total,
       litros: isElec ? null : dist / cons,
       cons,
+      totalAxles: eixos,
     },
   };
 }

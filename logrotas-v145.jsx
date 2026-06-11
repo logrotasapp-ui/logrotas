@@ -26,6 +26,8 @@ import {
   openWazeStopDeepLink,
   filterNavigationStops,
 } from "./src/services/routingService.js";
+// V234 — import removido por engano no V226 (quebrava o "Calcular Viagem")
+import { calculateTripCosts } from "./src/services/tripCalcService.js";
 import {
   formatMoeda,
   formatMoedaKm,
@@ -96,7 +98,7 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="V233";
+const APP_VERSION="V234";
 const BETA_HIDE_PLANOS=true;
 
 const OfflineRestoredBanner=({show})=>show?(
@@ -2824,6 +2826,7 @@ const TripCalcModal=({onClose,vehicles})=>{
       defaultConsumo:veiculo.consumption,
       combustivelPreco:combustivel,
       pedagioTotalReais:pedagio,
+      totalAxles,
     });
     if(!out.ok){setErro(out.error);return;}
     setErro("");
@@ -2921,7 +2924,7 @@ const TripCalcModal=({onClose,vehicles})=>{
             <span style={{padding:"0 10px",color:buscandoDist?"#3B82F6":C.muted,fontSize:12,borderLeft:`1px solid ${C.border}`,background:C.subtle}}>{buscandoDist?"🔍":"km"}</span>
           </div>
 
-          <Field label="🏁 Pedágio total (R$)" value={pedagio} onChange={setPedagio} placeholder="Ex: 45.00" prefix="R$" hint="Valor estimado na ida; dobra automaticamente se marcar ida e volta." calc/>
+          <Field label="🏁 Pedágio (R$, tarifa base)" value={pedagio} onChange={setPedagio} placeholder="Ex: 45.00" prefix="R$" hint="Tarifa base na ida; multiplica pelos eixos do veículo e dobra se marcar ida e volta." calc/>
 
           {/* Ida e volta */}
           <button onClick={()=>setRoundTrip(r=>!r)} style={{display:"flex",alignItems:"center",gap:9,background:roundTrip?"#EFF6FF":"#fff",border:`1.5px solid ${roundTrip?"#3B82F6":C.border}`,borderRadius:10,padding:"9px 13px",cursor:"pointer"}}>
@@ -2989,13 +2992,13 @@ const TripCalcModal=({onClose,vehicles})=>{
           <div style={{display:"flex",flexDirection:"column",gap:10}}>
             <div style={{background:"linear-gradient(135deg,#1E3A8A,#2952C8)",borderRadius:14,padding:"20px 18px",textAlign:"center",boxShadow:"0 4px 16px #1E3A8A44"}}>
               <div style={{color:"#BFDBFE",fontSize:14,fontWeight:700,letterSpacing:1,textTransform:"uppercase",marginBottom:6}}>💸 CUSTO TOTAL DA VIAGEM</div>
-              <div style={{color:"#fff",fontWeight:900,fontSize:40,fontFamily:"'Sora',sans-serif",lineHeight:1,marginBottom:4}}>R$ {(result.total||0).toFixed(2)}</div>
-              <div style={{color:"#93C5FD",fontSize:12}}>{result.dist} km · {roundTrip?"ida e volta":"somente ida"}</div>
+              <div style={{color:"#fff",fontWeight:900,fontSize:40,fontFamily:"'Sora',sans-serif",lineHeight:1,marginBottom:4}}>{formatMoeda(result.total||0)}</div>
+              <div style={{color:"#93C5FD",fontSize:12}}>{formatKmDecimal(result.dist||0)} · {roundTrip?"ida e volta":"somente ida"}</div>
             </div>
             <div style={{background:"#F8FAFC",borderRadius:14,padding:"14px 16px",display:"flex",flexDirection:"column",gap:0}}>
               {[
-                {emoji:isElec?"⚡":"⛽",l:isElec?"Custo energia":"Custo combustível",v:`R$ ${(result.custoComb||0).toFixed(2)}`,sub:isElec?`${(result.dist/100*(parseFloat(consumo)||veiculo.kwh)).toFixed(1)} kWh`:`${(result.litros||0).toFixed(1)} litros · ${result.cons} km/L`},
-                {emoji:"🏁",l:"Pedágio total",v:`R$ ${(result.custoPed||0).toFixed(2)}`,sub:roundTrip?"ida e volta":"somente ida"},
+                {emoji:isElec?"⚡":"⛽",l:isElec?"Custo energia":"Custo combustível",v:formatMoeda(result.custoComb||0),sub:isElec?`${formatDecimal(result.dist/100*(parseFloat(consumo)||veiculo.kwh),1)} kWh`:`${formatDecimal(result.litros||0,1)} litros · ${formatConsumoKmL(result.cons)}`},
+                {emoji:"🏁",l:"Pedágio total",v:formatMoeda(result.custoPed||0),sub:`${plural(result.totalAxles||totalAxles,"eixo","eixos")} · ${roundTrip?"ida e volta":"somente ida"}`},
               ].map((r,i,arr)=>(
                 <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"11px 0",borderBottom:i<arr.length-1?`1px solid ${C.border}`:"none"}}>
                   <div style={{display:"flex",alignItems:"center",gap:9}}>
