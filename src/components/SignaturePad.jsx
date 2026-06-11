@@ -1,44 +1,65 @@
-import { useRef, useEffect, useImperativeHandle, forwardRef } from "react";
+import { useRef, useEffect, useImperativeHandle, forwardRef, useCallback } from "react";
 
 const C = {
   border: "#E4E9F0",
   navy: "#1E3A8A",
-  muted: "#8EA3BC",
   subtle: "#F0F4FA",
 };
 
-function getPoint(canvas, evt) {
+function getPointer(canvas, evt) {
   const rect = canvas.getBoundingClientRect();
+  const src = evt.touches?.[0] || evt.changedTouches?.[0] || evt;
   const scaleX = canvas.width / rect.width;
   const scaleY = canvas.height / rect.height;
-  const src = evt.touches?.[0] || evt.changedTouches?.[0] || evt;
   return {
     x: (src.clientX - rect.left) * scaleX,
     y: (src.clientY - rect.top) * scaleY,
   };
 }
 
-const SignaturePad = forwardRef(function SignaturePad({ width = 320, height = 140, onChange }, ref) {
+const SignaturePad = forwardRef(function SignaturePad({ height = 140, onChange }, ref) {
+  const wrapRef = useRef(null);
   const canvasRef = useRef(null);
   const drawingRef = useRef(false);
   const lastPointRef = useRef(null);
   const hasStrokeRef = useRef(false);
+  const dprRef = useRef(1);
 
-  useEffect(() => {
+  const setupCanvas = useCallback(() => {
     const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d");
+    const wrap = wrapRef.current;
+    if (!canvas || !wrap) return;
+
+    const rect = wrap.getBoundingClientRect();
+    const displayW = Math.max(Math.round(rect.width), 280);
+    const displayH = height;
     const dpr = window.devicePixelRatio || 1;
-    canvas.width = width * dpr;
-    canvas.height = height * dpr;
-    ctx.scale(dpr, dpr);
+    dprRef.current = dpr;
+
+    canvas.width = Math.round(displayW * dpr);
+    canvas.height = Math.round(displayH * dpr);
+    canvas.style.width = `${displayW}px`;
+    canvas.style.height = `${displayH}px`;
+
+    const ctx = canvas.getContext("2d");
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
-    ctx.lineWidth = 2.2;
+    ctx.lineWidth = 2.2 * dpr;
     ctx.strokeStyle = "#1A2B42";
-    ctx.fillStyle = "#fff";
-    ctx.fillRect(0, 0, width, height);
-  }, [width, height]);
+    hasStrokeRef.current = false;
+  }, [height]);
+
+  useEffect(() => {
+    setupCanvas();
+    const wrap = wrapRef.current;
+    if (!wrap || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => setupCanvas());
+    ro.observe(wrap);
+    return () => ro.disconnect();
+  }, [setupCanvas]);
 
   const notifyChange = () => onChange?.(hasStrokeRef.current);
 
@@ -47,7 +68,7 @@ const SignaturePad = forwardRef(function SignaturePad({ width = 320, height = 14
     const canvas = canvasRef.current;
     if (!canvas) return;
     drawingRef.current = true;
-    lastPointRef.current = getPoint(canvas, evt);
+    lastPointRef.current = getPointer(canvas, evt);
   };
 
   const draw = (evt) => {
@@ -56,7 +77,7 @@ const SignaturePad = forwardRef(function SignaturePad({ width = 320, height = 14
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
-    const point = getPoint(canvas, evt);
+    const point = getPointer(canvas, evt);
     const last = lastPointRef.current;
     if (!last) {
       lastPointRef.current = point;
@@ -82,19 +103,7 @@ const SignaturePad = forwardRef(function SignaturePad({ width = 320, height = 14
   };
 
   const clear = () => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-    const dpr = window.devicePixelRatio || 1;
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.fillStyle = "#fff";
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.scale(dpr, dpr);
-    ctx.lineCap = "round";
-    ctx.lineJoin = "round";
-    ctx.lineWidth = 2.2;
-    ctx.strokeStyle = "#1A2B42";
-    hasStrokeRef.current = false;
+    setupCanvas();
     notifyChange();
   };
 
@@ -118,17 +127,19 @@ const SignaturePad = forwardRef(function SignaturePad({ width = 320, height = 14
   return (
     <div>
       <div
+        ref={wrapRef}
         style={{
           border: `2px solid ${C.border}`,
           borderRadius: 12,
           overflow: "hidden",
           background: "#fff",
           touchAction: "none",
+          width: "100%",
         }}
       >
         <canvas
           ref={canvasRef}
-          style={{ width: "100%", height, display: "block", cursor: "crosshair" }}
+          style={{ display: "block", cursor: "crosshair" }}
           onMouseDown={startDraw}
           onMouseMove={draw}
           onMouseUp={endDraw}

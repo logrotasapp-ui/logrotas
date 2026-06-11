@@ -1,4 +1,5 @@
 import { useState, useCallback, useRef } from "react";
+import { createPortal } from "react-dom";
 import { ArrowLeftIcon, XIcon, CameraIcon, RefreshCwIcon } from "lucide-react";
 import {
   atualizarChecklist,
@@ -19,6 +20,11 @@ import {
 } from "../services/storageService.js";
 import { getDriverGeolocation } from "../services/routingService.js";
 import SignaturePad from "./SignaturePad.jsx";
+import {
+  saveChecklistColetaPdf,
+  shareChecklistColetaWhatsApp,
+} from "../services/checklistColetaPdf.js";
+import { sharePdfFileViaSystem } from "../services/deliveryReportPdf.js";
 
 const C = {
   bg: "#F4F6FA",
@@ -129,8 +135,8 @@ function BtnSelecao({ label, ativo, onClick, cor = C.navy }) {
   );
 }
 
-function AvisoIncompleto({ validacao }) {
-  if (validacao.completa) return null;
+function AvisoIncompleto({ validacao, tentouAvancar }) {
+  if (!tentouAvancar || validacao.completa) return null;
   return (
     <div
       style={{
@@ -152,23 +158,91 @@ function AvisoIncompleto({ validacao }) {
   );
 }
 
-function EmConstrucaoPdf() {
-  return (
-    <div
-      style={{
-        background: C.navyLight,
-        border: `1.5px dashed ${C.navy}44`,
-        borderRadius: 16,
-        padding: "40px 20px",
-        textAlign: "center",
-      }}
-    >
-      <div style={{ fontSize: 40, marginBottom: 12 }}>🚧</div>
-      <div style={{ color: C.navy, fontWeight: 800, fontSize: 16, fontFamily: "'Sora',sans-serif" }}>
-        Em construção — V239
+function EtapaPdfColeta({ checklist, frete, perfil, gerandoPdf, onGerarPdf, onWhatsApp, coletaOk }) {
+  if (!coletaOk) {
+    return (
+      <div
+        style={{
+          background: C.orangeLight,
+          border: `1px solid ${C.orange}44`,
+          borderRadius: 16,
+          padding: "28px 20px",
+          textAlign: "center",
+        }}
+      >
+        <div style={{ fontSize: 36, marginBottom: 10 }}>📋</div>
+        <div style={{ color: C.navy, fontWeight: 800, fontSize: 15, fontFamily: "'Sora',sans-serif" }}>
+          Coleta ainda não concluída
+        </div>
+        <div style={{ color: C.muted, fontSize: 13, marginTop: 8, lineHeight: 1.5 }}>
+          Complete todas as etapas anteriores para gerar o PDF da coleta.
+        </div>
       </div>
-      <div style={{ color: C.muted, fontSize: 13, marginTop: 8, lineHeight: 1.5 }}>
-        A geração do PDF estará disponível na próxima versão.
+    );
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      <div
+        style={{
+          background: C.greenLight,
+          border: `1px solid ${C.green}33`,
+          borderRadius: 16,
+          padding: "20px 18px",
+          textAlign: "center",
+        }}
+      >
+        <div style={{ fontSize: 40, marginBottom: 10 }}>✅</div>
+        <div style={{ color: C.green, fontWeight: 800, fontSize: 16, fontFamily: "'Sora',sans-serif" }}>
+          Coleta concluída
+        </div>
+        <div style={{ color: C.text2, fontSize: 13, marginTop: 8, lineHeight: 1.5 }}>
+          Gere o laudo em PDF com fotos, vistoria e assinaturas do checklist {checklist?.numero || ""}.
+        </div>
+      </div>
+      <button
+        type="button"
+        onClick={onGerarPdf}
+        disabled={gerandoPdf}
+        style={{
+          width: "100%",
+          padding: "14px 0",
+          background: C.navy,
+          border: "none",
+          borderRadius: 12,
+          color: "#fff",
+          fontWeight: 800,
+          fontSize: 15,
+          cursor: gerandoPdf ? "wait" : "pointer",
+          fontFamily: "'Sora',sans-serif",
+          opacity: gerandoPdf ? 0.7 : 1,
+        }}
+      >
+        {gerandoPdf ? "Gerando PDF…" : "📄 Gerar PDF da Coleta"}
+      </button>
+      <button
+        type="button"
+        onClick={onWhatsApp}
+        style={{
+          width: "100%",
+          padding: "13px 0",
+          background: "#25D366",
+          border: "none",
+          borderRadius: 12,
+          color: "#fff",
+          fontWeight: 700,
+          fontSize: 14,
+          cursor: "pointer",
+        }}
+      >
+        Compartilhar no WhatsApp
+      </button>
+      <div style={{ color: C.muted, fontSize: 11, textAlign: "center", lineHeight: 1.5 }}>
+        Origem: {checklist?.origem?.endereco || frete?.origin || "—"}
+        <br />
+        Destino: {checklist?.destino?.endereco || frete?.dest || "—"}
+        <br />
+        Prestador: {perfil?.nome || "—"}
       </div>
     </div>
   );
@@ -298,18 +372,27 @@ function PhotoSlot({ slot, foto, onCapture, uploading, onRemove }) {
   );
 }
 
-export default function ChecklistVeiculo({ checklist: initial, frete, uid, onClose, onSaved }) {
+export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfil, onClose, onSaved }) {
   const [checklist, setChecklist] = useState(() => normalizeChecklist(initial));
   const [etapa, setEtapa] = useState(1);
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState("");
+  const [tentouAvancar, setTentouAvancar] = useState(false);
   const [uploadingSlot, setUploadingSlot] = useState(null);
   const [slotAtivo, setSlotAtivo] = useState(null);
+  const [gerandoPdf, setGerandoPdf] = useState(false);
+  const [showPdfShare, setShowPdfShare] = useState(false);
+  const [pdfBlobCache, setPdfBlobCache] = useState(null);
+  const [pdfFilenameCache, setPdfFilenameCache] = useState("");
   const fileInputRef = useRef(null);
   const responsavelPadRef = useRef(null);
   const prestadorPadRef = useRef(null);
 
   const validacao = coletaCompleta(checklist);
+  const coletaOk = checklist?.status === "aguardando_entrega" || validacao.completa;
+  const pdfParams = { checklist, frete, perfil };
+
+  const marcarTentouAvancar = () => setTentouAvancar(true);
 
   const salvar = useCallback(
     async (dados) => {
@@ -332,7 +415,25 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, onClo
     [uid, checklist?.id, onSaved]
   );
 
+  const handleGerarPdf = async () => {
+    if (gerandoPdf || !coletaOk) return;
+    setGerandoPdf(true);
+    setErro("");
+    try {
+      const { blob, filename, method } = await saveChecklistColetaPdf(pdfParams);
+      if (method === "cancelled") return;
+      setPdfBlobCache(blob);
+      setPdfFilenameCache(filename);
+      setShowPdfShare(true);
+    } catch {
+      setErro("Não foi possível gerar o PDF.");
+    } finally {
+      setGerandoPdf(false);
+    }
+  };
+
   const avancarEtapa1 = async () => {
+    marcarTentouAvancar();
     const ok = await salvar({
       cliente: checklist.cliente,
       veiculo: checklist.veiculo,
@@ -344,11 +445,13 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, onClo
   };
 
   const avancarEtapa2 = async () => {
+    marcarTentouAvancar();
     const ok = await salvar({ coleta: checklist.coleta });
     if (ok) setEtapa(3);
   };
 
   const avancarEtapa3 = async () => {
+    marcarTentouAvancar();
     const ok = await salvar({ coleta: checklist.coleta });
     if (ok) setEtapa(4);
   };
@@ -425,6 +528,7 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, onClo
     }));
 
   const avancarEtapa4 = async () => {
+    marcarTentouAvancar();
     const resp = checklist.coleta?.assinaturas?.responsavel || {};
     const prest = checklist.coleta?.assinaturas?.prestador || {};
 
@@ -502,8 +606,11 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, onClo
         coletaAtualizada.finalizadaEm = new Date().toISOString();
       }
 
+      setChecklist((c) => ({ ...c, coleta: coletaAtualizada, status }));
       const ok = await salvar({ coleta: coletaAtualizada, status });
       if (ok) {
+        responsavelPadRef.current?.clear?.();
+        prestadorPadRef.current?.clear?.();
         if (val.completa) setEtapa(5);
       }
     } catch {
@@ -738,7 +845,7 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, onClo
 
         {etapa === 2 && (
           <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-            <AvisoIncompleto validacao={validacao} />
+            <AvisoIncompleto validacao={validacao} tentouAvancar={tentouAvancar} />
             <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 16, padding: "16px 18px" }}>
               <div style={{ color: C.navy, fontWeight: 800, fontSize: 15, fontFamily: "'Sora',sans-serif", marginBottom: 14 }}>❓ Perguntas de vistoria</div>
               {(checklist.coleta?.perguntas || []).map((p, i) => (
@@ -864,7 +971,7 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, onClo
 
         {etapa === 3 && (
           <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-            <AvisoIncompleto validacao={validacao} />
+            <AvisoIncompleto validacao={validacao} tentouAvancar={tentouAvancar} />
             <div style={{ color: C.text2, fontSize: 13, lineHeight: 1.5 }}>
               📸 Tire as fotos guiadas da vistoria. Cada imagem recebe carimbo com data/hora e GPS antes do envio.
             </div>
@@ -938,13 +1045,13 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, onClo
 
         {etapa === 4 && (
           <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-            <AvisoIncompleto validacao={validacao} />
+            <AvisoIncompleto validacao={validacao} tentouAvancar={tentouAvancar} />
             {[
               { bloco: "responsavel", titulo: "✍️ Responsável no local", padRef: responsavelPadRef },
               { bloco: "prestador", titulo: "🪝 Prestador", padRef: prestadorPadRef },
             ].map(({ bloco, titulo, padRef }) => {
               const assin = checklist.coleta?.assinaturas?.[bloco] || assinaturaVazia();
-              const temAssinaturaSalva = !!assin.imagemUrl;
+              const temAssinaturaSalva = !!assin.imagemUrl?.trim();
               return (
                 <div
                   key={bloco}
@@ -972,29 +1079,46 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, onClo
                       placeholder="000.000.000-00"
                     />
                   </div>
-                  {temAssinaturaSalva ? (
-                    <div>
+                  {temAssinaturaSalva && (
+                    <div
+                      style={{
+                        marginBottom: 14,
+                        padding: 12,
+                        background: C.navyLight,
+                        border: `1px solid ${C.navy}22`,
+                        borderRadius: 12,
+                      }}
+                    >
+                      <div style={{ color: C.navy, fontWeight: 700, fontSize: 12, marginBottom: 8 }}>
+                        Assinatura salva
+                      </div>
                       <img
                         src={assin.imagemUrl}
                         alt={`Assinatura ${bloco}`}
+                        crossOrigin="anonymous"
+                        referrerPolicy="no-referrer"
                         style={{
                           width: "100%",
-                          maxHeight: 120,
+                          minHeight: 80,
+                          maxHeight: 140,
                           objectFit: "contain",
                           border: `1px solid ${C.border}`,
                           borderRadius: 10,
                           background: "#fff",
+                          display: "block",
                         }}
                       />
-                      <div style={{ color: C.muted, fontSize: 11, marginTop: 6 }}>
-                        Salva em {assin.dataHora || "—"}
-                        {assin.lat != null ? ` · ${assin.lat.toFixed(4)}, ${assin.lng.toFixed(4)}` : ""}
-                      </div>
-                      <div style={{ color: C.muted, fontSize: 11, marginTop: 8 }}>
+                      <div style={{ color: C.muted, fontSize: 11, marginTop: 10 }}>
                         Assine novamente abaixo para substituir.
                       </div>
+                      <div style={{ color: C.muted, fontSize: 11, marginTop: 4 }}>
+                        Salva em {assin.dataHora || "—"}
+                        {assin.lat != null && assin.lng != null
+                          ? ` · ${Number(assin.lat).toFixed(4)}, ${Number(assin.lng).toFixed(4)}`
+                          : ""}
+                      </div>
                     </div>
-                  ) : null}
+                  )}
                   <SignaturePad ref={padRef} />
                 </div>
               );
@@ -1038,8 +1162,120 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, onClo
           </div>
         )}
 
-        {etapa === 5 && <EmConstrucaoPdf />}
+        {etapa === 5 && (
+          <EtapaPdfColeta
+            checklist={checklist}
+            frete={frete}
+            perfil={perfil}
+            gerandoPdf={gerandoPdf}
+            coletaOk={coletaOk}
+            onGerarPdf={handleGerarPdf}
+            onWhatsApp={() => shareChecklistColetaWhatsApp(pdfParams)}
+          />
+        )}
       </div>
+
+      {showPdfShare &&
+        createPortal(
+          <div
+            style={{
+              position: "fixed",
+              inset: 0,
+              zIndex: 400,
+              background: "#1E3A8A66",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              padding: 20,
+            }}
+          >
+            <div
+              style={{
+                background: C.surface,
+                borderRadius: 18,
+                width: "100%",
+                maxWidth: 360,
+                padding: 24,
+                boxShadow: "0 12px 40px #00000033",
+                textAlign: "center",
+              }}
+            >
+              <div style={{ fontSize: 36, marginBottom: 8 }}>📄</div>
+              <div style={{ color: C.navy, fontWeight: 800, fontSize: 16, fontFamily: "'Sora',sans-serif", marginBottom: 8 }}>
+                PDF gerado!
+              </div>
+              <div style={{ color: C.muted, fontSize: 13, marginBottom: 18, lineHeight: 1.5 }}>
+                Compartilhe o laudo da coleta:
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                <button
+                  type="button"
+                  onClick={() => shareChecklistColetaWhatsApp(pdfParams)}
+                  style={{
+                    width: "100%",
+                    padding: 13,
+                    background: "#25D366",
+                    border: "none",
+                    borderRadius: 12,
+                    cursor: "pointer",
+                    color: "#fff",
+                    fontWeight: 700,
+                    fontSize: 14,
+                  }}
+                >
+                  Compartilhar no WhatsApp
+                </button>
+                {pdfBlobCache && (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      try {
+                        await sharePdfFileViaSystem(pdfBlobCache, pdfFilenameCache || "checklist-coleta.pdf");
+                      } catch {
+                        shareChecklistColetaWhatsApp(pdfParams);
+                      }
+                    }}
+                    style={{
+                      width: "100%",
+                      padding: 13,
+                      background: "#128C7E",
+                      border: "none",
+                      borderRadius: 12,
+                      cursor: "pointer",
+                      color: "#fff",
+                      fontWeight: 700,
+                      fontSize: 14,
+                    }}
+                  >
+                    WhatsApp / compartilhar PDF
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowPdfShare(false);
+                    setPdfBlobCache(null);
+                    setPdfFilenameCache("");
+                  }}
+                  style={{
+                    width: "100%",
+                    padding: 12,
+                    background: C.subtle,
+                    border: `1px solid ${C.border}`,
+                    borderRadius: 12,
+                    cursor: "pointer",
+                    color: C.text2,
+                    fontWeight: 600,
+                    fontSize: 14,
+                  }}
+                >
+                  Fechar
+                </button>
+              </div>
+            </div>
+          </div>,
+          document.body
+        )}
     </div>
   );
 }

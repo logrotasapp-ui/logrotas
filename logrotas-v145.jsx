@@ -102,7 +102,7 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="V238";
+const APP_VERSION="V239";
 const BETA_HIDE_PLANOS=true;
 
 const OfflineRestoredBanner=({show})=>show?(
@@ -6383,6 +6383,7 @@ export default function App(){
           checklist={checklistScreen.checklist}
           frete={checklistScreen.frete}
           uid={firebaseUser?.uid}
+          perfil={perfil}
           onClose={()=>setChecklistScreen(null)}
           onSaved={(c)=>setChecklistScreen(s=>({...s,checklist:c}))}
         />
