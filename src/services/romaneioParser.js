@@ -125,30 +125,24 @@ function startsNewAddress(line) {
 }
 
 /**
- * Lista final pronta para geocoding (sem duplicatas, endereços válidos).
+ * Lista final pronta para geocoding (endereços válidos; duplicatas preservadas — V235).
  * @param {string[]} addresses
  * @returns {string[]}
  */
 export function normalizeAddressesForRouting(addresses) {
-  const unique = [];
-  const seen = new Set();
+  // V235 — NUNCA deduplicar linhas: cada linha = 1 pacote. O agrupamento de
+  // duplicados (texto igual ou geocodificação < 30 m) acontece DEPOIS, na
+  // montagem das paradas, somando os pacotes da parada existente (V233).
+  const result = [];
 
   for (const raw of addresses || []) {
     const endereco = cleanAddressLine(raw);
     if (endereco.length < 10) continue;
     if (!looksLikeAddress(endereco)) continue;
-
-    const key = endereco
-      .toLowerCase()
-      .normalize("NFD")
-      .replace(/\p{M}/gu, "");
-
-    if (seen.has(key)) continue;
-    seen.add(key);
-    unique.push(endereco);
+    result.push(endereco);
   }
 
-  return unique.slice(0, 50);
+  return result.slice(0, 50);
 }
 
 /**

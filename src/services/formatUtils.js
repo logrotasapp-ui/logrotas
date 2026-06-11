@@ -1,3 +1,47 @@
+/**
+ * V235 — Entrada numérica tolerante (pt-BR e en):
+ *  a) "6,4" → 6.4 (vírgula = decimal)
+ *  b) "6.4" / "6.49" → decimal (ponto com 1-2 dígitos depois)
+ *  c) "1.250" → 1250 (ponto com exatamente 3 dígitos = milhar)
+ *  d) "1.234,56" → 1234.56 (com ponto E vírgula, o último separador é o decimal)
+ *  e) Ignora espaços e "R$"
+ * Entrada inválida → NaN (mesmo comportamento do parseFloat nas validações).
+ */
+export function parseNumeroBR(texto) {
+  if (typeof texto === "number") return texto;
+  let s = String(texto ?? "")
+    .replace(/r\$/gi, "")
+    .replace(/[\s\u00A0]/g, "");
+  if (!s) return NaN;
+
+  const temVirgula = s.includes(",");
+  const temPonto = s.includes(".");
+
+  if (temVirgula && temPonto) {
+    const decimalSep = s.lastIndexOf(",") > s.lastIndexOf(".") ? "," : ".";
+    const milharSep = decimalSep === "," ? "." : ",";
+    s = s.split(milharSep).join("").replace(decimalSep, ".");
+  } else if (temVirgula) {
+    const partes = s.split(",");
+    const dec = partes.pop();
+    s = `${partes.join("")}.${dec}`;
+  } else if (temPonto) {
+    const partes = s.split(".");
+    if (partes.length > 2) {
+      s = partes.join(""); // múltiplos pontos = separador de milhar
+    } else {
+      const [inteiro, frac] = partes;
+      // exatamente 3 dígitos após o ponto = milhar ("1.250"); "0.125" continua decimal
+      if (frac.length === 3 && inteiro !== "" && inteiro !== "0" && inteiro !== "-0") {
+        s = inteiro + frac;
+      }
+    }
+  }
+
+  const v = parseFloat(s);
+  return Number.isFinite(v) ? v : NaN;
+}
+
 /** Arredonda valor monetário para 2 casas decimais. */
 export function roundMoney(n) {
   const v = Number(n);

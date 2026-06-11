@@ -39,6 +39,7 @@ import {
   formatDecimal,
   formatKwhPrice,
   formatConsumoKmL,
+  parseNumeroBR,
   plural,
   pluralWord,
   pluralDias,
@@ -51,6 +52,7 @@ import ScannerModule from "./src/components/ScannerModule.js";
 import { playWhooshSound } from "./src/utils/whooshSound.js";
 import DeliveryMap from "./src/components/DeliveryMap.js";
 import NavigationMap from "./src/components/NavigationMap.jsx";
+import ProgressOverlay from "./src/components/ProgressOverlay.jsx";
 import { loadDeliveryRoutes, saveDeliveryRoute, deleteDeliveryRoute } from "./src/services/deliveryRouteService.js";
 import {
   saveDeliveryReportPdf,
@@ -98,7 +100,7 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="V234";
+const APP_VERSION="V235";
 const BETA_HIDE_PLANOS=true;
 
 const OfflineRestoredBanner=({show})=>show?(
@@ -476,6 +478,22 @@ const Field=({label,value,onChange,placeholder,prefix,suffix,type="text",hint,re
     </div>
   );
 };
+// V235 — seletor de reboque compartilhado (Calculadora de Fretes + Calculadora de Viagem)
+const TrailerSelector=({options,value,onChange,title="Reboque / Carretinha"})=>(
+  <div>
+    <div style={{color:C.text2,fontSize:14,fontWeight:700,letterSpacing:0.4,marginBottom:8}}>{title}</div>
+    <div style={{display:"flex",gap:7,minWidth:0,maxWidth:"100%"}}>
+      {options.map(t=>(
+        <button key={t.id} type="button" onClick={()=>onChange(t.id)}
+          style={{flex:1,minWidth:0,background:value===t.id?C.navyLight:"#fff",border:`2px solid ${value===t.id?C.navy:C.border}`,borderRadius:11,padding:"9px 6px",cursor:"pointer",textAlign:"center",transition:"all .15s"}}>
+          <div style={{fontSize:18,marginBottom:3}}>{t.emoji}</div>
+          <div style={{color:value===t.id?C.navy:C.text,fontWeight:600,fontSize:11}}>{t.label}</div>
+          <div style={{color:C.muted,fontSize:9,marginTop:1}}>{t.desc}</div>
+        </button>
+      ))}
+    </div>
+  </div>
+);
 const SelectField=({label,value,onChange,options})=>{
   const[focused,setFocused]=useState(false);
   return(
@@ -1467,6 +1485,9 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
   const[paradas,setParadas]=useState([]);
   const[novoEndereco,setNovoEndereco]=useState("");
   const[processandoFoto,setProcessandoFoto]=useState(false);
+  // V235 — overlay de progresso (otimização e importação); flow define onde cai o aviso de timeout
+  const[overlayMsg,setOverlayMsg]=useState("");
+  const overlayFlowRef=useRef("otimizar");
   const[erroFoto,setErroFoto]=useState("");
   const[avisoScanFalha,setAvisoScanFalha]=useState("");
   const[erroManual,setErroManual]=useState("");
@@ -1939,8 +1960,13 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
       );
     }
     setProcessandoFoto(true);
+    // V235 — overlay com progresso real da geocodificação ("X de Y")
+    overlayFlowRef.current="importar";
+    setOverlayMsg(`📍 Localizando endereços... 0 de ${novas.length}`);
     try{
-      const geocoded=await geocodeRomaneioExtractedAddresses(novas);
+      const geocoded=await geocodeRomaneioExtractedAddresses(novas,(feitos,total)=>{
+        setOverlayMsg(`📍 Localizando endereços... ${feitos} de ${total}`);
+      });
       // V233 — duplicados (romaneio repete endereço = mais pacotes na mesma porta):
       // agrupa em uma única parada e soma os pacotes
       const unicos=[];
@@ -1979,6 +2005,7 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
       setErroFoto("Erro ao localizar endereços no mapa. Tente de novo.");
     }finally{
       setProcessandoFoto(false);
+      setOverlayMsg("");
     }
   };
 
@@ -2024,7 +2051,7 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
   // V231 — motor híbrido: GPS fresco → NN + 2-opt no aparelho → Directions em blocos.
   // V166 (legado, USE_HYBRID_OPTIMIZER=false) — geocoding → GPS como origin → waypoints otimizáveis.
   const handleOtimizarRota=async()=>{
-    if(paradas.length<2)return;
+    if(paradas.length<2||otimizando)return;
     playWhooshSound();
     setOtimizando(true);
     setErroOtimizar("");
@@ -2033,42 +2060,67 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
     setResultado(null);
     setRotaPath(null);
     setRotaPathSegment(null);
-    const out=USE_HYBRID_OPTIMIZER
-      ?await optimizeDeliveryRouteHybrid(paradas,{
-        consumoKmL:perfil?.consumo,
-        precoCombustivel:5.89,
-      })
-      :await optimizeDeliveryRoute(paradas,{
-        consumoKmL:perfil?.consumo,
-        precoCombustivel:5.89,
-      });
-    setOtimizando(false);
-    if(!out.ok){
-      if(out.paradasInvalidas?.length){
-        setParadas(p=>p.map(x=>out.paradasInvalidas.includes(x.id)?{...x,geocodeFalhou:true}:{...x,geocodeFalhou:false}));
+    overlayFlowRef.current="otimizar";
+    setOverlayMsg("📍 Localizando endereços...");
+    const STAGE_MSGS={
+      geocodificando:"📍 Localizando endereços...",
+      otimizando:"🧠 Calculando a melhor ordem...",
+      desenhando:"🗺️ Desenhando a rota...",
+    };
+    try{
+      const out=USE_HYBRID_OPTIMIZER
+        ?await optimizeDeliveryRouteHybrid(paradas,{
+          consumoKmL:perfil?.consumo,
+          precoCombustivel:5.89,
+          onStage:s=>{if(STAGE_MSGS[s])setOverlayMsg(STAGE_MSGS[s]);},
+        })
+        :await optimizeDeliveryRoute(paradas,{
+          consumoKmL:perfil?.consumo,
+          precoCombustivel:5.89,
+        });
+      if(!out.ok){
+        if(out.paradasInvalidas?.length){
+          setParadas(p=>p.map(x=>out.paradasInvalidas.includes(x.id)?{...x,geocodeFalhou:true}:{...x,geocodeFalhou:false}));
+        }
+        if(out.paradasForaDaArea?.length){
+          setParadas(p=>p.map(x=>out.paradasForaDaArea.includes(x.id)?{...x,outlier:true}:{...x,outlier:false}));
+        }
+        setErroOtimizar(out.error);
+        return;
       }
-      // V232 — outliers (>20 km do centro mediano): destaca e exige confirmação
-      if(out.paradasForaDaArea?.length){
-        setParadas(p=>p.map(x=>out.paradasForaDaArea.includes(x.id)?{...x,outlier:true}:{...x,outlier:false}));
-      }
-      setErroOtimizar(out.error);
-      return;
+      if(out.gpsFalhou)setAvisoGps("⚠️ GPS indisponível — rota calculada a partir da primeira parada");
+      if(out.trajetoParcial)setAvisoTrajeto("Trajeto parcial no mapa — a ordem das paradas está correta");
+      if(out.motoristaCoords)setPosicaoMotorista(out.motoristaCoords);
+      setParadas(out.paradasOtimizadas);
+      setResultado(out.resultado);
+      if(out.routePath?.length)setRotaPath(out.routePath);
+      setAposConclusao(false);
+    }catch{
+      setErroOtimizar("Erro ao otimizar a rota. Verifique sua conexão e tente novamente.");
+    }finally{
+      setOtimizando(false);
+      setOverlayMsg("");
     }
-    // V233 — fallback de GPS nunca é silencioso (viola a spec do V231)
-    if(out.gpsFalhou)setAvisoGps("⚠️ GPS indisponível — rota calculada a partir da primeira parada");
-    if(out.trajetoParcial)setAvisoTrajeto("Trajeto parcial no mapa — a ordem das paradas está correta");
-    if(out.motoristaCoords)setPosicaoMotorista(out.motoristaCoords);
-    setParadas(out.paradasOtimizadas);
-    setResultado(out.resultado);
-    if(out.routePath?.length)setRotaPath(out.routePath);
-    setAposConclusao(false);
   };
+
+  // V235 — timeout de segurança do overlay (60s): fecha com aviso, nunca fica preso
+  const handleOverlayTimeout=useCallback(()=>{
+    setOverlayMsg("");
+    setOtimizando(false);
+    setProcessandoFoto(false);
+    const aviso="⏱️ A operação demorou mais que o esperado. Verifique sua conexão e tente novamente.";
+    if(overlayFlowRef.current==="importar")setErroFoto(aviso);
+    else setErroOtimizar(aviso);
+  },[]);
 
   return(
     <ModalWrap maxW={500}>
       {/* Header */}
       <ModalHeader title="📦 Otimizar Entregas" sub="Rota perfeita para múltiplas paradas" icon={RouteIcon} iconColor={OTIMIZAR_AZUL} onClose={onClose}/>
       <OfflineRestoredBanner show={offlineRestored}/>
+
+      {/* V235 — overlay de progresso (um componente, dois usos: otimização e importação) */}
+      <ProgressOverlay visible={!!overlayMsg} message={overlayMsg} onTimeout={handleOverlayTimeout}/>
 
       <ScannerModule
         disabled={atingiuLimite||processandoFoto}
@@ -2753,7 +2805,8 @@ const TripCalcModal=({onClose,vehicles})=>{
   const[distancia,setDistancia]=useState("");
   const[buscandoDist,setBuscandoDist]=useState(false);
   const[vehicleId,setVehicleId]=useState("carro");
-  const[carretinha,setCarretinha]=useState(false);
+  // V235 — seletor de reboque igual à Calculadora de Fretes (substitui o toggle binário)
+  const[trailer,setTrailer]=useState("none");
   const[consumo,setConsumo]=useState("");
   const[combustivel,setCombustivel]=useState("");
   const[pedagio,setPedagio]=useState("");
@@ -2774,7 +2827,9 @@ const TripCalcModal=({onClose,vehicles})=>{
     );
     if(temDados){
       if(cached.vehicleId)setVehicleId(cached.vehicleId);
-      if(cached.carretinha!=null)setCarretinha(cached.carretinha);
+      // V235 — compat: cache antigo usava boolean `carretinha` (true = reboque simples)
+      if(cached.trailer)setTrailer(cached.trailer);
+      else if(cached.carretinha)setTrailer("simples");
       if(cached.consumo!=null)setConsumo(String(cached.consumo));
       if(cached.combustivel!=null)setCombustivel(String(cached.combustivel));
       setOfflineRestored(true);
@@ -2791,9 +2846,9 @@ const TripCalcModal=({onClose,vehicles})=>{
       vehicleId!=="carro";
     if(!temDados)return;
     writeOfflineCache(OFFLINE_KEYS.viagem,{
-      vehicleId,carretinha,consumo,combustivel,
+      vehicleId,trailer,consumo,combustivel,
     });
-  },[offlineHydrated,vehicleId,carretinha,consumo,combustivel]);
+  },[offlineHydrated,vehicleId,trailer,consumo,combustivel]);
 
   // V171 — soma origem→paradas→destino via Google Directions (KM editável)
   const buscarDistAuto=async(stopsAtuais)=>{
@@ -2806,8 +2861,14 @@ const TripCalcModal=({onClose,vehicles})=>{
 
   const veiculo=TRIP_VEHICLES.find(v=>v.id===vehicleId)||TRIP_VEHICLES[1];
   const isElec=veiculo?.electric;
-  const temCarretinha=(vehicleId==="carro"||vehicleId==="eletric")&&carretinha;
-  const totalAxles=(veiculo.axles||1)+(temCarretinha?1:0);
+  // V235 — reboque vale para Moto, Carro e Carro Elétrico: simples +1 eixo, duplo +2
+  const trailerAxles=trailer==="simples"?1:trailer==="duplo"?2:0;
+  const totalAxles=(veiculo.axles||1)+trailerAxles;
+  const TRIP_TRAILER_OPTS=[
+    {id:"none",   label:"Sem reboque",    emoji:"🚫",desc:"Sem eixos adicionais"},
+    {id:"simples",label:"Reboque simples",emoji:"🔗",desc:"+1 eixo"},
+    {id:"duplo",  label:"Reboque duplo",  emoji:"⛓️",desc:"+2 eixos"},
+  ];
 
   const addStop=()=>{
     const dest=stops[stops.length-1];
@@ -2919,7 +2980,7 @@ const TripCalcModal=({onClose,vehicles})=>{
           <div style={{display:"flex",alignItems:"center",background:"#fff",border:`1.5px solid ${buscandoDist?"#3B82F6":C.calcBorder}`,borderRadius:10,overflow:"hidden"}}
             onFocusCapture={e=>e.currentTarget.style.borderColor="#3B82F6"}
             onBlurCapture={e=>e.currentTarget.style.borderColor=C.calcBorder}>
-            <input value={distancia} onChange={e=>setDistancia(e.target.value)} placeholder={buscandoDist?"Calculando…":"KM total"} type="number"
+            <input value={distancia} onChange={e=>setDistancia(e.target.value)} placeholder={buscandoDist?"Calculando…":"KM total"} type="text" inputMode="decimal"
               style={{flex:1,background:"transparent",border:"none",outline:"none",color:C.text,padding:"10px 12px",fontSize:14,fontWeight:700}}/>
             <span style={{padding:"0 10px",color:buscandoDist?"#3B82F6":C.muted,fontSize:12,borderLeft:`1px solid ${C.border}`,background:C.subtle}}>{buscandoDist?"🔍":"km"}</span>
           </div>
@@ -2940,7 +3001,7 @@ const TripCalcModal=({onClose,vehicles})=>{
           <div style={{color:C.navy,fontWeight:700,fontSize:12,textTransform:"uppercase",letterSpacing:0.5}}>🚗 Veículo</div>
           <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8}}>
             {TRIP_VEHICLES.map(v=>{const sel=vehicleId===v.id;return(
-              <button key={v.id} onClick={()=>{setVehicleId(v.id);setCarretinha(false);setConsumo("");}}
+              <button key={v.id} onClick={()=>{setVehicleId(v.id);setTrailer("none");setConsumo("");}}
                 style={{background:sel?"#EFF6FF":C.surface,border:`2px solid ${sel?"#3B82F6":C.border}`,borderRadius:12,padding:"13px 6px",cursor:"pointer",textAlign:"center",transition:"all .15s"}}>
                 <div style={{fontSize:22,marginBottom:4}}>{v.emoji}</div>
                 <div style={{color:sel?"#3B82F6":C.text,fontWeight:700,fontSize:12}}>{v.label}</div>
@@ -2949,19 +3010,8 @@ const TripCalcModal=({onClose,vehicles})=>{
             );})}
           </div>
 
-          {/* Opção carretinha — só para carro e elétrico */}
-          {(vehicleId==="carro"||vehicleId==="eletric")&&(
-            <button onClick={()=>setCarretinha(c=>!c)}
-              style={{display:"flex",alignItems:"center",gap:10,background:carretinha?"#FFF8F4":"#fff",border:`1.5px solid ${carretinha?C.orange:C.border}`,borderRadius:11,padding:"10px 13px",cursor:"pointer",transition:"all .15s"}}>
-              <div style={{width:32,height:18,borderRadius:9,background:carretinha?C.orange:C.border,position:"relative",flexShrink:0,transition:"background .2s"}}>
-                <div style={{width:14,height:14,borderRadius:"50%",background:"#fff",position:"absolute",top:2,left:carretinha?16:2,transition:"left .2s",boxShadow:"0 1px 3px #00000033"}}/>
-              </div>
-              <div>
-                <div style={{color:carretinha?C.orange:C.text,fontWeight:600,fontSize:12}}>🚐 Com carretinha / reboque</div>
-                <div style={{color:C.muted,fontSize:10,marginTop:1}}>Adiciona 1 eixo ao veículo</div>
-              </div>
-            </button>
-          )}
+          {/* V235 — seletor de reboque (mesmo componente da Calculadora de Fretes) */}
+          <TrailerSelector options={TRIP_TRAILER_OPTS} value={trailer} onChange={setTrailer}/>
 
           <div style={{background:"#EFF6FF",border:"1px solid #BFDBFE",borderRadius:9,padding:"8px 12px",display:"flex",alignItems:"center",gap:6}}>
             <InfoIcon size={12} color="#3B82F6"/>
@@ -2975,7 +3025,7 @@ const TripCalcModal=({onClose,vehicles})=>{
           {isElec
             ?<Field label="⚡ Energia (R$/kWh)" value={combustivel} onChange={setCombustivel} placeholder="Ex: 1.85" prefix="R$" calc/>
             :<Field label="⛽ Combustível (R$/L)" value={combustivel} onChange={setCombustivel} placeholder="Ex: 6.49" prefix="R$" calc/>}
-          <Field label={isElec?"⚡ Consumo (kWh/100km)":"⛽ Consumo (km/L)"} value={consumo} onChange={setConsumo} placeholder={isElec?"Ex: 0.20":`Ex: ${veiculo.consumption}`} type="number" suffix={isElec?"kWh/100km":"km/L"} calc/>
+          <Field label={isElec?"⚡ Consumo (kWh/100km)":"⛽ Consumo (km/L)"} value={consumo} onChange={setConsumo} placeholder={isElec?"Ex: 0,20":`Ex: ${veiculo.consumption}`} suffix={isElec?"kWh/100km":"km/L"} calc/>
         </div>
 
         {/* Erro */}
@@ -2997,8 +3047,9 @@ const TripCalcModal=({onClose,vehicles})=>{
             </div>
             <div style={{background:"#F8FAFC",borderRadius:14,padding:"14px 16px",display:"flex",flexDirection:"column",gap:0}}>
               {[
-                {emoji:isElec?"⚡":"⛽",l:isElec?"Custo energia":"Custo combustível",v:formatMoeda(result.custoComb||0),sub:isElec?`${formatDecimal(result.dist/100*(parseFloat(consumo)||veiculo.kwh),1)} kWh`:`${formatDecimal(result.litros||0,1)} litros · ${formatConsumoKmL(result.cons)}`},
-                {emoji:"🏁",l:"Pedágio total",v:formatMoeda(result.custoPed||0),sub:`${plural(result.totalAxles||totalAxles,"eixo","eixos")} · ${roundTrip?"ida e volta":"somente ida"}`},
+                {emoji:isElec?"⚡":"⛽",l:isElec?"Custo energia":"Custo combustível",v:formatMoeda(result.custoComb||0),sub:isElec?`${formatDecimal(result.dist/100*(parseNumeroBR(consumo)||veiculo.kwh),1)} kWh`:`${formatDecimal(result.litros||0,1)} litros · ${formatConsumoKmL(result.cons)}`},
+                // V235 — eixos explícitos no valor: o efeito do reboque nunca é invisível
+                {emoji:"🏁",l:"Pedágio",v:`${formatMoeda(result.custoPed||0)}${(result.custoPed||0)>0?` (${plural(result.totalAxles||totalAxles,"eixo","eixos")})`:""}`,sub:`tarifa base × ${plural(result.totalAxles||totalAxles,"eixo","eixos")} · ${roundTrip?"ida e volta":"somente ida"}`},
               ].map((r,i,arr)=>(
                 <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"11px 0",borderBottom:i<arr.length-1?`1px solid ${C.border}`:"none"}}>
                   <div style={{display:"flex",alignItems:"center",gap:9}}>
@@ -3184,7 +3235,7 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
   const[showWpp,setShowWpp]=useState(false);
   const paradaSearchBias=()=>buildCalculatorStopSearchBias(stops[0]?.v,stops[0]?.coords);
 
-  const kmTotalSoma=dists.reduce((s,d)=>s+(parseFloat(d)||0),0);
+  const kmTotalSoma=dists.reduce((s,d)=>s+(parseNumeroBR(d)||0),0);
   const kmTotalExibicao=dists.some(d=>d&&String(d).trim()!=="")
     ?(Number.isInteger(kmTotalSoma)?String(kmTotalSoma):kmTotalSoma.toFixed(1))
     :"";
@@ -3376,21 +3427,9 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
             })}
           </div>
 
-          {/* Trailer */}
+          {/* Trailer — V235: seletor compartilhado com a Calculadora de Viagem */}
           {showTrailer&&(
-            <div>
-              <div style={{color:C.text2,fontSize:14,fontWeight:700,letterSpacing:0.4,marginBottom:8}}>Reboque / Carretinha</div>
-              <div style={{display:"flex",gap:7,minWidth:0,maxWidth:"100%"}}>
-                {TRAILER_OPTS.map(t=>(
-                  <button key={t.id} onClick={()=>setTrailer(t.id)}
-                    style={{flex:1,minWidth:0,background:trailer===t.id?C.navyLight:"#fff",border:`2px solid ${trailer===t.id?C.navy:C.border}`,borderRadius:11,padding:"9px 6px",cursor:"pointer",textAlign:"center",transition:"all .15s"}}>
-                    <div style={{fontSize:18,marginBottom:3}}>{t.emoji}</div>
-                    <div style={{color:trailer===t.id?C.navy:C.text,fontWeight:600,fontSize:11}}>{t.label}</div>
-                    <div style={{color:C.muted,fontSize:9,marginTop:1}}>{t.desc}</div>
-                  </button>
-                ))}
-              </div>
-            </div>
+            <TrailerSelector options={TRAILER_OPTS} value={trailer} onChange={setTrailer}/>
           )}
 
           <div style={{background:"#F8FAFC",border:`1px solid ${C.navy}22`,borderRadius:10,padding:"9px 12px",marginTop:10,display:"flex",alignItems:"center",gap:7}}>
@@ -3409,7 +3448,7 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
             {isElec
               ?<Field label="⚡ Energia (R$/kWh)" value={fuelPrice} onChange={setFuelPrice} placeholder="1.85" prefix="R$" calc/>
               :<Field label="⛽ Combustível (R$/L)" value={fuelPrice} onChange={setFuelPrice} placeholder="Ex: 6.49" prefix="R$" calc/>}
-            <Field label={isElec?"⚡ Consumo (kWh/100km)":"⛽ Consumo (km/L)"} value={consumo} onChange={setConsumo} placeholder={isElec?"Ex: 0.20":"Ex: 12"} type={isElec?"text":"number"} suffix={isElec?"kWh/100km":"km/L"} calc/>
+            <Field label={isElec?"⚡ Consumo (kWh/100km)":"⛽ Consumo (km/L)"} value={consumo} onChange={setConsumo} placeholder={isElec?"Ex: 0,20":"Ex: 12"} suffix={isElec?"kWh/100km":"km/L"} calc/>
             {isTruck&&<>
               <Field label="🟦 ARLA 32 (R$/L) — coloque 0 se não usar" value={arlaPrice} onChange={setArlaPrice} placeholder="Ex: 4.50" prefix="R$" calc/>
               <Field label="🟦 Consumo ARLA 32 (L/100km)" value={arlaConsumption} onChange={setArlaConsumption} placeholder="3.5" suffix="L/100km" hint="Padrão: 3.5 L por 100km" calc/>
@@ -3486,11 +3525,11 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
                   </span>
                   <span style={{color:C.muted,fontSize:12,wordBreak:"break-word",lineHeight:1.4}}>
                     {usedMinimum
-                      ?(result.tot<=(parseFloat(kmInclusosMin)||0)
-                        ?`Mínimo R$ ${(parseFloat(valorMinSaida)||0).toFixed(2)} (${parseFloat(kmInclusosMin)||0} km inclusos)`
-                        :`R$ ${(parseFloat(valorMinSaida)||0).toFixed(2)} + ${kmExcedente} km × R$ ${(parseFloat(metaLocal)||0).toFixed(2)}/km`)
-                      :`${result.tot} km × R$ ${(parseFloat(metaLocal)||0).toFixed(2)}/km`}
-                    {parseFloat(freight)>0?` + R$ ${(parseFloat(freight)||0).toFixed(2)} adicional`:""}
+                      ?(result.tot<=(parseNumeroBR(kmInclusosMin)||0)
+                        ?`Mínimo R$ ${(parseNumeroBR(valorMinSaida)||0).toFixed(2)} (${parseNumeroBR(kmInclusosMin)||0} km inclusos)`
+                        :`R$ ${(parseNumeroBR(valorMinSaida)||0).toFixed(2)} + ${kmExcedente} km × R$ ${(parseNumeroBR(metaLocal)||0).toFixed(2)}/km`)
+                      :`${result.tot} km × R$ ${(parseNumeroBR(metaLocal)||0).toFixed(2)}/km`}
+                    {parseNumeroBR(freight)>0?` + R$ ${(parseNumeroBR(freight)||0).toFixed(2)} adicional`:""}
                   </span>
                   {/* Lucro — informação secundária */}
                   <div style={{marginTop:6,width:"100%",background:ok?"#F0FDF4":"#FFF5F5",border:`1px solid ${ok?"#BBF7D0":"#FCA5A5"}`,borderRadius:10,padding:"10px 14px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
@@ -3581,8 +3620,8 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
                   <button onClick={()=>{
                     const paradasMid=stops.slice(1,-1).map(s=>s.v).filter(Boolean);
                     const quote=calculateFreteQuote(result,{valorPorKm:metaLocal,adicionalFixo:freight,valorMinimoSaida:valorMinSaida,kmInclusosMinimo:kmInclusosMin});
-                    const minV=parseFloat(valorMinSaida)||0;
-                    const kmInc=parseFloat(kmInclusosMin)||0;
+                    const minV=parseNumeroBR(valorMinSaida)||0;
+                    const kmInc=parseNumeroBR(kmInclusosMin)||0;
                     setPendingSave(roundFreteCostsForSave({origin:stops[0]?.v||"Origem",dest:stops[stops.length-1]?.v||"Destino",paradas:paradasMid,date:new Date().toLocaleDateString("pt-BR"),hora:new Date().toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"}),distance:result.tot,veiculo:vehicles.find(v=>v.id===vehicleId)?.label||"",cargo,observacao,vkm:metaLocal,adicional:freight,energyCost:result.energyCost||0,tollCost:result.tollCost||0,arlaCost:result.arlaCost||0,custoTotal:result.total,freteSugerido:freteSug,lucro:lucroFinal,valorMinSaida:minV,kmInclusosMin:kmInc,kmExcedente:quote.kmExcedente||0,usedMinimum:!!quote.usedMinimum}));
                     setShowStatusModal(true);
                   }} style={{width:"100%",padding:"13px",background:C.navy,border:"none",borderRadius:12,cursor:"pointer",color:"#fff",fontWeight:700,fontSize:14,fontFamily:"'Sora',sans-serif",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
@@ -3828,7 +3867,7 @@ const Dashboard=({onNav,setShowCalc,setCalcMode,historicoFretes,manutencoes,docs
 // ── ROTAS ─────────────────────────────────────────────────────────────────────
 const Rotas=()=>{
   const[routes,setRoutes]=useState(INIT_ROUTES);const[showAdd,setShowAdd]=useState(false);const[del,setDel]=useState(null);const[form,setForm]=useState({origin:"",dest:"",cargo:"",frete:"",date:""});const[stops,setStops]=useState([]);
-  const add=()=>{setRoutes(p=>[{id:Date.now(),origin:form.origin||"Origem",dest:form.dest||"Destino",stops:stops.map(s=>s.v).filter(Boolean),distance:0,toll:0,fuel:0,status:"planejada",gain:parseFloat(form.frete)||0,date:form.date||"—",cargo:form.cargo||"Geral"},...p]);setForm({origin:"",dest:"",cargo:"",frete:"",date:""});setStops([]);setShowAdd(false);};
+  const add=()=>{setRoutes(p=>[{id:Date.now(),origin:form.origin||"Origem",dest:form.dest||"Destino",stops:stops.map(s=>s.v).filter(Boolean),distance:0,toll:0,fuel:0,status:"planejada",gain:parseNumeroBR(form.frete)||0,date:form.date||"—",cargo:form.cargo||"Geral"},...p]);setForm({origin:"",dest:"",cargo:"",frete:"",date:""});setStops([]);setShowAdd(false);};
   return(
     <div style={{display:"flex",flexDirection:"column",gap:18}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}><h1 style={{color:C.navy,fontSize:22,fontWeight:900,fontFamily:"'Sora',sans-serif",margin:0}}>Minhas Rotas</h1><PrimaryBtn onClick={()=>setShowAdd(true)} small><PlusIcon size={12}/> Nova Rota</PrimaryBtn></div>
@@ -3871,7 +3910,7 @@ const Rotas=()=>{
 // ── AGENDA ────────────────────────────────────────────────────────────────────
 const Agenda=()=>{
   const[trips,setTrips]=useState(INIT_SCHED);const[showAdd,setShowAdd]=useState(false);const[del,setDel]=useState(null);const[form,setForm]=useState({origin:"",dest:"",date:"",time:"",cargo:"",frete:""});const[stops,setStops]=useState([]);
-  const add=()=>{setTrips(p=>[...p,{id:Date.now(),...form,stops:stops.map(s=>s.v).filter(Boolean),frete:parseFloat(form.frete)||0,status:"pendente"}]);setForm({origin:"",dest:"",date:"",time:"",cargo:"",frete:""});setStops([]);setShowAdd(false);};
+  const add=()=>{setTrips(p=>[...p,{id:Date.now(),...form,stops:stops.map(s=>s.v).filter(Boolean),frete:parseNumeroBR(form.frete)||0,status:"pendente"}]);setForm({origin:"",dest:"",date:"",time:"",cargo:"",frete:""});setStops([]);setShowAdd(false);};
   const byDate=trips.reduce((a,t)=>{if(!a[t.date])a[t.date]=[];a[t.date].push(t);return a;},{});
   return(
     <div style={{display:"flex",flexDirection:"column",gap:18}}>
@@ -4050,10 +4089,10 @@ const Comparador=({historicoFretes,onAddFrete,onUpdateFrete,onDeleteFrete})=>{
     const item={...form,
       date:form.date||now.toLocaleDateString("pt-BR"),
       hora:now.toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"}),
-      freteSugerido:parseFloat(form.freteSugerido)||0,
-      custoTotal:parseFloat(form.custoTotal)||0,
-      lucro:parseFloat(form.lucro)||0,
-      distance:parseFloat(form.distance)||0,
+      freteSugerido:parseNumeroBR(form.freteSugerido)||0,
+      custoTotal:parseNumeroBR(form.custoTotal)||0,
+      lucro:parseNumeroBR(form.lucro)||0,
+      distance:parseNumeroBR(form.distance)||0,
     };
     await onAddFrete?.(item);
     setForm({origin:"",dest:"",date:"",distance:"",freteSugerido:"",custoTotal:"",lucro:"",vkm:"",adicional:"",veiculo:"",cargo:""});
@@ -4063,11 +4102,11 @@ const Comparador=({historicoFretes,onAddFrete,onUpdateFrete,onDeleteFrete})=>{
   const saveEdit=async()=>{
     const updated={...editItem,
       origin:form.origin||editItem.origin,dest:form.dest||editItem.dest,date:form.date||editItem.date,
-      distance:parseFloat(form.distance)||editItem.distance,veiculo:form.veiculo||editItem.veiculo,
+      distance:parseNumeroBR(form.distance)||editItem.distance,veiculo:form.veiculo||editItem.veiculo,
       cargo:form.cargo||editItem.cargo,vkm:form.vkm||editItem.vkm,adicional:form.adicional||editItem.adicional,
-      custoTotal:parseFloat(form.custoTotal)||editItem.custoTotal,
-      freteSugerido:parseFloat(form.freteSugerido)||editItem.freteSugerido,
-      lucro:(parseFloat(form.freteSugerido)||editItem.freteSugerido)-(parseFloat(form.custoTotal)||editItem.custoTotal),
+      custoTotal:parseNumeroBR(form.custoTotal)||editItem.custoTotal,
+      freteSugerido:parseNumeroBR(form.freteSugerido)||editItem.freteSugerido,
+      lucro:(parseNumeroBR(form.freteSugerido)||editItem.freteSugerido)-(parseNumeroBR(form.custoTotal)||editItem.custoTotal),
     };
     await onUpdateFrete?.(updated);
     setEditItem(null);
@@ -4295,12 +4334,12 @@ const Comparador=({historicoFretes,onAddFrete,onUpdateFrete,onDeleteFrete})=>{
             <Field label="Valor por km (R$)" value={form.vkm} onChange={v=>setForm(f=>({...f,vkm:v}))} placeholder="3.50" prefix="R$" suffix="/km"/>
             <Field label="Adicional fixo (R$)" value={form.adicional} onChange={v=>setForm(f=>({...f,adicional:v}))} placeholder="Ex: 50.00" prefix="R$"/>
             <Field label="Custo Total da Viagem (R$)" value={form.custoTotal} onChange={v=>setForm(f=>({...f,custoTotal:v}))} placeholder="350.00" prefix="R$"/>
-            <Field label="Frete Cobrado (R$)" value={form.freteSugerido} onChange={v=>setForm(f=>({...f,freteSugerido:v,lucro:String((parseFloat(v)||0)-(parseFloat(form.custoTotal)||0))}))} placeholder="850.00" prefix="R$"/>
+            <Field label="Frete Cobrado (R$)" value={form.freteSugerido} onChange={v=>setForm(f=>({...f,freteSugerido:v,lucro:String((parseNumeroBR(v)||0)-(parseNumeroBR(form.custoTotal)||0))}))} placeholder="850.00" prefix="R$"/>
             {form.freteSugerido&&form.custoTotal&&(
               <div style={{background:C.navyLight,borderRadius:10,padding:"10px 14px",display:"flex",justifyContent:"space-between"}}>
                 <span style={{color:C.text2,fontSize:12}}>Lucro calculado</span>
-                <span style={{color:(parseFloat(form.freteSugerido)-parseFloat(form.custoTotal))>=0?C.green:C.red,fontWeight:800,fontSize:14}}>
-                  R$ {((parseFloat(form.freteSugerido)||0)-(parseFloat(form.custoTotal)||0)).toFixed(2)}
+                <span style={{color:(parseNumeroBR(form.freteSugerido)-parseNumeroBR(form.custoTotal))>=0?C.green:C.red,fontWeight:800,fontSize:14}}>
+                  R$ {((parseNumeroBR(form.freteSugerido)||0)-(parseNumeroBR(form.custoTotal)||0)).toFixed(2)}
                 </span>
               </div>
             )}
@@ -4326,8 +4365,8 @@ const Comparador=({historicoFretes,onAddFrete,onUpdateFrete,onDeleteFrete})=>{
           {form.freteSugerido&&form.custoTotal&&(
             <div style={{background:C.navyLight,borderRadius:10,padding:"10px 14px",display:"flex",justifyContent:"space-between"}}>
               <span style={{color:C.text2,fontSize:12}}>Lucro calculado</span>
-              <span style={{color:(parseFloat(form.freteSugerido)-parseFloat(form.custoTotal))>=0?C.green:C.red,fontWeight:800,fontSize:14}}>
-                R$ {((parseFloat(form.freteSugerido)||0)-(parseFloat(form.custoTotal)||0)).toFixed(2)}
+              <span style={{color:(parseNumeroBR(form.freteSugerido)-parseNumeroBR(form.custoTotal))>=0?C.green:C.red,fontWeight:800,fontSize:14}}>
+                R$ {((parseNumeroBR(form.freteSugerido)||0)-(parseNumeroBR(form.custoTotal)||0)).toFixed(2)}
               </span>
             </div>
           )}
@@ -4353,10 +4392,10 @@ const Despesas=({despesas,onAddDespesa,onUpdateDespesa,onDeleteDespesa})=>{
   const total=despesas.reduce((a,d)=>a+(d.valor||0),0);
   const add=async()=>{
     if(editingId){
-      await onUpdateDespesa?.({id:editingId,...form,valor:parseFloat(form.valor)||0});
+      await onUpdateDespesa?.({id:editingId,...form,valor:parseNumeroBR(form.valor)||0});
       setEditingId(null);
     } else {
-      await onAddDespesa?.({...form,valor:parseFloat(form.valor)||0});
+      await onAddDespesa?.({...form,valor:parseNumeroBR(form.valor)||0});
     }
     setForm({categoria:"Café da manhã",descricao:"",valor:"",date:""});
     setShowAdd(false);
@@ -4500,7 +4539,7 @@ const Manutencao=({manutencoes:items,onAddManutencao,onUpdateManutencao,onDelete
     setShowAdd(true);
   };
   const save=async()=>{
-    const payload={...form,cost:parseFloat(form.cost)||0};
+    const payload={...form,cost:parseNumeroBR(form.cost)||0};
     if(editingId){
       const orig=items.find(i=>i.id===editingId);
       await onUpdateManutencao?.({id:editingId,...payload,status:orig?.status||"ok"});
@@ -5546,9 +5585,9 @@ const Perfil=({uid,metaMes,setMetaMes,faturamentoMes,saldoLiquidoMes,vehicles,se
   const pct=metaMes>0?Math.min((faturamentoMes/metaMes)*100,100):0;
   const falta=metaMes>0?Math.max(metaMes-faturamentoMes,0):0;
   const atingiu=faturamentoMes>=metaMes&&metaMes>0;
-  const salvarMeta=()=>{const v=parseFloat(draftMeta);if(v>0)setMetaMes(v);setEditandoMeta(false);};
+  const salvarMeta=()=>{const v=parseNumeroBR(draftMeta);if(v>0)setMetaMes(v);setEditandoMeta(false);};
   const startEditVeh=v=>{setEditVeh(v.id);setEditVehVals({consumption:String(v.consumption),axles:String(v.axles),kwh:String(v.kwh||"")});};
-  const saveVeh=id=>{setVehicles(vs=>vs.map(x=>x.id===id?{...x,consumption:parseFloat(editVehVals.consumption)||x.consumption,axles:parseInt(editVehVals.axles)||x.axles,kwh:parseFloat(editVehVals.kwh)||x.kwh}:x));setEditVeh(null);};
+  const saveVeh=id=>{setVehicles(vs=>vs.map(x=>x.id===id?{...x,consumption:parseNumeroBR(editVehVals.consumption)||x.consumption,axles:parseInt(editVehVals.axles)||x.axles,kwh:parseNumeroBR(editVehVals.kwh)||x.kwh}:x));setEditVeh(null);};
 
   const tapTimer=useRef(null);
 

@@ -44,6 +44,9 @@ export {
 
 export { VISION_ADDRESS_EXTRACTION_INSTRUCTION } from "./romaneioParser.js";
 
+// V235 — entrada numérica tolerante (vírgula ou ponto) nos campos das calculadoras
+import { parseNumeroBR } from "./formatUtils.js";
+
 /** Valor estimado por eixo por praça de pedágio (R$). */
 export const TOLL_PER_AXLE = 3.2;
 
@@ -664,13 +667,15 @@ export async function geocodeRomaneioExtractedAddress(endereco, biasLngLat = nul
  * V159 — Geocodifica lista de endereços do romaneio em sequência.
  * V232 — viés por chamada: GPS do motorista → média das já geocodificadas.
  */
-export async function geocodeRomaneioExtractedAddresses(paradas) {
+export async function geocodeRomaneioExtractedAddresses(paradas, onProgress) {
   warmGeocodeProximity();
   const out = [];
-  const resolvedCoords = (paradas || [])
+  const lista = paradas || [];
+  const total = lista.length;
+  const resolvedCoords = lista
     .map((p) => (Array.isArray(p?.coords) && p.coords.length >= 2 ? p.coords : null))
     .filter(Boolean);
-  for (const p of paradas || []) {
+  for (const p of lista) {
     const bias = resolveStopGeocodeBias(resolvedCoords);
     const g = await geocodeRomaneioExtractedAddress(p.endereco, bias);
     if (g.ok) {
@@ -679,6 +684,8 @@ export async function geocodeRomaneioExtractedAddresses(paradas) {
     } else {
       out.push(p);
     }
+    // V235 — progresso real ("X de Y") para o overlay de importação
+    try { onProgress?.(out.length, total); } catch { /* ignore */ }
   }
   return out;
 }
@@ -1021,7 +1028,9 @@ export async function optimizeDeliveryRouteHybrid(paradas, options = {}) {
     consumoKmL = 10,
     precoCombustivel = 5.89,
     driverOriginCoords = null,
+    onStage = null, // V235 — callback de etapa p/ overlay: geocodificando|otimizando|desenhando
   } = options;
+  const stage = (s) => { try { onStage?.(s); } catch { /* ignore */ } };
 
   if (!paradas || paradas.length < 2) {
     return { ok: false, error: "Adicione pelo menos 2 paradas." };
@@ -1030,6 +1039,7 @@ export async function optimizeDeliveryRouteHybrid(paradas, options = {}) {
   try {
     // Validação: geocodifica o que falta; falhas são sinalizadas (não entram silenciosamente)
     // V232 — viés por chamada: GPS do motorista → média das paradas já geocodificadas
+    stage("geocodificando");
     const entries = [];
     const paradasInvalidas = [];
     const resolvedCoords = paradas
@@ -1109,6 +1119,7 @@ export async function optimizeDeliveryRouteHybrid(paradas, options = {}) {
     }
 
     // Etapa 2 — sequenciamento no aparelho (NN + 2-opt, rota aberta)
+    stage("otimizando");
     const orderIdx = optimizeOpenRoute(
       origin,
       toOptimize.map((e) => e.coord)
@@ -1178,6 +1189,7 @@ export async function optimizeDeliveryRouteHybrid(paradas, options = {}) {
     );
 
     // Etapa 3 — Directions em blocos (distância/duração reais + polyline)
+    stage("desenhando");
     const blocks = await fetchGoogleRouteInBlocks(
       [origin, ...orderedEntries.map((e) => e.coord)],
       ["(origem)", ...orderedEntries.map((e) => e.parada?.endereco || "")]
@@ -1288,7 +1300,7 @@ export async function reoptimizeRemainingDeliveryRoute(
 /** Soma distâncias por trecho (km), aplicando ida e volta quando indicado. */
 export function sumSegmentDistancesKm(segmentDistances, roundTrip = false) {
   const oneWay = (segmentDistances || [])
-    .map((d) => parseFloat(d) || 0)
+    .map((d) => parseNumeroBR(d) || 0)
     .reduce((a, b) => a + b, 0);
   return oneWay * (roundTrip ? 2 : 1);
 }
@@ -1327,29 +1339,29 @@ export function calculateRouteCosts(input) {
   if (!tot) {
     return { ok: false, error: "⚠️ Preencha a distância em km antes de calcular." };
   }
-  if (!fuelPrice || parseFloat(fuelPrice) <= 0) {
+  if (!fuelPrice || parseNumeroBR(fuelPrice) <= 0) {
     return { ok: false, error: "⚠️ Preencha o preço do combustível." };
   }
-  if (!input.metaLocal || parseFloat(input.metaLocal) <= 0) {
+  if (!input.metaLocal || parseNumeroBR(input.metaLocal) <= 0) {
     return { ok: false, error: "⚠️ Preencha seu valor por km para ver o lucro estimado." };
   }
 
   let energyCost = 0;
   if (isElec) {
-    const kwhPer100 = parseFloat(consumo) || defaultKwhPer100;
-    energyCost = (tot / 100) * kwhPer100 * parseFloat(fuelPrice || 0);
+    const kwhPer100 = parseNumeroBR(consumo) || defaultKwhPer100;
+    energyCost = (tot / 100) * kwhPer100 * (parseNumeroBR(fuelPrice) || 0);
   } else {
     energyCost =
-      (tot / (parseFloat(consumo) || defaultConsumptionKmL || 1)) *
-      parseFloat(fuelPrice || 0);
+      (tot / (parseNumeroBR(consumo) || defaultConsumptionKmL || 1)) *
+      (parseNumeroBR(fuelPrice) || 0);
   }
 
-  const arlaL100 = parseFloat(arlaConsumption) || 3.5;
-  const arlaCost = isTruck ? (tot / 100) * arlaL100 * parseFloat(arlaPrice || 0) : 0;
+  const arlaL100 = parseNumeroBR(arlaConsumption) || 3.5;
+  const arlaCost = isTruck ? (tot / 100) * arlaL100 * (parseNumeroBR(arlaPrice) || 0) : 0;
 
-  const tollCost = (parseFloat(tollTotalReais) || 0) * (roundTrip ? 2 : 1);
+  const tollCost = (parseNumeroBR(tollTotalReais) || 0) * (roundTrip ? 2 : 1);
   const total = energyCost + arlaCost + tollCost;
-  const freteVal = parseFloat(freight) || 0;
+  const freteVal = parseNumeroBR(freight) || 0;
   const lucro = freteVal - total;
 
   return {
@@ -1374,11 +1386,11 @@ export function calculateFreteQuote(
   routeResult,
   { valorPorKm, adicionalFixo, valorMinimoSaida, kmInclusosMinimo }
 ) {
-  const vkm = parseFloat(valorPorKm) || 0;
-  const adic = parseFloat(adicionalFixo) || 0;
+  const vkm = parseNumeroBR(valorPorKm) || 0;
+  const adic = parseNumeroBR(adicionalFixo) || 0;
   const kmTotal = routeResult.tot || 0;
-  const minVal = parseFloat(valorMinimoSaida);
-  const kmInclusos = parseFloat(kmInclusosMinimo);
+  const minVal = parseNumeroBR(valorMinimoSaida);
+  const kmInclusos = parseNumeroBR(kmInclusosMinimo);
   const useMinimum = minVal > 0 && kmInclusos > 0 && kmTotal > 0;
 
   let freteSug = 0;
@@ -1409,7 +1421,7 @@ export function calculateFreteQuote(
 }
 
 export function calculateProfitMeta({ lucroFinal, freteSug, metaLucroPercent }) {
-  const meta = parseFloat(metaLucroPercent);
+  const meta = parseNumeroBR(metaLucroPercent);
   if (!meta || meta <= 0 || freteSug <= 0) return null;
 
   const margemReal = (lucroFinal / freteSug) * 100;
