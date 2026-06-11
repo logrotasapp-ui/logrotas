@@ -8,20 +8,23 @@ const C = {
 
 function getPointer(canvas, evt) {
   const rect = canvas.getBoundingClientRect();
-  const src = evt.touches?.[0] || evt.changedTouches?.[0] || evt;
   const scaleX = canvas.width / rect.width;
   const scaleY = canvas.height / rect.height;
   return {
-    x: (src.clientX - rect.left) * scaleX,
-    y: (src.clientY - rect.top) * scaleY,
+    x: (evt.clientX - rect.left) * scaleX,
+    y: (evt.clientY - rect.top) * scaleY,
   };
+}
+
+function getCoalescedPointers(canvas, evt) {
+  const events = typeof evt.getCoalescedEvents === "function" ? evt.getCoalescedEvents() : [evt];
+  return events.map((e) => getPointer(canvas, e));
 }
 
 const SignaturePad = forwardRef(function SignaturePad({ height = 140, onChange }, ref) {
   const wrapRef = useRef(null);
   const canvasRef = useRef(null);
   const drawingRef = useRef(false);
-  const lastPointRef = useRef(null);
   const hasStrokeRef = useRef(false);
   const dprRef = useRef(1);
 
@@ -47,7 +50,7 @@ const SignaturePad = forwardRef(function SignaturePad({ height = 140, onChange }
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
-    ctx.lineWidth = 2.2 * dpr;
+    ctx.lineWidth = 2.5 * dpr;
     ctx.strokeStyle = "#1A2B42";
     hasStrokeRef.current = false;
   }, [height]);
@@ -63,43 +66,46 @@ const SignaturePad = forwardRef(function SignaturePad({ height = 140, onChange }
 
   const notifyChange = () => onChange?.(hasStrokeRef.current);
 
-  const startDraw = (evt) => {
+  const onPointerDown = (evt) => {
     evt.preventDefault();
     const canvas = canvasRef.current;
     if (!canvas) return;
+    canvas.setPointerCapture(evt.pointerId);
     drawingRef.current = true;
-    lastPointRef.current = getPointer(canvas, evt);
-  };
 
-  const draw = (evt) => {
-    if (!drawingRef.current) return;
-    evt.preventDefault();
-    const canvas = canvasRef.current;
-    if (!canvas) return;
     const ctx = canvas.getContext("2d");
-    const point = getPointer(canvas, evt);
-    const last = lastPointRef.current;
-    if (!last) {
-      lastPointRef.current = point;
-      return;
-    }
-    const mid = { x: (last.x + point.x) / 2, y: (last.y + point.y) / 2 };
+    const [first] = getCoalescedPointers(canvas, evt);
     ctx.beginPath();
-    ctx.moveTo(last.x, last.y);
-    ctx.quadraticCurveTo(last.x, last.y, mid.x, mid.y);
-    ctx.stroke();
-    lastPointRef.current = point;
+    ctx.moveTo(first.x, first.y);
+
     if (!hasStrokeRef.current) {
       hasStrokeRef.current = true;
       notifyChange();
     }
   };
 
-  const endDraw = (evt) => {
+  const onPointerMove = (evt) => {
     if (!drawingRef.current) return;
-    evt?.preventDefault?.();
+    evt.preventDefault();
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const ctx = canvas.getContext("2d");
+    const points = getCoalescedPointers(canvas, evt);
+    for (const p of points) {
+      ctx.lineTo(p.x, p.y);
+      ctx.stroke();
+    }
+  };
+
+  const onPointerUp = (evt) => {
+    if (!drawingRef.current) return;
+    evt.preventDefault();
+    const canvas = canvasRef.current;
+    if (canvas?.hasPointerCapture?.(evt.pointerId)) {
+      canvas.releasePointerCapture(evt.pointerId);
+    }
     drawingRef.current = false;
-    lastPointRef.current = null;
   };
 
   const clear = () => {
@@ -139,14 +145,12 @@ const SignaturePad = forwardRef(function SignaturePad({ height = 140, onChange }
       >
         <canvas
           ref={canvasRef}
-          style={{ display: "block", cursor: "crosshair" }}
-          onMouseDown={startDraw}
-          onMouseMove={draw}
-          onMouseUp={endDraw}
-          onMouseLeave={endDraw}
-          onTouchStart={startDraw}
-          onTouchMove={draw}
-          onTouchEnd={endDraw}
+          style={{ display: "block", cursor: "crosshair", touchAction: "none" }}
+          onPointerDown={onPointerDown}
+          onPointerMove={onPointerMove}
+          onPointerUp={onPointerUp}
+          onPointerCancel={onPointerUp}
+          onPointerLeave={onPointerUp}
         />
       </div>
       <button

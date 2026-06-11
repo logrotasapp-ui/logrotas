@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { ArrowLeftIcon, XIcon, CameraIcon, RefreshCwIcon } from "lucide-react";
 import {
@@ -17,6 +17,8 @@ import {
   uploadChecklistImage,
   formatStampDataHora,
   buildPhotoStampText,
+  migrateChecklistColetaMedia,
+  isChecklistDownloadUrl,
 } from "../services/storageService.js";
 import { getDriverGeolocation } from "../services/routingService.js";
 import SignaturePad from "./SignaturePad.jsx";
@@ -135,8 +137,8 @@ function BtnSelecao({ label, ativo, onClick, cor = C.navy }) {
   );
 }
 
-function AvisoIncompleto({ validacao, tentouAvancar }) {
-  if (!tentouAvancar || validacao.completa) return null;
+function AvisoIncompleto({ validacao, tentouFinalizarColeta }) {
+  if (!tentouFinalizarColeta || validacao.completa) return null;
   return (
     <div
       style={{
@@ -377,7 +379,7 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
   const [etapa, setEtapa] = useState(1);
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState("");
-  const [tentouAvancar, setTentouAvancar] = useState(false);
+  const [tentouFinalizarColeta, setTentouFinalizarColeta] = useState(false);
   const [uploadingSlot, setUploadingSlot] = useState(null);
   const [slotAtivo, setSlotAtivo] = useState(null);
   const [gerandoPdf, setGerandoPdf] = useState(false);
@@ -392,7 +394,26 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
   const coletaOk = checklist?.status === "aguardando_entrega" || validacao.completa;
   const pdfParams = { checklist, frete, perfil };
 
-  const marcarTentouAvancar = () => setTentouAvancar(true);
+  useEffect(() => {
+    if (!uid || !initial?.id) return;
+    let cancelled = false;
+    (async () => {
+      const { coleta, changed } = await migrateChecklistColetaMedia(initial?.coleta);
+      if (cancelled || !changed) return;
+      try {
+        const atualizado = await atualizarChecklist(uid, initial.id, { coleta });
+        if (cancelled) return;
+        setChecklist((c) => ({ ...c, coleta: atualizado.coleta || coleta }));
+        onSaved?.({ ...initial, coleta: atualizado.coleta || coleta });
+      } catch (err) {
+        console.warn("[Checklist] Falha ao persistir migracao de URLs:", err);
+        if (!cancelled) setChecklist((c) => ({ ...c, coleta }));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [uid, initial?.id]);
 
   const salvar = useCallback(
     async (dados) => {
@@ -433,7 +454,6 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
   };
 
   const avancarEtapa1 = async () => {
-    marcarTentouAvancar();
     const ok = await salvar({
       cliente: checklist.cliente,
       veiculo: checklist.veiculo,
@@ -445,13 +465,11 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
   };
 
   const avancarEtapa2 = async () => {
-    marcarTentouAvancar();
     const ok = await salvar({ coleta: checklist.coleta });
     if (ok) setEtapa(3);
   };
 
   const avancarEtapa3 = async () => {
-    marcarTentouAvancar();
     const ok = await salvar({ coleta: checklist.coleta });
     if (ok) setEtapa(4);
   };
@@ -528,7 +546,8 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
     }));
 
   const avancarEtapa4 = async () => {
-    marcarTentouAvancar();
+    setTentouFinalizarColeta(true);
+
     const resp = checklist.coleta?.assinaturas?.responsavel || {};
     const prest = checklist.coleta?.assinaturas?.prestador || {};
 
@@ -845,7 +864,6 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
 
         {etapa === 2 && (
           <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-            <AvisoIncompleto validacao={validacao} tentouAvancar={tentouAvancar} />
             <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 16, padding: "16px 18px" }}>
               <div style={{ color: C.navy, fontWeight: 800, fontSize: 15, fontFamily: "'Sora',sans-serif", marginBottom: 14 }}>❓ Perguntas de vistoria</div>
               {(checklist.coleta?.perguntas || []).map((p, i) => (
@@ -971,7 +989,6 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
 
         {etapa === 3 && (
           <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-            <AvisoIncompleto validacao={validacao} tentouAvancar={tentouAvancar} />
             <div style={{ color: C.text2, fontSize: 13, lineHeight: 1.5 }}>
               📸 Tire as fotos guiadas da vistoria. Cada imagem recebe carimbo com data/hora e GPS antes do envio.
             </div>
@@ -1045,13 +1062,14 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
 
         {etapa === 4 && (
           <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-            <AvisoIncompleto validacao={validacao} tentouAvancar={tentouAvancar} />
+            <AvisoIncompleto validacao={validacao} tentouFinalizarColeta={tentouFinalizarColeta} />
             {[
               { bloco: "responsavel", titulo: "✍️ Responsável no local", padRef: responsavelPadRef },
               { bloco: "prestador", titulo: "🪝 Prestador", padRef: prestadorPadRef },
             ].map(({ bloco, titulo, padRef }) => {
               const assin = checklist.coleta?.assinaturas?.[bloco] || assinaturaVazia();
-              const temAssinaturaSalva = !!assin.imagemUrl?.trim();
+              const temAssinaturaSalva =
+                !!assin.imagemUrl?.trim() && isChecklistDownloadUrl(assin.imagemUrl);
               return (
                 <div
                   key={bloco}
@@ -1141,7 +1159,7 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
                 opacity: salvando ? 0.7 : 1,
               }}
             >
-              {salvando ? "Salvando…" : validacao.completa ? "✅ Finalizar coleta" : "Salvar assinaturas →"}
+              {salvando ? "Salvando…" : "Finalizar coleta"}
             </button>
             {checklist.status === "aguardando_entrega" && (
               <div

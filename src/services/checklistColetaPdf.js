@@ -4,8 +4,17 @@ import {
   CHECKLIST_FOTO_SLOTS,
 } from "./checklistService.js";
 
+const IMAGE_FETCH_TIMEOUT_MS = 10000;
+
 function wrapLines(doc, text, maxWidth) {
   return doc.splitTextToSize(String(text || "—"), maxWidth);
+}
+
+function stripEmojis(text) {
+  return String(text || "")
+    .replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE00}-\u{FE0F}\u{200D}]/gu, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
 }
 
 function labelServico(id) {
@@ -38,24 +47,41 @@ function labelCombustivel(v) {
 }
 
 function formatCoords(lat, lng) {
-  if (lat == null || lng == null) return "GPS indisponível";
+  if (lat == null || lng == null) return "GPS indisponivel";
   return `${Number(lat).toFixed(4)}, ${Number(lng).toFixed(4)}`;
 }
 
-async function fetchImageDataUrl(url) {
+function blobToDataUrl(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(new Error("FileReader falhou"));
+    reader.readAsDataURL(blob);
+  });
+}
+
+/**
+ * fetch(downloadURL) -> blob -> FileReader -> dataURL (timeout 10s)
+ */
+async function fetchImageDataUrl(url, context = "") {
   if (!url) return null;
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), IMAGE_FETCH_TIMEOUT_MS);
+
   try {
-    const res = await fetch(url, { mode: "cors" });
-    if (!res.ok) return null;
+    const res = await fetch(url, { mode: "cors", signal: controller.signal });
+    if (!res.ok) {
+      console.error("[Checklist PDF] HTTP ao carregar imagem:", context, url, res.status);
+      return null;
+    }
     const blob = await res.blob();
-    return await new Promise((resolve) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result);
-      reader.onerror = () => resolve(null);
-      reader.readAsDataURL(blob);
-    });
-  } catch {
+    return await blobToDataUrl(blob);
+  } catch (err) {
+    console.error("[Checklist PDF] Falha ao carregar imagem:", context, url, err);
     return null;
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -65,32 +91,40 @@ function imageFormat(dataUrl) {
   return "JPEG";
 }
 
+function drawPlaceholder(doc, x, y, w, h, text) {
+  doc.setDrawColor(200, 200, 200);
+  doc.rect(x, y, w, h);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8);
+  doc.text(text, x + 2, y + h / 2);
+}
+
 /**
  * @param {{ checklist: object, frete?: object, perfil?: object }} params
  */
 export function buildChecklistColetaShareText({ checklist, frete, perfil }) {
   const { cliente, veiculo, origem, destino, coleta, numero } = checklist || {};
   const lines = [
-    "LogRotas — Checklist de Veículo (Coleta)",
+    "LogRotas - Checklist de Veiculo (Coleta)",
     "",
-    `Nº ${numero || "—"}`,
-    `Prestador: ${perfil?.nome || "—"}${perfil?.tipo ? ` (${perfil.tipo})` : ""}`,
-    `Telefone: ${perfil?.telefone || "—"}`,
+    `No ${numero || "-"}`,
+    `Prestador: ${perfil?.nome || "-"}${perfil?.tipo ? ` (${perfil.tipo})` : ""}`,
+    `Telefone: ${perfil?.telefone || "-"}`,
     "",
-    `Cliente: ${cliente?.nome || "—"}`,
-    `Telefone cliente: ${cliente?.telefone || "—"}`,
+    `Cliente: ${cliente?.nome || "-"}`,
+    `Telefone cliente: ${cliente?.telefone || "-"}`,
     "",
-    `Origem: ${origem?.endereco || frete?.origin || "—"}`,
-    `Destino: ${destino?.endereco || frete?.dest || "—"}`,
+    `Origem: ${origem?.endereco || frete?.origin || "-"}`,
+    `Destino: ${destino?.endereco || frete?.dest || "-"}`,
     "",
-    `Veículo: ${veiculo?.placa || "—"} — ${[veiculo?.marca, veiculo?.modelo].filter(Boolean).join(" ") || "—"}`,
-    `Cor: ${veiculo?.cor || "—"}`,
-    `Serviço: ${labelServico(checklist?.servico?.tipo)} · ${labelMotivo(checklist?.servico?.motivo)}`,
+    `Veiculo: ${veiculo?.placa || "-"} - ${[veiculo?.marca, veiculo?.modelo].filter(Boolean).join(" ") || "-"}`,
+    `Cor: ${veiculo?.cor || "-"}`,
+    `Servico: ${labelServico(checklist?.servico?.tipo)} - ${labelMotivo(checklist?.servico?.motivo)}`,
     "",
     `Fotos: ${(coleta?.fotos || []).length}`,
-    `Coleta finalizada: ${coleta?.finalizadaEm ? "Sim" : "Não"}`,
+    `Coleta finalizada: ${coleta?.finalizadaEm ? "Sim" : "Nao"}`,
     "",
-    "_Documento gerado pelo LogRotas — logrotas.com.br_",
+    "Documento gerado pelo LogRotas - logrotas.com.br",
   ];
   return lines.join("\n").trim();
 }
@@ -120,7 +154,7 @@ export async function generateChecklistColetaPdf({ checklist, frete, perfil }) {
     doc.setFont("helvetica", "bold");
     doc.setFontSize(11);
     doc.setTextColor(30, 58, 138);
-    doc.text(title, margin + 2, y);
+    doc.text(stripEmojis(title), margin + 2, y);
     doc.setTextColor(0, 0, 0);
     y += 10;
   };
@@ -129,7 +163,7 @@ export async function generateChecklistColetaPdf({ checklist, frete, perfil }) {
     ensureSpace(6);
     doc.setFont("helvetica", bold ? "bold" : "normal");
     doc.setFontSize(10);
-    wrapLines(doc, text, contentWidth).forEach((ln) => {
+    wrapLines(doc, stripEmojis(text), contentWidth).forEach((ln) => {
       ensureSpace(5);
       doc.text(ln, margin, y);
       y += 5;
@@ -138,57 +172,55 @@ export async function generateChecklistColetaPdf({ checklist, frete, perfil }) {
 
   const { cliente, veiculo, servico, origem, destino, coleta, numero } = checklist || {};
 
-  // Cabeçalho
   doc.setFont("helvetica", "bold");
   doc.setFontSize(15);
   doc.setTextColor(30, 58, 138);
-  doc.text("CHECKLIST DE VEÍCULO — COLETA", margin, y);
+  doc.text("CHECKLIST DE VEICULO - COLETA", margin, y);
   y += 8;
   doc.setFontSize(12);
-  doc.text(`Nº ${numero || "—"}`, margin, y);
+  doc.text(`No ${numero || "-"}`, margin, y);
   y += 10;
   doc.setTextColor(0, 0, 0);
   doc.setFont("helvetica", "normal");
   doc.setFontSize(10);
-  line(`Prestador: ${perfil?.nome || "—"}${perfil?.tipo ? ` · ${perfil.tipo}` : ""}`);
-  line(`Telefone: ${perfil?.telefone || "—"}`);
-  if (perfil?.veiculo) line(`Veículo guincho: ${perfil.veiculo}`);
+  line(`Prestador: ${perfil?.nome || "-"}${perfil?.tipo ? ` - ${perfil.tipo}` : ""}`);
+  line(`Telefone: ${perfil?.telefone || "-"}`);
+  if (perfil?.veiculo) line(`Veiculo guincho: ${perfil.veiculo}`);
   y += 4;
 
   sectionTitle("ORIGEM E DESTINO");
-  line(`Origem (coleta): ${origem?.endereco || frete?.origin || "—"}`);
-  line(`Destino (entrega): ${destino?.endereco || frete?.dest || "—"}`);
+  line(`Origem (coleta): ${origem?.endereco || frete?.origin || "-"}`);
+  line(`Destino (entrega): ${destino?.endereco || frete?.dest || "-"}`);
   y += 3;
 
-  sectionTitle("DADOS DO VEÍCULO REBOCADO");
-  line(`Cliente: ${cliente?.nome || "—"} · Tel: ${cliente?.telefone || "—"}`);
-  line(`Placa: ${veiculo?.placa || "—"}`);
-  line(`Marca/Modelo: ${[veiculo?.marca, veiculo?.modelo].filter(Boolean).join(" ") || "—"}`);
-  line(`Cor: ${veiculo?.cor || "—"}`);
-  line(`Serviço: ${labelServico(servico?.tipo)} · Motivo: ${labelMotivo(servico?.motivo)}`);
+  sectionTitle("DADOS DO VEICULO REBOCADO");
+  line(`Cliente: ${cliente?.nome || "-"} - Tel: ${cliente?.telefone || "-"}`);
+  line(`Placa: ${veiculo?.placa || "-"}`);
+  line(`Marca/Modelo: ${[veiculo?.marca, veiculo?.modelo].filter(Boolean).join(" ") || "-"}`);
+  line(`Cor: ${veiculo?.cor || "-"}`);
+  line(`Servico: ${labelServico(servico?.tipo)} - Motivo: ${labelMotivo(servico?.motivo)}`);
   y += 3;
 
   sectionTitle("VISTORIA");
   (coleta?.perguntas || []).forEach((p, i) => {
-    line(`${i + 1}. ${p.texto} → ${labelResposta(p.resposta)}`);
+    line(`${i + 1}. ${stripEmojis(p.texto)} - Resposta: ${labelResposta(p.resposta)}`);
   });
   y += 2;
-  line("Acessórios:", true);
+  line("Acessorios:", true);
   (coleta?.acessorios || []).forEach((a) => {
-    line(`• ${a.item}: ${labelAcessorio(a.estado)}`);
+    line(`- ${stripEmojis(a.item)}: ${labelAcessorio(a.estado)}`);
   });
   y += 2;
   line(
-    `Pneus — Dianteiro: ${labelPneu(coleta?.pneus?.dianteiro)} · Traseiro: ${labelPneu(coleta?.pneus?.traseiro)} · Estepe: ${labelPneu(coleta?.pneus?.estepe)}`
+    `Pneus - Dianteiro: ${labelPneu(coleta?.pneus?.dianteiro)} - Traseiro: ${labelPneu(coleta?.pneus?.traseiro)} - Estepe: ${labelPneu(coleta?.pneus?.estepe)}`
   );
-  line(`Combustível: ${labelCombustivel(coleta?.combustivel)}`);
+  line(`Combustivel: ${labelCombustivel(coleta?.combustivel)}`);
   if (coleta?.observacoes?.trim()) {
-    line("Observações de avarias:", true);
+    line("Observacoes de avarias:", true);
     line(coleta.observacoes);
   }
   y += 3;
 
-  sectionTitle("FOTOS DA VISTORIA");
   const fotos = coleta?.fotos || [];
   const obrigatorias = CHECKLIST_FOTO_SLOTS.filter((s) => s.obrigatoria).map((s) => s.id);
   const fotosGrid = [
@@ -198,6 +230,16 @@ export async function generateChecklistColetaPdf({ checklist, frete, perfil }) {
 
   const cellW = (contentWidth - 4) / 2;
   const imgH = 42;
+  const titleBlockH = 14;
+  const firstRowH = imgH + 16;
+
+  if (fotosGrid.length > 0 && y + titleBlockH + firstRowH > 285) {
+    doc.addPage();
+    y = 16;
+  }
+
+  sectionTitle("FOTOS DA VISTORIA");
+
   let col = 0;
   let rowStartY = y;
 
@@ -206,31 +248,27 @@ export async function generateChecklistColetaPdf({ checklist, frete, perfil }) {
     const x = margin + col * (cellW + 4);
     if (col === 0) rowStartY = y;
 
-    const slotLabel = CHECKLIST_FOTO_SLOTS.find((s) => s.id === foto.tipo)?.label || foto.label || foto.tipo;
-    const dataUrl = await fetchImageDataUrl(foto.url);
+    const slotLabel =
+      CHECKLIST_FOTO_SLOTS.find((s) => s.id === foto.tipo)?.label || foto.label || foto.tipo;
+    const dataUrl = await fetchImageDataUrl(foto.url, `foto:${slotLabel}`);
 
     if (dataUrl) {
       try {
         doc.addImage(dataUrl, imageFormat(dataUrl), x, rowStartY, cellW, imgH);
-      } catch {
-        doc.setDrawColor(200, 200, 200);
-        doc.rect(x, rowStartY, cellW, imgH);
-        doc.setFontSize(8);
-        doc.text("Imagem indisponível", x + 2, rowStartY + imgH / 2);
+      } catch (err) {
+        console.error("[Checklist PDF] addImage falhou:", slotLabel, err);
+        drawPlaceholder(doc, x, rowStartY, cellW, imgH, "Sem foto");
       }
     } else {
-      doc.setDrawColor(200, 200, 200);
-      doc.rect(x, rowStartY, cellW, imgH);
-      doc.setFontSize(8);
-      doc.text("Sem foto", x + 2, rowStartY + imgH / 2);
+      drawPlaceholder(doc, x, rowStartY, cellW, imgH, "Sem foto");
     }
 
     doc.setFont("helvetica", "bold");
     doc.setFontSize(8);
-    doc.text(slotLabel, x, rowStartY + imgH + 4);
+    doc.text(stripEmojis(slotLabel), x, rowStartY + imgH + 4);
     doc.setFont("helvetica", "normal");
     doc.setFontSize(7);
-    const stamp = `${foto.dataHora || "—"} · ${formatCoords(foto.lat, foto.lng)}`;
+    const stamp = `${foto.dataHora || "-"} - ${formatCoords(foto.lat, foto.lng)}`;
     wrapLines(doc, stamp, cellW).forEach((ln, i) => {
       doc.text(ln, x, rowStartY + imgH + 8 + i * 3.5);
     });
@@ -249,36 +287,38 @@ export async function generateChecklistColetaPdf({ checklist, frete, perfil }) {
 
   sectionTitle("ASSINATURAS");
   const assinBlocks = [
-    { key: "responsavel", titulo: "Responsável no local" },
+    { key: "responsavel", titulo: "Responsavel no local" },
     { key: "prestador", titulo: "Prestador" },
   ];
 
   for (const { key, titulo } of assinBlocks) {
     const assin = coleta?.assinaturas?.[key] || {};
     ensureSpace(52);
+
     doc.setFont("helvetica", "bold");
     doc.setFontSize(10);
     doc.text(titulo, margin, y);
     y += 6;
-    line(`Nome: ${assin.nome || "—"} · Doc: ${assin.documento || "—"}`);
-    line(`${assin.dataHora || "—"} · ${formatCoords(assin.lat, assin.lng)}`);
 
-    const sigUrl = await fetchImageDataUrl(assin.imagemUrl);
+    const sigUrl = await fetchImageDataUrl(assin.imagemUrl, `assinatura:${key}`);
     if (sigUrl) {
       try {
         ensureSpace(28);
         doc.addImage(sigUrl, imageFormat(sigUrl), margin, y, 80, 22);
         y += 26;
-      } catch {
-        line("(Assinatura não carregada)");
+      } catch (err) {
+        console.error("[Checklist PDF] addImage assinatura falhou:", key, err);
+        line("(Assinatura nao carregada)");
       }
     } else {
       line("(Sem assinatura)");
     }
+
+    line(`Nome: ${assin.nome || "-"} - Doc: ${assin.documento || "-"}`);
+    line(`${assin.dataHora || "-"} - ${formatCoords(assin.lat, assin.lng)}`);
     y += 4;
   }
 
-  // Rodapé em todas as páginas
   const totalPages = doc.getNumberOfPages();
   const geradoEm = new Date().toLocaleString("pt-BR");
   for (let p = 1; p <= totalPages; p++) {
@@ -286,8 +326,8 @@ export async function generateChecklistColetaPdf({ checklist, frete, perfil }) {
     doc.setFont("helvetica", "normal");
     doc.setFontSize(8);
     doc.setTextColor(120, 120, 120);
-    doc.text(`Gerado por LogRotas — logrotas.com.br · ${geradoEm}`, margin, 290);
-    doc.text(`Página ${p} de ${totalPages}`, pageWidth - margin - 20, 290);
+    doc.text(`Gerado por LogRotas - logrotas.com.br - ${geradoEm}`, margin, 290);
+    doc.text(`Pagina ${p} de ${totalPages}`, pageWidth - margin - 20, 290);
     doc.setTextColor(0, 0, 0);
   }
 
@@ -320,7 +360,7 @@ export async function saveChecklistColetaPdf(params) {
       if (!navigator.canShare || navigator.canShare({ files: [pdfFile] })) {
         await navigator.share({
           files: [pdfFile],
-          title: "LogRotas — Checklist de Coleta",
+          title: "LogRotas - Checklist de Coleta",
           text: buildChecklistColetaShareText(params).slice(0, 500),
         });
         return { blob, filename, method: "share" };

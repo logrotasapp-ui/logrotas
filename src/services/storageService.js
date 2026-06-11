@@ -86,8 +86,72 @@ export function buildPhotoStampText(lat, lng, date = new Date()) {
   return `${formatStampDataHora(date)} · ${formatStampCoords(lat, lng)}`;
 }
 
+export function isChecklistDownloadUrl(value) {
+  return typeof value === "string" && value.startsWith("https://");
+}
+
+/**
+ * Resolve caminho legado do Storage ou URL parcial para URL de download HTTPS.
+ */
+export async function resolveChecklistDownloadUrl(urlOrPath) {
+  if (!urlOrPath || typeof urlOrPath !== "string") return null;
+  if (isChecklistDownloadUrl(urlOrPath)) return urlOrPath;
+
+  const path = urlOrPath
+    .replace(/^gs:\/\/[^/]+\//, "")
+    .replace(/^\//, "")
+    .trim();
+  if (!path) return null;
+
+  return getDownloadURL(ref(storage, path));
+}
+
+/**
+ * Migra fotos e assinaturas que guardam caminho em vez de URL de download.
+ * @returns {{ coleta: object, changed: boolean }}
+ */
+export async function migrateChecklistColetaMedia(coleta) {
+  if (!coleta) return { coleta, changed: false };
+
+  let changed = false;
+  const fotos = await Promise.all(
+    (coleta.fotos || []).map(async (foto) => {
+      if (!foto?.url || isChecklistDownloadUrl(foto.url)) return foto;
+      try {
+        const url = await resolveChecklistDownloadUrl(foto.url);
+        if (url && url !== foto.url) {
+          changed = true;
+          return { ...foto, url };
+        }
+      } catch (err) {
+        console.warn("[Checklist] Falha ao migrar URL da foto:", foto.url, err);
+      }
+      return foto;
+    })
+  );
+
+  const assinaturas = { ...(coleta.assinaturas || {}) };
+  for (const key of ["responsavel", "prestador"]) {
+    const assin = assinaturas[key];
+    if (!assin?.imagemUrl || isChecklistDownloadUrl(assin.imagemUrl)) continue;
+    try {
+      const imagemUrl = await resolveChecklistDownloadUrl(assin.imagemUrl);
+      if (imagemUrl && imagemUrl !== assin.imagemUrl) {
+        assinaturas[key] = { ...assin, imagemUrl };
+        changed = true;
+      }
+    } catch (err) {
+      console.warn("[Checklist] Falha ao migrar URL da assinatura:", assin.imagemUrl, err);
+    }
+  }
+
+  if (!changed) return { coleta, changed: false };
+  return { coleta: { ...coleta, fotos, assinaturas }, changed: true };
+}
+
 /**
  * Upload de imagem do checklist: users/{uid}/checklists/{checklistId}/{nomeArquivo}.jpg
+ * Retorna sempre a URL HTTPS de download (getDownloadURL).
  */
 export async function uploadChecklistImage(uid, checklistId, nomeArquivo, blob) {
   if (!uid || !checklistId || !nomeArquivo) {
@@ -97,5 +161,9 @@ export async function uploadChecklistImage(uid, checklistId, nomeArquivo, blob) 
   const path = `users/${uid}/checklists/${checklistId}/${safeName}.jpg`;
   const storageRef = ref(storage, path);
   await uploadBytes(storageRef, blob, { contentType: "image/jpeg" });
-  return getDownloadURL(storageRef);
+  const downloadUrl = await getDownloadURL(storageRef);
+  if (!isChecklistDownloadUrl(downloadUrl)) {
+    throw new Error("URL de download inválida após upload.");
+  }
+  return downloadUrl;
 }
