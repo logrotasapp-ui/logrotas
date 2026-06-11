@@ -263,7 +263,7 @@ function directionsRoute(entries, driverOrigin = null) {
 
 const BLOCK_MAX_POINTS = 25;
 
-function routeChunkPlain(service, chunk) {
+function routeChunkPlain(service, chunk, chunkLabels) {
   return new Promise((resolve) => {
     service.route(
       {
@@ -283,6 +283,11 @@ function routeChunkPlain(service, chunk) {
         ) {
           resolve(result.routes[0]);
         } else {
+          // V233 — diagnóstico: status exato da Directions + endereços do trecho
+          console.warn("[LogRotas Directions] falha no trecho", {
+            status: String(status),
+            enderecos: chunkLabels?.length ? chunkLabels : chunk,
+          });
           resolve(null);
         }
       }
@@ -290,10 +295,20 @@ function routeChunkPlain(service, chunk) {
   });
 }
 
-async function routeChunkWithRetry(service, chunk) {
-  const first = await routeChunkPlain(service, chunk);
+const RETRY_DELAY_MS = 1000;
+
+async function routeChunkWithRetry(service, chunk, chunkLabels) {
+  const first = await routeChunkPlain(service, chunk, chunkLabels);
   if (first) return first;
-  return routeChunkPlain(service, chunk);
+  // V233 — 1 retry após 1 segundo antes de desistir do trecho
+  await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
+  const second = await routeChunkPlain(service, chunk, chunkLabels);
+  if (!second) {
+    console.warn("[LogRotas Directions] trecho sem desenho após retry", {
+      enderecos: chunkLabels?.length ? chunkLabels : chunk,
+    });
+  }
+  return second;
 }
 
 /**
@@ -302,9 +317,10 @@ async function routeChunkWithRetry(service, chunk) {
  * Se um bloco falhar (após 1 retry), os demais seguem normalmente — a ORDEM
  * das paradas não depende desta etapa.
  * @param {Array<{ lat: number, lng: number }>} points — [origem, ...paradas] na ordem final
+ * @param {string[]} [labels] — endereços alinhados a `points` (para diagnóstico)
  * @returns {Promise<{ ok: boolean, totalDistanceM: number, totalDurationS: number, overviewPath: Array<{lat:number,lng:number}>, blocksOk: number, blocksTotal: number }>}
  */
-export async function fetchGoogleRouteInBlocks(points) {
+export async function fetchGoogleRouteInBlocks(points, labels = []) {
   const empty = {
     ok: false,
     totalDistanceM: 0,
@@ -332,9 +348,10 @@ export async function fetchGoogleRouteInBlocks(points) {
   while (start < points.length - 1) {
     const end = Math.min(start + BLOCK_MAX_POINTS - 1, points.length - 1);
     const chunk = points.slice(start, end + 1);
+    const chunkLabels = labels.slice(start, end + 1);
     blocksTotal++;
 
-    const route = await routeChunkWithRetry(service, chunk);
+    const route = await routeChunkWithRetry(service, chunk, chunkLabels);
     if (route) {
       blocksOk++;
       totalDistanceM += sumLegsMetric(route.legs, "distance");

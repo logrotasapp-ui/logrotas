@@ -16,6 +16,7 @@ import {
   reoptimizeRemainingDeliveryRoute,
   findDuplicateStopIndex,
   resolveStopGeocodeBias,
+  fetchRouteSegmentPath,
   buildParadasFromAddresses,
   resolveManualAddress,
   buildCalculatorStopSearchBias,
@@ -95,7 +96,7 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="V232";
+const APP_VERSION="V233";
 const BETA_HIDE_PLANOS=true;
 
 const OfflineRestoredBanner=({show})=>show?(
@@ -1471,7 +1472,10 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
   const[otimizando,setOtimizando]=useState(false);
   const[erroOtimizar,setErroOtimizar]=useState("");
   const[avisoGps,setAvisoGps]=useState("");
+  const[avisoTrajeto,setAvisoTrajeto]=useState("");
+  const[avisoAgrupado,setAvisoAgrupado]=useState("");
   const[rotaPath,setRotaPath]=useState(null);
+  const[rotaPathSegment,setRotaPathSegment]=useState(null);
   const[dupQueue,setDupQueue]=useState([]);
   const[resultado,setResultado]=useState(null);
   const[mapaExpandido,setMapaExpandido]=useState(false);
@@ -1561,6 +1565,46 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
   const todasEntregues=paradas.length>0&&pendentesCount===0;
   const paradaAtualIdx=useMemo(()=>paradas.findIndex(p=>getParadaStatus(p)==="pendente"),[paradas]);
   const paradaAtual=paradaAtualIdx>=0?paradas[paradaAtualIdx]:null;
+  // V233 — total real de pacotes (paradas agrupadas somam mais de 1)
+  const totalPacotes=paradas.reduce((a,p)=>a+(Number(p.pacotes)||1),0);
+
+  // V233 — toast discreto de agrupamento some sozinho
+  useEffect(()=>{
+    if(!avisoAgrupado)return;
+    const t=setTimeout(()=>setAvisoAgrupado(""),4500);
+    return()=>clearTimeout(t);
+  },[avisoAgrupado]);
+
+  // V233 — card de economia sempre visível: rola até ele após a otimização
+  const resultadoRef=useRef(null);
+  useEffect(()=>{
+    if(resultado&&resultadoRef.current){
+      resultadoRef.current.scrollIntoView({behavior:"smooth",block:"nearest"});
+    }
+  },[resultado]);
+
+  // V233 — regra por densidade: até 10 paradas desenha a linha completa;
+  // acima disso só o trecho posição atual → próximas 3 pendentes (redesenha a cada entrega)
+  const ROTA_DENSA_LIMITE=10;
+  const rotaDensa=paradas.length>ROTA_DENSA_LIMITE;
+  const proximasPendentesKey=paradas.filter(p=>getParadaStatus(p)==="pendente").slice(0,3).map(p=>p.id).join("|");
+  useEffect(()=>{
+    if(!resultado||!rotaDensa){setRotaPathSegment(null);return;}
+    let cancelled=false;
+    (async()=>{
+      try{
+        const pend=paradas.filter(p=>getParadaStatus(p)==="pendente"&&p.coords?.length>=2).slice(0,3);
+        const seg=await fetchRouteSegmentPath(posicaoMotorista?.length>=2?posicaoMotorista:null,pend);
+        if(!cancelled)setRotaPathSegment(seg);
+      }catch{
+        if(!cancelled)setRotaPathSegment(null);
+      }
+    })();
+    return()=>{cancelled=true;};
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[resultado,rotaDensa,proximasPendentesKey,posicaoMotorista]);
+
+  const rotaPathExibida=resultado?(rotaDensa?rotaPathSegment:rotaPath):null;
 
   useEffect(()=>{
     if(!offlineHydrated)return;
@@ -1702,7 +1746,10 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
     setParadas([]);
     setResultado(null);
     setRotaPath(null);
+    setRotaPathSegment(null);
     setAvisoGps("");
+    setAvisoTrajeto("");
+    setAvisoAgrupado("");
     setDupQueue([]);
     setShowResumo(false);
     setResumoFinal(null);
@@ -1819,10 +1866,10 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
     try{
       const geocoded=await geocodeRomaneioExtractedAddresses(novas);
       if(geocoded[0]){
-        // V232 — duplicado: confirma antes de seguir para a inserção
+        // V233 — duplicado de parada PENDENTE: oferece adicionar pacote em vez de criar parada
         const dupIdx=findDuplicateStopIndex(paradas,geocoded[0]);
-        if(dupIdx>=0){
-          setDupQueue(q=>[...q,{parada:geocoded[0],idx:dupIdx,destino:"nav"}]);
+        if(dupIdx>=0&&getParadaStatus(paradas[dupIdx])==="pendente"){
+          setDupQueue(q=>[...q,{parada:geocoded[0],idx:dupIdx}]);
           setShowAddNavMenu(false);
           return;
         }
@@ -1845,10 +1892,10 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
       if(!out.ok){setErroNavAdd(out.error);return;}
       const nova={id:Date.now(),endereco:out.endereco,coords:out.coords,status:"pendente"};
       setNovoEnderecoNav("");
-      // V232 — duplicado: confirma antes de seguir para a inserção
+      // V233 — duplicado de parada PENDENTE: oferece adicionar pacote em vez de criar parada
       const dupIdx=findDuplicateStopIndex(paradas,nova);
-      if(dupIdx>=0){
-        setDupQueue(q=>[...q,{parada:nova,idx:dupIdx,destino:"nav"}]);
+      if(dupIdx>=0&&getParadaStatus(paradas[dupIdx])==="pendente"){
+        setDupQueue(q=>[...q,{parada:nova,idx:dupIdx}]);
         setShowAddNavMenu(false);
         return;
       }
@@ -1859,21 +1906,18 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
     finally{setAdicionandoNav(false);}
   };
 
-  // V232 — fila de duplicados: confirma um por vez (Adicionar / Cancelar)
-  const confirmarDuplicada=()=>{
+  // V233 — duplicado durante a rota: adiciona pacote à parada pendente existente
+  const confirmarPacoteNaParada=()=>{
     const item=dupQueue[0];
     setDupQueue(q=>q.slice(1));
     if(!item)return;
-    if(item.destino==="nav"){
-      setParadaPendenteInsert(item.parada);
-      setShowInsertOpcoes(true);
-    }else{
-      setParadas(p=>[...p,item.parada]);
-      setResultado(null);
-      setAposConclusao(false);
-    }
+    const alvo=paradas[item.idx];
+    if(!alvo)return;
+    const novoTotal=(Number(alvo.pacotes)||1)+1;
+    setParadas(p=>p.map((x,i)=>i===item.idx?{...x,pacotes:novoTotal}:x));
+    setAvisoAgrupado(`📦 ${novoTotal} pacotes agrupados em ${alvo.endereco}`);
   };
-  const cancelarDuplicada=()=>setDupQueue(q=>q.slice(1));
+  const cancelarPacoteNaParada=()=>setDupQueue(q=>q.slice(1));
 
   // Geocoding Google com proximity (GPS + cadeia) p/ endereços do OCR (Vision)
   // V169 — paradas com confianca ok|warn; feedback para FAIL
@@ -1895,16 +1939,39 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
     setProcessandoFoto(true);
     try{
       const geocoded=await geocodeRomaneioExtractedAddresses(novas);
-      // V232 — detector de duplicados: confirma antes de adicionar repetidas
+      // V233 — duplicados (romaneio repete endereço = mais pacotes na mesma porta):
+      // agrupa em uma única parada e soma os pacotes
       const unicos=[];
-      const duplicadas=[];
+      const addsExistentes=new Map();
+      const enderecosAgrupados=new Set();
       for(const g of geocoded){
-        const dupIdx=findDuplicateStopIndex([...paradas,...unicos],g);
-        if(dupIdx>=0)duplicadas.push({parada:g,idx:dupIdx,destino:"lista"});
-        else unicos.push(g);
+        const idxExist=findDuplicateStopIndex(paradas,g);
+        if(idxExist>=0){
+          addsExistentes.set(idxExist,(addsExistentes.get(idxExist)||0)+1);
+          enderecosAgrupados.add(paradas[idxExist].endereco);
+          continue;
+        }
+        const idxNovo=findDuplicateStopIndex(unicos,g);
+        if(idxNovo>=0){
+          unicos[idxNovo]={...unicos[idxNovo],pacotes:(Number(unicos[idxNovo].pacotes)||1)+1};
+          enderecosAgrupados.add(unicos[idxNovo].endereco);
+          continue;
+        }
+        unicos.push(g);
       }
-      if(unicos.length)setParadas(p=>[...p,...unicos]);
-      if(duplicadas.length)setDupQueue(q=>[...q,...duplicadas]);
+      setParadas(p=>{
+        const atualizadas=p.map((x,i)=>addsExistentes.has(i)?{...x,pacotes:(Number(x.pacotes)||1)+addsExistentes.get(i)}:x);
+        return[...atualizadas,...unicos];
+      });
+      if(enderecosAgrupados.size===1){
+        const end=[...enderecosAgrupados][0];
+        const extra=[...addsExistentes.values()].reduce((a,b)=>a+b,0);
+        const base=unicos.find(u=>u.endereco===end);
+        const total=base?(Number(base.pacotes)||1):(Number(paradas[[...addsExistentes.keys()][0]]?.pacotes)||1)+extra;
+        setAvisoAgrupado(`📦 ${total} pacotes agrupados em ${end}`);
+      }else if(enderecosAgrupados.size>1){
+        setAvisoAgrupado(`📦 Pacotes agrupados em ${enderecosAgrupados.size} endereços repetidos`);
+      }
       setAposConclusao(false);
     }catch{
       setErroFoto("Erro ao localizar endereços no mapa. Tente de novo.");
@@ -1927,10 +1994,12 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
         return;
       }
       const nova={id:Date.now(),endereco:out.endereco,coords:out.coords};
-      // V232 — detector de duplicados (mesmo endereço ou coords < 30 m)
+      // V233 — duplicado = agrupar pacotes na mesma parada (não cria parada nova)
       const dupIdx=findDuplicateStopIndex(paradas,nova);
       if(dupIdx>=0){
-        setDupQueue(q=>[...q,{parada:nova,idx:dupIdx,destino:"lista"}]);
+        const novoTotal=(Number(paradas[dupIdx].pacotes)||1)+1;
+        setParadas(p=>p.map((x,i)=>i===dupIdx?{...x,pacotes:novoTotal}:x));
+        setAvisoAgrupado(`📦 ${novoTotal} pacotes agrupados em ${paradas[dupIdx].endereco}`);
         setNovoEndereco("");
         return;
       }
@@ -1958,8 +2027,10 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
     setOtimizando(true);
     setErroOtimizar("");
     setAvisoGps("");
+    setAvisoTrajeto("");
     setResultado(null);
     setRotaPath(null);
+    setRotaPathSegment(null);
     const out=USE_HYBRID_OPTIMIZER
       ?await optimizeDeliveryRouteHybrid(paradas,{
         consumoKmL:perfil?.consumo,
@@ -1981,7 +2052,9 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
       setErroOtimizar(out.error);
       return;
     }
-    if(out.gpsFalhou)setAvisoGps("Não foi possível obter sua localização — a rota partirá da primeira parada");
+    // V233 — fallback de GPS nunca é silencioso (viola a spec do V231)
+    if(out.gpsFalhou)setAvisoGps("⚠️ GPS indisponível — rota calculada a partir da primeira parada");
+    if(out.trajetoParcial)setAvisoTrajeto("Trajeto parcial no mapa — a ordem das paradas está correta");
     if(out.motoristaCoords)setPosicaoMotorista(out.motoristaCoords);
     setParadas(out.paradasOtimizadas);
     setResultado(out.resultado);
@@ -2071,14 +2144,14 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
       {paradas.length>=2&&(
         <div style={{marginBottom:14}}>
           <div style={{color:C.navy,fontWeight:700,fontSize:13,marginBottom:8}}>🗺️ Mapa das entregas</div>
+          {/* V233 — sem `key`: o mapa não é recriado a cada mudança de status (polyline estável) */}
           <DeliveryMap
-            key={paradas.map((p,i)=>`${i}:${p.id}:${p.entregue?"1":"0"}`).join("|")}
             paradas={paradas}
             motoristaCoords={posicaoMotorista}
             height={240}
             showLocateButton
             onDriverLocationUpdate={setPosicaoMotorista}
-            routePath={resultado?rotaPath:null}
+            routePath={rotaPathExibida}
           />
           {/* V161 — expandir mapa em overlay tela cheia */}
           <button
@@ -2154,7 +2227,6 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
             </button>
             <div style={{width:"100%",height:"100%",borderRadius:12,overflow:"hidden"}}>
               <DeliveryMap
-                key={`fs-${paradas.map((p,i)=>`${i}:${p.id}:${p.entregue?"1":"0"}`).join("|")}`}
                 paradas={paradas}
                 motoristaCoords={posicaoMotorista}
                 height="90vh"
@@ -2162,7 +2234,7 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
                 expandedMap
                 gestureHandling="greedy"
                 onDriverLocationUpdate={setPosicaoMotorista}
-                routePath={resultado?rotaPath:null}
+                routePath={rotaPathExibida}
               />
             </div>
           </div>
@@ -2179,7 +2251,7 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
         <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:14}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
             <span style={{color:C.navy,fontWeight:700,fontSize:13}}>
-              {paradas.length} endereço{paradas.length!==1?"s":""} · {entreguesCount} entregue{entreguesCount!==1?"s":""} · {pendentesCount} pendente{pendentesCount!==1?"s":""}
+              {paradas.length} endereço{paradas.length!==1?"s":""}{totalPacotes>paradas.length?` · ${totalPacotes} pacotes`:""} · {entreguesCount} entregue{entreguesCount!==1?"s":""} · {pendentesCount} pendente{pendentesCount!==1?"s":""}
               {resultado&&!modoNavegacao&&(
                 <span style={{marginLeft:6,color:OTIMIZAR_AZUL,fontWeight:600}}>— rota otimizada ✅</span>
               )}
@@ -2213,8 +2285,10 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
                   </div>
                   {getParadaStatus(p)==="entregue"&&<div style={{color:C.green,fontSize:11,marginTop:4}}>✅ Entregue · {p.horario||""}</div>}
                   {getParadaStatus(p)==="nao_entregue"&&<div style={{color:C.red,fontSize:11,marginTop:4}}>❌ {p.motivo||"Não entregue"}</div>}
-                  {getParadaStatus(p)==="pendente"&&!resultado&&(
-                    <span style={{display:"inline-block",marginTop:4,color:OTIMIZAR_AZUL,fontSize:11,fontWeight:700}}>📦 1 pacote</span>
+                  {getParadaStatus(p)==="pendente"&&(
+                    <span style={{display:"inline-block",marginTop:4,color:OTIMIZAR_AZUL,fontSize:11,fontWeight:700}}>
+                      📦 {(Number(p.pacotes)||1)===1?"1 pacote":`${Number(p.pacotes)||1} pacotes`}
+                    </span>
                   )}
                 </div>
               </div>
@@ -2256,10 +2330,24 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
         </div>
       )}
 
-      {/* V231 — GPS indisponível: rota parte da primeira parada (não trava o fluxo) */}
+      {/* V231/V233 — GPS indisponível: rota parte da primeira parada (não trava o fluxo) */}
       {avisoGps&&(
-        <div style={{background:"#FFFBEB",border:"1.5px solid #FDE68A",borderRadius:10,padding:"10px 13px",marginBottom:12,color:"#92400E",fontSize:13,fontWeight:600}}>
-          📍 {avisoGps}
+        <div style={{background:"#FFFBEB",border:"1.5px solid #FDE68A",borderRadius:10,padding:"10px 13px",marginBottom:12,color:"#92400E",fontSize:13,fontWeight:700}}>
+          {avisoGps}
+        </div>
+      )}
+
+      {/* V233 — bloco da Directions sem desenho após retry (ordem não é afetada) */}
+      {avisoTrajeto&&(
+        <div style={{background:"#EFF6FF",border:"1.5px solid #BFDBFE",borderRadius:10,padding:"10px 13px",marginBottom:12,color:"#1D4ED8",fontSize:12,fontWeight:600}}>
+          🗺️ {avisoTrajeto}
+        </div>
+      )}
+
+      {/* V233 — toast discreto de pacotes agrupados */}
+      {avisoAgrupado&&(
+        <div style={{background:"#F0FDF4",border:"1.5px solid #BBF7D0",borderRadius:10,padding:"10px 13px",marginBottom:12,color:"#15803D",fontSize:12,fontWeight:600}}>
+          {avisoAgrupado}
         </div>
       )}
 
@@ -2275,26 +2363,26 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
         </button>
       )}
 
-      {/* Resultado da otimização */}
+      {/* Resultado da otimização — V233: card de economia nunca fica mudo */}
       {resultado&&(
-        <div style={{display:"flex",flexDirection:"column",gap:10,marginBottom:14}}>
-          {/* Banner economia — V231: economia <= 0 mostra mensagem de rota já ideal */}
+        <div ref={resultadoRef} style={{display:"flex",flexDirection:"column",gap:10,marginBottom:14}}>
+          {/* Banner economia — > 0,1 km mostra ganho; senão "rota já ideal" */}
           <div style={{background:`linear-gradient(135deg,${OTIMIZAR_AZUL},${OTIMIZAR_AZUL_MID})`,borderRadius:16,padding:"18px 20px",textAlign:"center",boxShadow:`0 4px 16px ${OTIMIZAR_AZUL}44`}}>
-            {resultado.rotaJaIdeal?(
+            {resultado.rotaJaIdeal||!(Number(resultado.economiaKm)>0)?(
               <>
                 <div style={{fontSize:32,marginBottom:6}}>✅</div>
                 <div style={{color:"#fff",fontWeight:900,fontSize:18,fontFamily:"'Sora',sans-serif"}}>
-                  Sua rota já estava no caminho ideal ✅
+                  Sua rota já estava no caminho ideal
                 </div>
               </>
             ):(
               <>
                 <div style={{fontSize:32,marginBottom:6}}>🎉</div>
                 <div style={{color:"#fff",fontWeight:900,fontSize:18,fontFamily:"'Sora',sans-serif",marginBottom:4}}>
-                  Você economizou {formatKmDecimal(resultado.economiaKm)}!
+                  Rota otimizada! Você economizou {formatKmDecimal(resultado.economiaKm)}
                 </div>
                 <div style={{color:"rgba(255,255,255,0.85)",fontSize:13}}>
-                  Equivale a <b>{formatMoeda(resultado.economiaCusto)}</b> de combustível a menos
+                  Equivale a <b>{formatMoeda(resultado.economiaCusto||0)}</b> de combustível a menos
                 </div>
               </>
             )}
@@ -2338,6 +2426,11 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
           <span style={{color:C.navy,fontWeight:700,fontSize:14}}>📋 Histórico de Entregas</span>
           <span style={{color:OTIMIZAR_AZUL,fontSize:13,fontWeight:800}}>▶</span>
         </button>
+      )}
+
+      {/* V233 — espaço extra: a barra fixa "Navegação em andamento" não pode cobrir conteúdo */}
+      {Boolean(resultado)&&pendentesCount>0&&!modoNavegacao&&(
+        <div style={{height:"calc(76px + env(safe-area-inset-bottom))"}}/>
       )}
 
       {showResumo&&resumoFinal&&(
@@ -2561,23 +2654,23 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
         </div>
       )}
 
-      {/* V232 — confirmação de endereço duplicado */}
+      {/* V233 — duplicado durante a rota: adicionar pacote à parada pendente */}
       {dupQueue.length>0&&(
         <div style={{position:"fixed",inset:0,zIndex:790,background:"#1E3A8A66",display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
           <div style={{background:C.surface,borderRadius:18,width:"100%",maxWidth:360,padding:24,textAlign:"center"}}>
-            <div style={{fontSize:34,marginBottom:8}}>📍</div>
+            <div style={{fontSize:34,marginBottom:8}}>📦</div>
             <div style={{color:C.navy,fontWeight:800,fontSize:15,fontFamily:"'Sora',sans-serif",marginBottom:8}}>
-              Este endereço já está na rota (parada {dupQueue[0].idx+1}). Adicionar mesmo assim?
+              Este endereço já está na rota (parada {dupQueue[0].idx+1})
             </div>
             <div style={{color:C.muted,fontSize:13,marginBottom:18,lineHeight:1.5}}>{dupQueue[0].parada.endereco}</div>
-            <div style={{display:"flex",gap:10}}>
-              <button type="button" onClick={cancelarDuplicada}
-                style={{flex:1,padding:"12px 0",background:C.subtle,border:`1px solid ${C.border}`,borderRadius:11,cursor:"pointer",color:C.text2,fontWeight:600,fontSize:14}}>
-                Cancelar
+            <div style={{display:"flex",flexDirection:"column",gap:10}}>
+              <button type="button" onClick={confirmarPacoteNaParada}
+                style={{width:"100%",padding:"13px 0",background:OTIMIZAR_AZUL,border:"none",borderRadius:11,cursor:"pointer",color:"#fff",fontWeight:800,fontSize:14}}>
+                ➕ Adicionar pacote a essa parada
               </button>
-              <button type="button" onClick={confirmarDuplicada}
-                style={{flex:1,padding:"12px 0",background:OTIMIZAR_AZUL,border:"none",borderRadius:11,cursor:"pointer",color:"#fff",fontWeight:800,fontSize:14}}>
-                Adicionar
+              <button type="button" onClick={cancelarPacoteNaParada}
+                style={{width:"100%",padding:"12px 0",background:C.subtle,border:`1px solid ${C.border}`,borderRadius:11,cursor:"pointer",color:C.text2,fontWeight:600,fontSize:14}}>
+                Cancelar
               </button>
             </div>
           </div>
@@ -6222,15 +6315,18 @@ export default function App(){
       {showCalc&&calcMode==="frete"&&<RouteCalcModal onClose={()=>{setShowCalc(false);setCalcMode(null);}} vehicles={vehicles} valorKmPadrao={valorKm} adicionalPadrao={adicionalFixo} onSalvarHistorico={handleAddFrete}/>}
       {showCalc&&calcMode==="otimizar"&&<OtimizarEntregasModal uid={firebaseUser?.uid} resumeNavigation={resumeNav} onNavigationResumed={()=>setResumeNav(false)} onClose={()=>{setShowCalc(false);setCalcMode(null);setResumeNav(false);}} perfil={perfil} plan={plan} onUpgrade={()=>{setShowCalc(false);setCalcMode(null);setResumeNav(false);setPage("assinatura");}}/>}
 
+      {/* V233 — barra inteira clicável (volta ao mapa); botão mantido por affordance */}
       {showNavActiveBanner&&(
-        <div style={{position:"fixed",bottom:navBannerBottom,left:0,right:0,zIndex:880,background:"linear-gradient(135deg,#1E3A8A,#2563EB)",boxShadow:"0 -4px 20px #1E3A8A44",padding:"12px 14px"}}>
+        <div role="button" tabIndex={0} onClick={handleReturnToNavigation}
+          onKeyDown={e=>{if(e.key==="Enter"||e.key===" ")handleReturnToNavigation();}}
+          style={{position:"fixed",bottom:navBannerBottom,left:0,right:0,zIndex:880,background:"linear-gradient(135deg,#1E3A8A,#2563EB)",boxShadow:"0 -4px 20px #1E3A8A44",padding:"12px 14px",paddingBottom:navBannerBottom===0?"calc(12px + env(safe-area-inset-bottom))":"12px",cursor:"pointer"}}>
           <div style={{maxWidth:820,margin:"0 auto",display:"flex",alignItems:"center",justifyContent:"space-between",gap:12}}>
             <div style={{flex:1,minWidth:0}}>
               <div style={{color:"#fff",fontWeight:800,fontSize:14,fontFamily:"'Sora',sans-serif"}}>
                 🧭 Navegação em andamento — Parada {(navBanner.paradaAtualIdx??0)+1} de {navBanner.totalParadas}
               </div>
             </div>
-            <button type="button" onClick={handleReturnToNavigation}
+            <button type="button" onClick={e=>{e.stopPropagation();handleReturnToNavigation();}}
               style={{flexShrink:0,background:"#fff",border:"none",borderRadius:10,padding:"9px 14px",color:OTIMIZAR_AZUL,fontWeight:800,fontSize:12,cursor:"pointer",whiteSpace:"nowrap"}}>
               Voltar ao mapa
             </button>

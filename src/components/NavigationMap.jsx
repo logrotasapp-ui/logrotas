@@ -189,22 +189,40 @@ export default function NavigationMap({
 
     setHint("Calculando rota…");
     const service = new window.google.maps.DirectionsService();
-    service.route(
-      {
-        origin: { lat: origin[1], lng: origin[0] },
-        destination: { lat: destinationCoords[1], lng: destinationCoords[0] },
-        travelMode: window.google.maps.TravelMode.DRIVING,
-      },
-      (result, status) => {
-        if (status !== window.google.maps.DirectionsStatus.OK || !result) {
-          setHint("Não foi possível traçar a rota.");
-          return;
-        }
-        renderer.setMap(map);
-        renderer.setDirections(result);
-        setHint("");
-      }
-    );
+    const request = {
+      origin: { lat: origin[1], lng: origin[0] },
+      destination: { lat: destinationCoords[1], lng: destinationCoords[0] },
+      travelMode: window.google.maps.TravelMode.DRIVING,
+    };
+    const tryRoute = () =>
+      new Promise((resolve) => {
+        service.route(request, (result, status) => {
+          if (status === window.google.maps.DirectionsStatus.OK && result) {
+            resolve(result);
+          } else {
+            // V233 — diagnóstico: status exato da Directions + endereço do trecho
+            console.warn("[LogRotas Directions] falha no trecho da navegação", {
+              status: String(status),
+              destino: currentParada?.endereco,
+            });
+            resolve(null);
+          }
+        });
+      });
+
+    let result = await tryRoute();
+    if (!result) {
+      // V233 — 1 retry após 1 segundo antes de desistir do trecho
+      await new Promise((r) => setTimeout(r, 1000));
+      result = await tryRoute();
+    }
+    if (!result) {
+      setHint("Trajeto parcial no mapa — a ordem das paradas está correta");
+      return;
+    }
+    renderer.setMap(map);
+    renderer.setDirections(result);
+    setHint("");
   }, [
     destinationCoords,
     ready,

@@ -55,6 +55,9 @@ export async function buildDeliveryMapFeatures(paradas) {
       lng,
       lat,
       order,
+      endereco: p?.endereco || "",
+      motivo: p?.motivo || "",
+      pacotes: Number(p?.pacotes) || 1,
       status: resolveParadaStatus(p),
       entregue: resolveParadaStatus(p) === "entregue",
     });
@@ -64,14 +67,15 @@ export async function buildDeliveryMapFeatures(paradas) {
   for (const pt of points) {
     const key = locationKey(pt.lng, pt.lat);
     if (!groups.has(key)) {
-      groups.set(key, { orders: [] });
+      groups.set(key, { orders: [], packageCount: 0 });
     }
-    groups.get(key).orders.push(pt.order);
+    const g = groups.get(key);
+    g.orders.push(pt.order);
+    g.packageCount += pt.pacotes;
   }
 
   for (const g of groups.values()) {
     g.orders.sort((a, b) => a - b);
-    g.packageCount = g.orders.length;
   }
 
   return points.map((pt) => {
@@ -82,6 +86,8 @@ export async function buildDeliveryMapFeatures(paradas) {
         packageCount: group.packageCount,
         orders: group.orders,
         order: pt.order,
+        endereco: pt.endereco,
+        motivo: pt.motivo,
         status: pt.status,
         entregue: pt.entregue,
       },

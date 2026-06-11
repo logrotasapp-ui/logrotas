@@ -1113,10 +1113,53 @@ export async function optimizeDeliveryRouteHybrid(paradas, options = {}) {
       origin,
       toOptimize.map((e) => e.coord)
     );
-    const orderedEntries = [
+    let orderedEntries = [
       ...(fixedFirst ? [fixedFirst] : []),
       ...orderIdx.map((i) => toOptimize[i]),
     ];
+
+    // V233 — sanidade pós-otimização: a Parada 1 DEVE ser a mais próxima da origem.
+    // Se não for, loga erro com as coordenadas e corrige ancorando a mais próxima
+    // como 1ª (re-otimiza o restante a partir dela, sem tocar no algoritmo).
+    if (!fixedFirst && orderedEntries.length > 1) {
+      let nearestIdx = 0;
+      let nearestDist = Infinity;
+      orderedEntries.forEach((e, i) => {
+        const d = haversine(origin, e.coord);
+        if (d < nearestDist) {
+          nearestDist = d;
+          nearestIdx = i;
+        }
+      });
+      if (nearestIdx !== 0) {
+        console.error("[LogRotas otimizador] Parada 1 não é a mais próxima da origem — corrigindo", {
+          origem: origin,
+          parada1: {
+            endereco: orderedEntries[0].parada?.endereco,
+            coord: orderedEntries[0].coord,
+            distKm: haversine(origin, orderedEntries[0].coord).toFixed(2),
+          },
+          maisProxima: {
+            endereco: orderedEntries[nearestIdx].parada?.endereco,
+            coord: orderedEntries[nearestIdx].coord,
+            distKm: nearestDist.toFixed(2),
+          },
+        });
+        const anchor = orderedEntries[nearestIdx];
+        const rest = orderedEntries.filter((_, i) => i !== nearestIdx);
+        const restOrder = optimizeOpenRoute(anchor.coord, rest.map((e) => e.coord));
+        orderedEntries = [anchor, ...restOrder.map((i) => rest[i])];
+      }
+    }
+
+    // V233 — diagnóstico da origem usada na otimização
+    const primeira = orderedEntries[0];
+    console.log("[LogRotas otimizador] diagnóstico", {
+      origem: { lat: origin.lat, lng: origin.lng },
+      fonte: gpsFalhou ? "fallback (1ª parada)" : driverOriginCoords?.length >= 2 ? "gps (informado)" : "gps (fresco)",
+      parada1: primeira?.parada?.endereco,
+      distanciaAteParada1Km: primeira ? haversine(origin, primeira.coord).toFixed(2) : null,
+    });
 
     const paradasOtimizadas = orderedEntries.map((entry, i) => ({
       ...entry.parada,
@@ -1135,10 +1178,10 @@ export async function optimizeDeliveryRouteHybrid(paradas, options = {}) {
     );
 
     // Etapa 3 — Directions em blocos (distância/duração reais + polyline)
-    const blocks = await fetchGoogleRouteInBlocks([
-      origin,
-      ...orderedEntries.map((e) => e.coord),
-    ]);
+    const blocks = await fetchGoogleRouteInBlocks(
+      [origin, ...orderedEntries.map((e) => e.coord)],
+      ["(origem)", ...orderedEntries.map((e) => e.parada?.endereco || "")]
+    );
 
     const cons = parseFloat(consumoKmL) || 10;
     const preco = parseFloat(precoCombustivel) || 5.89;
@@ -1148,7 +1191,8 @@ export async function optimizeDeliveryRouteHybrid(paradas, options = {}) {
         ? parseFloat((blocks.totalDistanceM / 1000).toFixed(1))
         : parseFloat(kmOtimizadoHav.toFixed(1));
     const economiaKmRaw = kmOriginalHav - kmOtimizadoHav;
-    const rotaJaIdeal = economiaKmRaw <= 0;
+    // V233 — economia ≤ 0,1 km conta como "rota já ideal" (card nunca fica mudo)
+    const rotaJaIdeal = !Number.isFinite(economiaKmRaw) || economiaKmRaw <= 0.1;
     const economiaKm = rotaJaIdeal ? 0 : parseFloat(economiaKmRaw.toFixed(1));
     const economiaCusto = parseFloat(((economiaKm / cons) * preco).toFixed(2));
     const tempoEstimado =
@@ -1173,10 +1217,36 @@ export async function optimizeDeliveryRouteHybrid(paradas, options = {}) {
       usedDriverOrigin: !gpsFalhou && !fixedFirst,
       gpsFalhou,
       routePath: blocks.overviewPath,
+      // V233 — algum bloco da Directions falhou após retry (a ORDEM não é afetada)
+      trajetoParcial: blocks.blocksTotal > 0 && blocks.blocksOk < blocks.blocksTotal,
     };
   } catch {
     return { ok: false, error: CONNECTION_ERROR };
   }
+}
+
+/**
+ * V233 — Trecho da rota para mapas densos (>10 paradas): posição atual →
+ * próximas 2-3 paradas pendentes. Devolve a polyline ou null.
+ * @param {[number, number] | null} originLngLat
+ * @param {Array<{ endereco?: string, coords?: number[] }>} stops
+ */
+export async function fetchRouteSegmentPath(originLngLat, stops) {
+  const pts = [];
+  const labels = [];
+  if (originLngLat?.length >= 2) {
+    pts.push({ lat: originLngLat[1], lng: originLngLat[0] });
+    labels.push("(posição atual)");
+  }
+  for (const s of stops || []) {
+    if (s?.coords?.length >= 2) {
+      pts.push({ lat: s.coords[1], lng: s.coords[0] });
+      labels.push(s.endereco || "");
+    }
+  }
+  if (pts.length < 2) return null;
+  const out = await fetchGoogleRouteInBlocks(pts, labels);
+  return out.ok && out.overviewPath?.length >= 2 ? out.overviewPath : null;
 }
 
 /**

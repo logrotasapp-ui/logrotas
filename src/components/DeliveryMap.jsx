@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { MarkerClusterer } from "@googlemaps/markerclusterer";
 import { API_KEYS } from "../services/apiConfig.js";
 import { buildDeliveryMapFeatures } from "../services/mapDisplayService.js";
+import { buildStopInfoHtml } from "../services/mapMarkers.js";
 import { waitForGoogleMaps } from "../services/googleMapsLoader.js";
 import { getDriverGeolocation } from "../services/routingService.js";
 import GoogleLocationIcon from "./GoogleLocationIcon.jsx";
@@ -204,17 +205,24 @@ export default function DeliveryMap({
 
         const markers = features.map((f) => {
           const [lng, lat] = f.geometry.coordinates;
-          const { packageCount, orders, status } = f.properties;
-          const marker = createNumberedMarker(lng, lat, f.properties.order, status || "pendente");
+          const { packageCount, orders, status, endereco, motivo, order } = f.properties;
+          const marker = createNumberedMarker(lng, lat, order, status || "pendente");
           marker.__deliveryData = { packageCount, orders };
           marker.addListener("click", () => {
             if (!infoWindowRef.current) {
               infoWindowRef.current = new window.google.maps.InfoWindow({
-                maxWidth: 160,
+                maxWidth: 280,
               });
             }
+            // V233 — popup padrão único dos 3 mapas (mapMarkers.buildStopInfoHtml)
             infoWindowRef.current.setContent(
-              buildDeliveryPopupHtml(packageCount, orders)
+              buildStopInfoHtml({
+                endereco,
+                paradaNum: order,
+                pacotes: packageCount,
+                status,
+                motivo,
+              })
             );
             infoWindowRef.current.open({ anchor: marker, map });
           });

@@ -48,29 +48,46 @@ export function createDriverTriangleMarker(lng, lat) {
   });
 }
 
+/** V233 — soma os pacotes das paradas na mesma coordenada (parada agrupada conta `pacotes`). */
 export function packageCountAtCoords(paradas, lng, lat) {
   const key = (x, y) => `${Number(x).toFixed(5)},${Number(y).toFixed(5)}`;
   const target = key(lng, lat);
-  return (paradas || []).filter((p) => {
+  const total = (paradas || []).reduce((sum, p) => {
     const c = p?.coords;
-    if (!c || c.length < 2) return false;
-    return key(c[0], c[1]) === target;
-  }).length || 1;
+    if (!c || c.length < 2) return sum;
+    if (key(c[0], c[1]) !== target) return sum;
+    return sum + (Number(p.pacotes) || 1);
+  }, 0);
+  return total || 1;
+}
+
+/** Cores de status padrão V229: azul=pendente, verde=entregue, vermelho=não entregue. */
+export function statusInfo(status, motivo) {
+  if (status === "entregue") return { label: "Entregue ✅", color: "#16A34A" };
+  if (status === "nao_entregue") {
+    return {
+      label: motivo ? `Não entregue ❌ — ${motivo}` : "Não entregue ❌",
+      color: "#DC2626",
+    };
+  }
+  return { label: "Pendente 🔵", color: "#2563EB" };
 }
 
 export function statusLabel(status, motivo) {
-  if (status === "entregue") return "Entregue ✅";
-  if (status === "nao_entregue") {
-    return motivo ? `Não entregue ❌ — ${motivo}` : "Não entregue ❌";
-  }
-  return "Pendente 🔵";
+  return statusInfo(status, motivo).label;
 }
 
+/**
+ * V233 — Popup padrão ÚNICO dos 3 mapas (otimizador, expandido e navegação):
+ * "Parada N" + endereço completo + "X pacotes" + status com cores V229.
+ */
 export function buildStopInfoHtml({ endereco, paradaNum, pacotes, status, motivo }) {
+  const s = statusInfo(status, motivo);
+  const n = Number(pacotes) || 1;
   return `<div style="font-family:system-ui,sans-serif;padding:4px 2px;line-height:1.45;max-width:260px">
     <div style="font-weight:800;font-size:13px;color:#1E3A8A;margin-bottom:4px">Parada ${paradaNum}</div>
     <div style="font-size:12px;color:#334155;margin-bottom:6px">${endereco || "—"}</div>
-    <div style="font-size:11px;color:#475569;margin-bottom:4px">📦 ${pacotes === 1 ? "1 pacote" : `${pacotes} pacotes`}</div>
-    <div style="font-size:11px;font-weight:700;color:#1E293B">${statusLabel(status, motivo)}</div>
+    <div style="font-size:11px;color:#475569;margin-bottom:4px">📦 ${n === 1 ? "1 pacote" : `${n} pacotes`}</div>
+    <div style="font-size:11px;font-weight:700;color:${s.color}">${s.label}</div>
   </div>`;
 }
