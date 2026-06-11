@@ -820,18 +820,29 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
       setErro("");
       try {
         await atualizarChecklist(uid, checklistId, payload);
-        let merged = null;
-        setChecklist((c) => {
-          merged = { ...c, ...payload, id: checklistId };
-          merged.coleta = normalizeColetaData(merged.coleta, merged);
-          merged.entrega = normalizeEntregaData(merged.entrega);
-          return merged;
-        });
+        const merged = { ...checklist, ...payload, id: checklistId };
+        merged.coleta = normalizeColetaData(merged.coleta, merged);
+        merged.entrega = normalizeEntregaData(merged.entrega);
+        if (!merged?.id) {
+          console.warn("[Checklist] Retorno antecipado: merged sem id após gravar", {
+            checklistId,
+            mergedKeys: merged ? Object.keys(merged) : null,
+          });
+          notificarErroSalvar("Falha ao montar dados salvos. Tente novamente.");
+          return null;
+        }
+        setChecklist(merged);
         onSaved?.(merged);
+        console.log("[Checklist] salvar() concluído com sucesso", { checklistId });
         return merged;
       } catch (err) {
         const codigo = err?.code ? ` (${err.code})` : "";
         const detalhe = err?.message ? `: ${err.message}` : "";
+        console.warn("[Checklist] Retorno antecipado: exceção em atualizarChecklist", {
+          checklistId,
+          code: err?.code,
+          message: err?.message,
+        });
         notificarErroSalvar(
           `Não foi possível salvar${codigo}${detalhe}. Verifique sua conexão.`,
           err
