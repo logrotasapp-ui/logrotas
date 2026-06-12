@@ -12,7 +12,11 @@ import {
   CHECKLIST_NIVEIS_COMBUSTIVEL,
   CHECKLIST_FOTO_SLOTS,
   CHECKLIST_ENTREGA_FOTO_SLOTS,
+  CHECKLIST_PERGUNTAS_PADRAO,
+  CHECKLIST_PERGUNTAS_MOTO,
   CHECKLIST_ACESSORIOS_PADRAO,
+  CHECKLIST_ACESSORIOS_MOTO,
+  resolveTipoVeiculo,
   normalizeColetaData,
   normalizeEntregaData,
 } from "../services/checklistService.js";
@@ -180,22 +184,26 @@ function Field({ label, value, onChange, placeholder }) {
   );
 }
 
-function BtnSelecao({ label, ativo, onClick, cor = C.navy }) {
+function BtnSelecao({ label, ativo, onClick, cor = C.navy, gridCell = false }) {
   return (
     <button
       type="button"
       onClick={onClick}
       style={{
-        flex: 1,
+        flex: gridCell ? undefined : 1,
+        width: gridCell ? "100%" : undefined,
         minWidth: 0,
         background: ativo ? `${cor}18` : "#fff",
         border: `2px solid ${ativo ? cor : C.border}`,
         borderRadius: 11,
-        padding: "9px 8px",
+        padding: gridCell ? "10px 8px" : "9px 8px",
         cursor: "pointer",
         color: ativo ? cor : C.text,
         fontWeight: 700,
-        fontSize: 12,
+        fontSize: gridCell ? 13 : 12,
+        lineHeight: 1.3,
+        whiteSpace: gridCell ? "normal" : "nowrap",
+        textAlign: "center",
         transition: "all .15s",
       }}
     >
@@ -2143,6 +2151,33 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
     setChecklist((c) => ({ ...c, cliente: { ...c.cliente, [campo]: valor } }));
   const updateVeiculo = (campo, valor) =>
     setChecklist((c) => ({ ...c, veiculo: { ...c.veiculo, [campo]: valor } }));
+
+  const setTipoVeiculo = (tipo) => {
+    setChecklist((c) => {
+      const tipoNovo = tipo === "moto" ? "moto" : "carro";
+      if (resolveTipoVeiculo(c.veiculo) === tipoNovo) return c;
+      const coletaAnt = normalizeColetaData(c.coleta, c);
+      const perguntasAntMap = new Map((coletaAnt.perguntas || []).map((p) => [p.texto, p.resposta]));
+      const acessoriosAntMap = new Map((coletaAnt.acessorios || []).map((a) => [a.item, a.estado]));
+      const perguntasLista = tipoNovo === "moto" ? CHECKLIST_PERGUNTAS_MOTO : CHECKLIST_PERGUNTAS_PADRAO;
+      const acessoriosLista = tipoNovo === "moto" ? CHECKLIST_ACESSORIOS_MOTO : CHECKLIST_ACESSORIOS_PADRAO;
+      const perguntas = perguntasLista.map((p) => ({
+        texto: p.texto,
+        resposta: perguntasAntMap.get(p.texto) ?? null,
+      }));
+      const acessorios = acessoriosLista.map((item) => ({
+        item,
+        estado: acessoriosAntMap.get(item) ?? null,
+      }));
+      const next = {
+        ...c,
+        veiculo: { ...c.veiculo, tipoVeiculo: tipoNovo },
+        coleta: { ...coletaAnt, perguntas, acessorios },
+      };
+      checklistRef.current = next;
+      return next;
+    });
+  };
   const updateServico = (campo, valor) =>
     setChecklist((c) => ({ ...c, servico: { ...c.servico, [campo]: valor } }));
   const updateEndereco = (campo, valor) =>
@@ -2558,7 +2593,7 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
 
         {etapa === 1 && (
           <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-            <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 16, padding: "16px 18px" }}>
+            <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 16, padding: "20px 22px" }}>
               <div style={{ color: C.navy, fontWeight: 800, fontSize: 15, fontFamily: "'Sora',sans-serif", marginBottom: 14 }}>👤 Cliente</div>
               <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
                 <Field label="Nome" value={checklist.cliente?.nome || ""} onChange={(v) => updateCliente("nome", v)} placeholder="Nome do cliente" />
@@ -2566,8 +2601,22 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
                 <Field label="Documento (CPF/RG/CNH)" value={checklist.cliente?.documento || ""} onChange={(v) => updateCliente("documento", v)} placeholder="Ex: 000.000.000-00 ou RG" />
               </div>
             </div>
-            <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 16, padding: "16px 18px" }}>
-              <div style={{ color: C.navy, fontWeight: 800, fontSize: 15, fontFamily: "'Sora',sans-serif", marginBottom: 14 }}>🚗 Veículo rebocado</div>
+            <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 16, padding: "20px 22px" }}>
+              <div style={{ color: C.navy, fontWeight: 800, fontSize: 15, fontFamily: "'Sora',sans-serif", marginBottom: 10 }}>
+                {resolveTipoVeiculo(checklist.veiculo) === "moto" ? "🏍️" : "🚗"} Veículo rebocado
+              </div>
+              <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
+                <BtnSelecao
+                  label="🚗 Carro"
+                  ativo={resolveTipoVeiculo(checklist.veiculo) === "carro"}
+                  onClick={() => setTipoVeiculo("carro")}
+                />
+                <BtnSelecao
+                  label="🏍️ Moto"
+                  ativo={resolveTipoVeiculo(checklist.veiculo) === "moto"}
+                  onClick={() => setTipoVeiculo("moto")}
+                />
+              </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
                 <Field label="Placa" value={checklist.veiculo?.placa || ""} onChange={(v) => updateVeiculo("placa", v)} placeholder="ABC-1D23" />
                 <Field label="Cor" value={checklist.veiculo?.cor || ""} onChange={(v) => updateVeiculo("cor", v)} placeholder="Prata" />
@@ -2575,22 +2624,34 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
                 <Field label="Modelo" value={checklist.veiculo?.modelo || ""} onChange={(v) => updateVeiculo("modelo", v)} placeholder="Gol" />
               </div>
             </div>
-            <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 16, padding: "16px 18px" }}>
+            <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 16, padding: "20px 22px" }}>
               <div style={{ color: C.navy, fontWeight: 800, fontSize: 15, fontFamily: "'Sora',sans-serif", marginBottom: 14 }}>🪝 Serviço</div>
               <div style={{ color: C.text2, fontSize: 13, fontWeight: 700, marginBottom: 8 }}>Tipo de serviço</div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 7, marginBottom: 14 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 14 }}>
                 {CHECKLIST_TIPOS_SERVICO.map((t) => (
-                  <BtnSelecao key={t.id} label={t.label} ativo={checklist.servico?.tipo === t.id} onClick={() => updateServico("tipo", t.id)} />
+                  <BtnSelecao
+                    key={t.id}
+                    label={t.label}
+                    ativo={checklist.servico?.tipo === t.id}
+                    onClick={() => updateServico("tipo", t.id)}
+                    gridCell
+                  />
                 ))}
               </div>
               <div style={{ color: C.text2, fontSize: 13, fontWeight: 700, marginBottom: 8 }}>Motivo</div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 7 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
                 {CHECKLIST_MOTIVOS.map((m) => (
-                  <BtnSelecao key={m.id} label={m.label} ativo={checklist.servico?.motivo === m.id} onClick={() => updateServico("motivo", m.id)} />
+                  <BtnSelecao
+                    key={m.id}
+                    label={m.label}
+                    ativo={checklist.servico?.motivo === m.id}
+                    onClick={() => updateServico("motivo", m.id)}
+                    gridCell
+                  />
                 ))}
               </div>
             </div>
-            <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 16, padding: "16px 18px" }}>
+            <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 16, padding: "20px 22px" }}>
               <div style={{ color: C.navy, fontWeight: 800, fontSize: 15, fontFamily: "'Sora',sans-serif", marginBottom: 14 }}>📍 Origem e destino</div>
               <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
                 <Field label="Origem (coleta)" value={checklist.origem?.endereco || ""} onChange={(v) => updateEndereco("origem", v)} placeholder="Endereço de coleta" />
@@ -2604,7 +2665,7 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
               style={{
                 width: "100%",
                 padding: "14px 0",
-                background: C.orange,
+                background: C.navy,
                 border: "none",
                 borderRadius: 12,
                 color: "#fff",
@@ -2612,7 +2673,7 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
                 fontSize: 15,
                 cursor: salvando ? "wait" : "pointer",
                 fontFamily: "'Sora',sans-serif",
-                boxShadow: `0 3px 10px ${C.orange}44`,
+                boxShadow: `0 3px 10px ${C.navy}44`,
                 opacity: salvando ? 0.7 : 1,
               }}
             >
@@ -2625,8 +2686,8 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
           <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
             <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 16, padding: "16px 18px" }}>
               <div style={{ color: C.navy, fontWeight: 800, fontSize: 15, fontFamily: "'Sora',sans-serif", marginBottom: 14 }}>❓ Perguntas de vistoria</div>
-              {(checklist.coleta?.perguntas || []).map((p, i) => (
-                <div key={i} style={{ marginBottom: i < 2 ? 16 : 0 }}>
+              {(checklist.coleta?.perguntas || []).map((p, i, arr) => (
+                <div key={p.texto || i} style={{ marginBottom: i < arr.length - 1 ? 16 : 0 }}>
                   <div style={{ color: C.text, fontSize: 14, fontWeight: 600, marginBottom: 8, lineHeight: 1.4 }}>
                     {i + 1}. {p.texto}
                   </div>
@@ -3074,7 +3135,10 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
                 <div style={{ color: C.text2, fontSize: 13, lineHeight: 1.5 }}>
                   Toque nos itens divergentes para marcar o estado na entrega:
                 </div>
-                {(checklist.coleta?.acessorios || CHECKLIST_ACESSORIOS_PADRAO.map((item) => ({ item, estado: null }))).map(
+                {(checklist.coleta?.acessorios ||
+                  (resolveTipoVeiculo(checklist.veiculo) === "moto" ? CHECKLIST_ACESSORIOS_MOTO : CHECKLIST_ACESSORIOS_PADRAO).map(
+                    (item) => ({ item, estado: null })
+                  )).map(
                   (a) => {
                     const divergente = (checklist.entrega?.conferencia?.divergencias || []).find((d) => d.item === a.item);
                     const cores = divergente ? ACESSORIO_CORES[divergente.estadoEntrega] || ACESSORIO_CORES.bom : null;

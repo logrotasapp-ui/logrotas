@@ -18,6 +18,11 @@ export const CHECKLIST_PERGUNTAS_PADRAO = [
   { texto: "Há objetos soltos ou pertences no interior?", resposta: null },
 ];
 
+export const CHECKLIST_PERGUNTAS_MOTO = [
+  { texto: "O veículo possui avarias visíveis na carenagem?", resposta: null },
+  { texto: "Há objetos soltos ou pertences no baú/alforje?", resposta: null },
+];
+
 export const CHECKLIST_ACESSORIOS_PADRAO = [
   "Calotas",
   "Roda de liga leve",
@@ -30,6 +35,34 @@ export const CHECKLIST_ACESSORIOS_PADRAO = [
   "Triângulo",
   "Estepe",
 ];
+
+export const CHECKLIST_ACESSORIOS_MOTO = [
+  "Chaves",
+  "Tanque",
+  "Banco",
+  "Baú/Alforje",
+  "Capacete",
+  "Documentos",
+  "Corrente",
+  "Escapamento",
+  "Buzina",
+  "Macaco",
+  "Triângulo",
+];
+
+export function resolveTipoVeiculo(veiculo) {
+  return veiculo?.tipoVeiculo === "moto" ? "moto" : "carro";
+}
+
+export function perguntasPadraoParaTipo(tipoVeiculo) {
+  const lista = tipoVeiculo === "moto" ? CHECKLIST_PERGUNTAS_MOTO : CHECKLIST_PERGUNTAS_PADRAO;
+  return lista.map((p) => ({ ...p }));
+}
+
+export function acessoriosPadraoParaTipo(tipoVeiculo) {
+  const lista = tipoVeiculo === "moto" ? CHECKLIST_ACESSORIOS_MOTO : CHECKLIST_ACESSORIOS_PADRAO;
+  return lista.map((item) => ({ item, estado: null }));
+}
 
 export const CHECKLIST_ESTADOS_ACESSORIO = ["bom", "ausente", "quebrado", "na"];
 export const CHECKLIST_ESTADOS_PNEU = ["bom", "regular", "ruim"];
@@ -99,10 +132,11 @@ function sanitizeFirestoreData(value) {
   return out;
 }
 
-function buildColetaVazia() {
+function buildColetaVazia(tipoVeiculo = "carro") {
+  const tipo = resolveTipoVeiculo({ tipoVeiculo });
   return {
-    perguntas: CHECKLIST_PERGUNTAS_PADRAO.map((p) => ({ ...p })),
-    acessorios: CHECKLIST_ACESSORIOS_PADRAO.map((item) => ({ item, estado: null })),
+    perguntas: perguntasPadraoParaTipo(tipo),
+    acessorios: acessoriosPadraoParaTipo(tipo),
     pneus: { dianteiro: null, traseiro: null, estepe: null },
     combustivel: null,
     observacoes: "",
@@ -141,13 +175,19 @@ export function normalizeColetaData(coleta, checklistRoot = {}) {
     (Array.isArray(legacy.perguntas) && legacy.perguntas.length > 0 && legacy.perguntas) ||
     null;
 
-  const perguntas = CHECKLIST_PERGUNTAS_PADRAO.map((padrao, i) => {
-    const salva = rawPerguntas?.[i];
-    return {
-      texto: salva?.texto || padrao.texto,
-      resposta: salva?.resposta ?? null,
-    };
+  const tipoVeiculo = resolveTipoVeiculo(checklistRoot?.veiculo || legacy?.veiculo || {});
+  const perguntasLista = tipoVeiculo === "moto" ? CHECKLIST_PERGUNTAS_MOTO : CHECKLIST_PERGUNTAS_PADRAO;
+  const acessoriosLista = tipoVeiculo === "moto" ? CHECKLIST_ACESSORIOS_MOTO : CHECKLIST_ACESSORIOS_PADRAO;
+
+  const perguntasSalvasMap = new Map();
+  (rawPerguntas || []).forEach((p, i) => {
+    if (p?.texto) perguntasSalvasMap.set(p.texto, p.resposta ?? null);
+    else if (perguntasLista[i]) perguntasSalvasMap.set(perguntasLista[i].texto, p?.resposta ?? null);
   });
+  const perguntas = perguntasLista.map((padrao) => ({
+    texto: padrao.texto,
+    resposta: perguntasSalvasMap.has(padrao.texto) ? perguntasSalvasMap.get(padrao.texto) : null,
+  }));
 
   const rawAcessorios =
     (Array.isArray(base.acessorios) && base.acessorios.length > 0 && base.acessorios) ||
@@ -158,7 +198,7 @@ export function normalizeColetaData(coleta, checklistRoot = {}) {
   (rawAcessorios || []).forEach((a) => {
     if (a?.item) acessoriosMap.set(a.item, { item: a.item, estado: a.estado ?? null });
   });
-  const acessorios = CHECKLIST_ACESSORIOS_PADRAO.map((item) => ({
+  const acessorios = acessoriosLista.map((item) => ({
     item,
     estado: acessoriosMap.get(item)?.estado ?? null,
   }));
@@ -244,6 +284,7 @@ function buildNovoDocumento(freteId, dados = {}) {
       marca: dados.veiculo?.marca || "",
       modelo: dados.veiculo?.modelo || "",
       cor: dados.veiculo?.cor || "",
+      tipoVeiculo: dados.veiculo?.tipoVeiculo === "moto" ? "moto" : "carro",
     },
     servico: {
       tipo: dados.servico?.tipo || "",
@@ -251,7 +292,7 @@ function buildNovoDocumento(freteId, dados = {}) {
     },
     origem: { endereco: dados.origem?.endereco || "" },
     destino: { endereco: dados.destino?.endereco || "" },
-    coleta: buildColetaVazia(),
+    coleta: buildColetaVazia(dados.veiculo?.tipoVeiculo),
     entrega: buildEntregaVazia(),
   };
 }
