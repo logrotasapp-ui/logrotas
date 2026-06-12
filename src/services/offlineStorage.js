@@ -34,6 +34,7 @@ export function readPerfilLocalFallback() {
       nome: cached.nome || "",
       email: cached.email || "",
       telefone: cached.telefone || "",
+      documento: cached.documento || "",
       tipo: cached.tipo || "Motorista Autônomo",
       veiculo: cached.veiculo || "",
     };
@@ -44,6 +45,7 @@ export function readPerfilLocalFallback() {
     nome: step1?.name || "",
     email: step1?.email || "",
     telefone: step1?.phone || "",
+    documento: step1?.documento || "",
     tipo: PROFILE_LABELS[prefs?.profile] || "Motorista Autônomo",
     veiculo: prefs?.vehicle || "",
   };
@@ -54,6 +56,7 @@ export function writePerfilLocalCache(perfil) {
     nome: perfil?.nome || "",
     email: perfil?.email || "",
     telefone: perfil?.telefone || "",
+    documento: perfil?.documento || "",
     tipo: perfil?.tipo || "Motorista Autônomo",
     veiculo: perfil?.veiculo || "",
   });

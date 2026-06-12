@@ -376,6 +376,20 @@ function ToastAviso({ mensagem }) {
   );
 }
 
+function perfilPrestadorCompleto(perfil) {
+  return !!(perfil?.nome?.trim() && perfil?.documento?.trim());
+}
+
+function resolvePrestadorCampos(perfil, assinAtual) {
+  if (perfilPrestadorCompleto(perfil)) {
+    return { nome: perfil.nome.trim(), documento: perfil.documento.trim() };
+  }
+  return {
+    nome: (assinAtual?.nome || "").trim(),
+    documento: (assinAtual?.documento || "").trim(),
+  };
+}
+
 function BlocoAssinatura({
   titulo,
   assin,
@@ -386,6 +400,10 @@ function BlocoAssinatura({
   onCampoChange,
   onSalvarAssinatura,
   salvandoAssinatura,
+  modoPrestador = false,
+  prestadorPerfilCompleto = false,
+  prestadorLabel = "",
+  telefoneExtra = null,
 }) {
   const assinSafe = { ...assinaturaVazia(), ...(assin && typeof assin === "object" ? assin : {}) };
   const temAssinaturaSalva =
@@ -422,20 +440,46 @@ function BlocoAssinatura({
         <div style={{ color: C.navy, fontWeight: 800, fontSize: 15, fontFamily: "'Sora',sans-serif", marginBottom: 14 }}>
           {titulo}
         </div>
-        <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 14 }}>
-          <Field
-            label="Nome completo"
-            value={assinSafe.nome ?? ""}
-            onChange={(v) => handleCampo("nome", v)}
-            placeholder="Nome de quem assina"
-          />
-          <Field
-            label="Documento (RG/CPF)"
-            value={assinSafe.documento ?? ""}
-            onChange={(v) => handleCampo("documento", v)}
-            placeholder="000.000.000-00"
-          />
-        </div>
+        {modoPrestador && prestadorPerfilCompleto ? (
+          <div
+            style={{
+              color: C.text2,
+              fontSize: 14,
+              fontWeight: 600,
+              lineHeight: 1.5,
+              marginBottom: 14,
+              padding: "10px 12px",
+              background: C.navyLight,
+              borderRadius: 10,
+              border: `1px solid ${C.navy}18`,
+            }}
+          >
+            Prestador: {prestadorLabel}
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 14 }}>
+            <Field
+              label="Nome completo"
+              value={assinSafe.nome ?? ""}
+              onChange={(v) => handleCampo("nome", v)}
+              placeholder="Nome de quem assina"
+            />
+            <Field
+              label="Documento (CPF/RG/CNH)"
+              value={assinSafe.documento ?? ""}
+              onChange={(v) => handleCampo("documento", v)}
+              placeholder="000.000.000-00"
+            />
+            {telefoneExtra && (
+              <Field
+                label="Telefone"
+                value={telefoneExtra.value ?? ""}
+                onChange={(v) => telefoneExtra.onChange?.(v)}
+                placeholder="(11) 99999-9999"
+              />
+            )}
+          </div>
+        )}
         {temAssinaturaSalva && !substituindo && (
           <div
             style={{
@@ -792,6 +836,7 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
   const [uploadingEntregaSlot, setUploadingEntregaSlot] = useState(null);
   const [fotoContexto, setFotoContexto] = useState("coleta");
   const [mostrarDivergencias, setMostrarDivergencias] = useState(false);
+  const [modalConfirmarDivergencia, setModalConfirmarDivergencia] = useState(false);
   const [toastMsg, setToastMsg] = useState("");
   const [substituirColeta, setSubstituirColeta] = useState({ responsavel: false, prestador: false });
   const [salvandoAssinaturaBloco, setSalvandoAssinaturaBloco] = useState({
@@ -812,8 +857,9 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
   const migrationRanRef = useRef(null);
   checklistRef.current = checklist;
 
-  const validacao = coletaCompleta(checklist);
-  const validacaoEntrega = entregaCompleta(checklist);
+  const validacao = coletaCompleta(checklist, perfil);
+  const validacaoEntrega = entregaCompleta(checklist, perfil);
+  const prestadorPerfilOk = perfilPrestadorCompleto(perfil);
   const coletaOk = checklist?.status === "aguardando_entrega" || checklist?.status === "concluido" || validacao.completa;
   const entregaHabilitada = checklist?.status === "aguardando_entrega" || checklist?.status === "concluido";
   const entregaConcluida = checklist?.status === "concluido";
@@ -880,6 +926,85 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
       setMostrarDivergencias(true);
     }
   }, [checklist.entrega?.conferencia?.conforme]);
+
+  useEffect(() => {
+    if (etapa !== 4) return;
+    setChecklist((c) => {
+      const cliente = c.cliente || {};
+      const coleta = normalizeColetaData(c.coleta, c);
+      const assin = coleta.assinaturas || {};
+      const resp = assin.responsavel || assinaturaVazia();
+      const prest = assin.prestador || assinaturaVazia();
+      let changed = false;
+      const nextResp = { ...resp };
+      const nextPrest = { ...prest };
+
+      if (!resp.nome?.trim() && cliente.nome?.trim()) {
+        nextResp.nome = cliente.nome;
+        changed = true;
+      }
+      if (!resp.documento?.trim() && cliente.documento?.trim()) {
+        nextResp.documento = cliente.documento;
+        changed = true;
+      }
+      if (!prestadorPerfilOk) {
+        if (!prest.nome?.trim() && perfil?.nome?.trim()) {
+          nextPrest.nome = perfil.nome;
+          changed = true;
+        }
+        if (!prest.documento?.trim() && perfil?.documento?.trim()) {
+          nextPrest.documento = perfil.documento;
+          changed = true;
+        }
+      }
+
+      if (!changed) return c;
+      const next = {
+        ...c,
+        coleta: {
+          ...coleta,
+          assinaturas: {
+            ...assin,
+            responsavel: nextResp,
+            prestador: nextPrest,
+          },
+        },
+      };
+      checklistRef.current = next;
+      return next;
+    });
+  }, [etapa, perfil?.nome, perfil?.documento, prestadorPerfilOk]);
+
+  useEffect(() => {
+    if (etapa !== 6 || prestadorPerfilOk) return;
+    setChecklist((c) => {
+      const entrega = normalizeEntregaData(c.entrega);
+      const prest = entrega.assinaturas?.prestador || assinaturaVazia();
+      let changed = false;
+      const nextPrest = { ...prest };
+      if (!prest.nome?.trim() && perfil?.nome?.trim()) {
+        nextPrest.nome = perfil.nome;
+        changed = true;
+      }
+      if (!prest.documento?.trim() && perfil?.documento?.trim()) {
+        nextPrest.documento = perfil.documento;
+        changed = true;
+      }
+      if (!changed) return c;
+      const next = {
+        ...c,
+        entrega: {
+          ...entrega,
+          assinaturas: {
+            ...entrega.assinaturas,
+            prestador: nextPrest,
+          },
+        },
+      };
+      checklistRef.current = next;
+      return next;
+    });
+  }, [etapa, perfil?.nome, perfil?.documento, prestadorPerfilOk]);
 
   const notificarErroSalvar = useCallback((mensagem, err) => {
     console.error("[Checklist] Falha ao salvar:", mensagem, err || "");
@@ -965,7 +1090,7 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
     const okColeta =
       atual?.status === "aguardando_entrega" ||
       atual?.status === "concluido" ||
-      coletaCompleta(atual).completa;
+      coletaCompleta(atual, perfil).completa;
     console.log("[Checklist] Gerar PDF clicado", {
       coletaOk: okColeta,
       gerandoPdf,
@@ -979,7 +1104,7 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
       return;
     }
     if (!okColeta) {
-      const val = coletaCompleta(atual);
+      const val = coletaCompleta(atual, perfil);
       const msg = val.faltando.length
         ? `Complete a coleta para gerar o PDF: ${val.faltando.slice(0, 3).join(", ")}${val.faltando.length > 3 ? "…" : ""}`
         : "Finalize a coleta antes de gerar o PDF.";
@@ -1077,6 +1202,8 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
       }
 
       const assinAtual = atual.coleta?.assinaturas?.[bloco] || assinaturaVazia();
+      const ident =
+        bloco === "prestador" ? resolvePrestadorCampos(perfil, assinAtual) : null;
       setSalvandoAssinaturaBloco((s) => ({ ...s, [bloco]: true }));
       setErro("");
       try {
@@ -1093,8 +1220,8 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
           ...(atual.coleta?.assinaturas || {}),
           [bloco]: {
             ...assinAtual,
-            nome: (assinAtual.nome || "").trim(),
-            documento: (assinAtual.documento || "").trim(),
+            nome: ident ? ident.nome : (assinAtual.nome || "").trim(),
+            documento: ident ? ident.documento : (assinAtual.documento || "").trim(),
             imagemUrl: url,
             dataHora,
             lat: gps?.lat ?? null,
@@ -1118,7 +1245,7 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
         setSalvandoAssinaturaBloco((s) => ({ ...s, [bloco]: false }));
       }
     },
-    [uid, checklist, salvar]
+    [uid, checklist, salvar, perfil]
   );
 
   const salvarAssinaturaEntregaBloco = useCallback(
@@ -1141,6 +1268,8 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
 
       const entregaNorm = normalizeEntregaData(atual.entrega);
       const assinAtual = entregaNorm.assinaturas?.[bloco] || assinaturaVazia();
+      const ident =
+        bloco === "prestador" ? resolvePrestadorCampos(perfil, assinAtual) : null;
       setSalvandoAssinaturaEntregaBloco((s) => ({ ...s, [bloco]: true }));
       setErro("");
       try {
@@ -1155,8 +1284,8 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
           ...entregaNorm.assinaturas,
           [bloco]: {
             ...assinAtual,
-            nome: (assinAtual.nome || "").trim(),
-            documento: (assinAtual.documento || "").trim(),
+            nome: ident ? ident.nome : (assinAtual.nome || "").trim(),
+            documento: ident ? ident.documento : (assinAtual.documento || "").trim(),
             imagemUrl: url,
             dataHora: formatStampDataHora(),
             lat: gps?.lat ?? null,
@@ -1180,7 +1309,7 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
         setSalvandoAssinaturaEntregaBloco((s) => ({ ...s, [bloco]: false }));
       }
     },
-    [uid, salvar]
+    [uid, salvar, perfil]
   );
 
   const uploadAssinaturaImagem = useCallback(
@@ -1215,12 +1344,14 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
       const resp = atual.coleta?.assinaturas?.responsavel || {};
       const prest = atual.coleta?.assinaturas?.prestador || {};
 
+      const prestId = resolvePrestadorCampos(perfil, prest);
+
       if (finalizar) {
         if (!resp.nome?.trim() || !resp.documento?.trim()) {
           setErro("Preencha nome e documento do responsável no local.");
           return null;
         }
-        if (!prest.nome?.trim() || !prest.documento?.trim()) {
+        if (!prestId.nome || !prestId.documento) {
           setErro("Preencha nome e documento do prestador.");
           return null;
         }
@@ -1282,8 +1413,8 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
             lng: respPadNovo ? lng : resp.lng ?? lng,
           },
           prestador: {
-            nome: (prest.nome || "").trim(),
-            documento: (prest.documento || "").trim(),
+            nome: prestId.nome,
+            documento: prestId.documento,
             imagemUrl: prestUrl,
             dataHora: prestPadNovo || !prest.dataHora ? dataHora : prest.dataHora,
             lat: prestPadNovo ? lat : prest.lat ?? lat,
@@ -1296,7 +1427,7 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
 
         if (finalizar) {
           const checklistAtualizado = { ...atual, coleta: coletaAtualizada };
-          const val = coletaCompleta(checklistAtualizado);
+          const val = coletaCompleta(checklistAtualizado, perfil);
           if (val.completa) {
             coletaAtualizada.finalizadaEm = new Date().toISOString();
             payload.status = "aguardando_entrega";
@@ -1331,13 +1462,13 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
         setSalvando(false);
       }
     },
-    [uid, checklist, salvar, uploadAssinaturaImagem]
+    [uid, checklist, salvar, uploadAssinaturaImagem, perfil]
   );
 
   const irParaEtapa = (id) => {
     const etapaInfo = ETAPAS.find((e) => e.id === id);
     if (etapaInfo?.requerColeta && !entregaHabilitada) {
-      const val = coletaCompleta(checklist);
+      const val = coletaCompleta(checklist, perfil);
       const msg = val.faltando.length
         ? `Complete a coleta primeiro: ${val.faltando.slice(0, 3).join(", ")}${val.faltando.length > 3 ? "…" : ""}`
         : "Finalize a coleta antes de registrar a entrega.";
@@ -1584,7 +1715,7 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
     console.log("[Checklist] Finalizar coleta clicado");
     const ok = await persistirAssinaturasColeta({ finalizar: true });
     if (ok) {
-      const val = coletaCompleta(checklistRef.current);
+      const val = coletaCompleta(checklistRef.current, perfil);
       console.log("[Checklist] Finalizar coleta concluído", { completa: val.completa });
       if (val.completa || checklistRef.current?.status === "aguardando_entrega") setEtapa(5);
     }
@@ -1684,7 +1815,8 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
     await salvar({ entrega });
   };
 
-  const marcarDivergencia = async () => {
+  const confirmarDivergencia = async () => {
+    setModalConfirmarDivergencia(false);
     const atual = checklistRef.current || checklist;
     const entrega = {
       ...normalizeEntregaData(atual.entrega),
@@ -1695,6 +1827,21 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
       },
     };
     setMostrarDivergencias(true);
+    setChecklist((c) => {
+      const next = { ...c, entrega };
+      checklistRef.current = next;
+      return next;
+    });
+    await salvar({ entrega });
+  };
+
+  const voltarParaConforme = async () => {
+    const atual = checklistRef.current || checklist;
+    const entrega = {
+      ...normalizeEntregaData(atual.entrega),
+      conferencia: { conforme: true, divergencias: [], observacao: "" },
+    };
+    setMostrarDivergencias(false);
     setChecklist((c) => {
       const next = { ...c, entrega };
       checklistRef.current = next;
@@ -1795,7 +1942,8 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
       setErro("Preencha nome e documento do recebedor (assinatura).");
       return;
     }
-    if (!prest.nome?.trim() || !prest.documento?.trim()) {
+    const prestId = resolvePrestadorCampos(perfil, prest);
+    if (!prestId.nome || !prestId.documento) {
       setErro("Preencha nome e documento do prestador (entrega).");
       return;
     }
@@ -1808,7 +1956,7 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
       return;
     }
 
-    const val = entregaCompleta({ ...atual, entrega: entregaNorm });
+    const val = entregaCompleta({ ...atual, entrega: entregaNorm }, perfil);
     if (!val.completa) {
       setErro(`Complete a entrega: ${val.faltando.slice(0, 3).join(", ")}${val.faltando.length > 3 ? "…" : ""}`);
       return;
@@ -1977,6 +2125,7 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
               <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
                 <Field label="Nome" value={checklist.cliente?.nome || ""} onChange={(v) => updateCliente("nome", v)} placeholder="Nome do cliente" />
                 <Field label="Telefone" value={checklist.cliente?.telefone || ""} onChange={(v) => updateCliente("telefone", v)} placeholder="(11) 99999-9999" />
+                <Field label="Documento (CPF/RG/CNH)" value={checklist.cliente?.documento || ""} onChange={(v) => updateCliente("documento", v)} placeholder="Ex: 000.000.000-00 ou RG" />
               </div>
             </div>
             <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 16, padding: "16px 18px" }}>
@@ -2240,6 +2389,7 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
               { bloco: "prestador", titulo: "🪝 Prestador", padRef: prestadorPadRef },
             ].map(({ bloco, titulo, padRef }) => {
               const assin = checklist.coleta?.assinaturas?.[bloco] || assinaturaVazia();
+              const isPrestador = bloco === "prestador";
               return (
                 <BlocoAssinatura
                   key={bloco}
@@ -2252,6 +2402,17 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
                   onCampoChange={(campo, valor) => updateAssinaturaCampo(bloco, campo, valor)}
                   onSalvarAssinatura={() => salvarAssinaturaBloco(bloco)}
                   salvandoAssinatura={salvandoAssinaturaBloco[bloco] || salvando}
+                  modoPrestador={isPrestador}
+                  prestadorPerfilCompleto={isPrestador && prestadorPerfilOk}
+                  prestadorLabel={isPrestador && prestadorPerfilOk ? `${perfil.nome} · ${perfil.documento}` : ""}
+                  telefoneExtra={
+                    bloco === "responsavel"
+                      ? {
+                          value: checklist.cliente?.telefone || "",
+                          onChange: (v) => updateCliente("telefone", v),
+                        }
+                      : null
+                  }
                 />
               );
             })}
@@ -2420,7 +2581,7 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
             </button>
             <button
               type="button"
-              onClick={marcarDivergencia}
+              onClick={() => setModalConfirmarDivergencia(true)}
               style={{
                 width: "100%",
                 padding: "13px 0",
@@ -2514,6 +2675,24 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
                   onChange={updateObservacaoDivergencia}
                   placeholder="Descreva as divergências encontradas"
                 />
+                <button
+                  type="button"
+                  onClick={() => void voltarParaConforme()}
+                  style={{
+                    width: "100%",
+                    padding: "12px 0",
+                    background: C.navy,
+                    border: "none",
+                    borderRadius: 11,
+                    color: "#fff",
+                    fontWeight: 700,
+                    fontSize: 14,
+                    cursor: "pointer",
+                    fontFamily: "'Sora',sans-serif",
+                  }}
+                >
+                  ↩ Voltar para Conforme
+                </button>
               </div>
             )}
 
@@ -2525,6 +2704,7 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
               { bloco: "prestador", titulo: "🪝 Prestador", padRef: prestadorEntregaPadRef },
             ].map(({ bloco, titulo, padRef }) => {
               const assin = checklist.entrega?.assinaturas?.[bloco] || assinaturaVazia();
+              const isPrestador = bloco === "prestador";
               return (
                 <BlocoAssinatura
                   key={bloco}
@@ -2537,6 +2717,9 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
                   onCampoChange={(campo, valor) => updateAssinaturaEntregaCampo(bloco, campo, valor)}
                   onSalvarAssinatura={() => salvarAssinaturaEntregaBloco(bloco)}
                   salvandoAssinatura={salvandoAssinaturaEntregaBloco[bloco] || salvando}
+                  modoPrestador={isPrestador}
+                  prestadorPerfilCompleto={isPrestador && prestadorPerfilOk}
+                  prestadorLabel={isPrestador && prestadorPerfilOk ? `${perfil.nome} · ${perfil.documento}` : ""}
                 />
               );
             })}
@@ -2582,6 +2765,79 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
       </div>
 
       <ToastAviso mensagem={toastMsg} />
+
+      {modalConfirmarDivergencia &&
+        createPortal(
+          <div
+            style={{
+              position: "fixed",
+              inset: 0,
+              zIndex: 1100,
+              background: "#1E3A8A66",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              padding: 20,
+            }}
+          >
+            <div
+              style={{
+                background: C.surface,
+                borderRadius: 18,
+                width: "100%",
+                maxWidth: 360,
+                padding: 24,
+                boxShadow: "0 12px 40px #00000033",
+                textAlign: "center",
+              }}
+            >
+              <div style={{ fontSize: 36, marginBottom: 8 }}>⚠️</div>
+              <div style={{ color: C.navy, fontWeight: 800, fontSize: 16, fontFamily: "'Sora',sans-serif", marginBottom: 8 }}>
+                Confirmar divergência?
+              </div>
+              <div style={{ color: C.muted, fontSize: 13, marginBottom: 18, lineHeight: 1.5 }}>
+                Você vai registrar que o veículo não está conforme à coleta. Pode voltar ao estado conforme depois.
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                <button
+                  type="button"
+                  onClick={() => void confirmarDivergencia()}
+                  style={{
+                    width: "100%",
+                    padding: 13,
+                    background: C.orange,
+                    border: "none",
+                    borderRadius: 12,
+                    cursor: "pointer",
+                    color: "#fff",
+                    fontWeight: 700,
+                    fontSize: 14,
+                  }}
+                >
+                  Confirmar divergência
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setModalConfirmarDivergencia(false)}
+                  style={{
+                    width: "100%",
+                    padding: 13,
+                    background: C.subtle,
+                    border: `1px solid ${C.border}`,
+                    borderRadius: 12,
+                    cursor: "pointer",
+                    color: C.text2,
+                    fontWeight: 700,
+                    fontSize: 14,
+                  }}
+                >
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          </div>,
+          document.body
+        )}
 
       {showPdfShare &&
         createPortal(

@@ -237,6 +237,7 @@ function buildNovoDocumento(freteId, dados = {}) {
     cliente: {
       nome: dados.cliente?.nome || "",
       telefone: dados.cliente?.telefone || "",
+      documento: dados.cliente?.documento || "",
     },
     veiculo: {
       placa: dados.veiculo?.placa || "",
@@ -255,7 +256,17 @@ function buildNovoDocumento(freteId, dados = {}) {
   };
 }
 
-export function coletaCompleta(checklist) {
+function resolvePrestadorIdentidade(assinPrestador, perfil) {
+  if (perfil?.nome?.trim() && perfil?.documento?.trim()) {
+    return { nome: perfil.nome.trim(), documento: perfil.documento.trim() };
+  }
+  return {
+    nome: assinPrestador?.nome?.trim() || "",
+    documento: assinPrestador?.documento?.trim() || "",
+  };
+}
+
+export function coletaCompleta(checklist, perfil = null) {
   const faltando = [];
   if (!checklist) return { completa: false, faltando: ["Checklist não encontrado"] };
 
@@ -300,14 +311,15 @@ export function coletaCompleta(checklist) {
   if (!assin.responsavel?.nome?.trim()) faltando.push("Nome do responsável no local");
   if (!assin.responsavel?.documento?.trim()) faltando.push("Documento do responsável no local");
   if (!assin.responsavel?.imagemUrl) faltando.push("Assinatura do responsável no local");
-  if (!assin.prestador?.nome?.trim()) faltando.push("Nome do prestador");
-  if (!assin.prestador?.documento?.trim()) faltando.push("Documento do prestador");
+  const prestId = resolvePrestadorIdentidade(assin.prestador, perfil);
+  if (!prestId.nome) faltando.push("Nome do prestador");
+  if (!prestId.documento) faltando.push("Documento do prestador");
   if (!assin.prestador?.imagemUrl) faltando.push("Assinatura do prestador");
 
   return { completa: faltando.length === 0, faltando };
 }
 
-export function entregaCompleta(checklist) {
+export function entregaCompleta(checklist, perfil = null) {
   const faltando = [];
   if (!checklist) return { completa: false, faltando: ["Checklist não encontrado"] };
 
@@ -335,8 +347,9 @@ export function entregaCompleta(checklist) {
   if (!assin.recebedor?.nome?.trim()) faltando.push("Nome do recebedor (assinatura)");
   if (!assin.recebedor?.documento?.trim()) faltando.push("Documento do recebedor (assinatura)");
   if (!assin.recebedor?.imagemUrl) faltando.push("Assinatura do recebedor");
-  if (!assin.prestador?.nome?.trim()) faltando.push("Nome do prestador (entrega)");
-  if (!assin.prestador?.documento?.trim()) faltando.push("Documento do prestador (entrega)");
+  const prestId = resolvePrestadorIdentidade(assin.prestador, perfil);
+  if (!prestId.nome) faltando.push("Nome do prestador (entrega)");
+  if (!prestId.documento) faltando.push("Documento do prestador (entrega)");
   if (!assin.prestador?.imagemUrl) faltando.push("Assinatura do prestador (entrega)");
 
   return { completa: faltando.length === 0, faltando };

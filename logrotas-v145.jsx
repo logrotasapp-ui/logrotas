@@ -102,7 +102,7 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="V248";
+const APP_VERSION="V249";
 const BETA_HIDE_PLANOS=true;
 
 const OfflineRestoredBanner=({show})=>show?(
@@ -5801,6 +5801,7 @@ const Perfil=({uid,metaMes,setMetaMes,faturamentoMes,saldoLiquidoMes,vehicles,se
           <Field label="Meu Nome" value={perfil.nome} onChange={v=>setPerfil(p=>({...p,nome:v}))} placeholder="Ex: João Silva" readOnly={!editMode}/>
           <Field label="E-mail" value={perfil.email} onChange={v=>setPerfil(p=>({...p,email:v}))} placeholder="Ex: joao@email.com" readOnly={!editMode}/>
           <Field label="WhatsApp / Telefone" value={perfil.telefone} onChange={v=>setPerfil(p=>({...p,telefone:v}))} placeholder="Ex: (11) 99999-9999" readOnly={!editMode}/>
+          <Field label="Documento (CPF/RG/CNH)" value={perfil.documento||""} onChange={v=>setPerfil(p=>({...p,documento:v}))} placeholder="Ex: 000.000.000-00 ou RG" readOnly={!editMode}/>
 
           {/* Tipo de perfil */}
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderTop:`1px solid ${C.border}`}}>
@@ -5944,7 +5945,7 @@ export default function App(){
   const docsVencidos=(docs||[]).filter(d=>{if(!d.expiry)return false;const[dia,mes,ano]=d.expiry.split("/");return new Date(ano,mes-1,dia)<hoje;});
   const docsVencendo30=(docs||[]).filter(d=>{if(!d.expiry)return false;const[dia,mes,ano]=d.expiry.split("/");const dias=Math.ceil((new Date(ano,mes-1,dia)-hoje)/(1000*60*60*24));return dias<=30&&dias>=0;});
   const docsVencendo=(docs||[]).filter(d=>{if(!d.expiry)return false;const[dia,mes,ano]=d.expiry.split("/");const dias=Math.ceil((new Date(ano,mes-1,dia)-hoje)/(1000*60*60*24));return dias<=60&&dias>=0;});
-  const[perfil,setPerfil]=useState({nome:"",email:"",telefone:"",tipo:"Motorista Autônomo",veiculo:""});
+  const[perfil,setPerfil]=useState({nome:"",email:"",telefone:"",documento:"",tipo:"Motorista Autônomo",veiculo:""});
   const[checklistScreen,setChecklistScreen]=useState(null);
   const[authReady,setAuthReady]=useState(false);
   const[firebaseUser,setFirebaseUser]=useState(null);
@@ -6205,7 +6206,7 @@ export default function App(){
     try{
       await signOutUser();
     }catch{/* ignore */}
-    setPerfil({nome:"",email:"",telefone:"",tipo:"Motorista Autônomo",veiculo:""});
+    setPerfil({nome:"",email:"",telefone:"",documento:"",tipo:"Motorista Autônomo",veiculo:""});
     setScreen("login");
   };
 
@@ -6221,6 +6222,7 @@ export default function App(){
       nome: dadosCadastro.name||"",
       email: dadosCadastro.email||"",
       telefone: dadosCadastro.phone||"",
+      documento: dadosCadastro.documento||"",
       tipo: profileLabels[dadosCadastro.profile]||"Motorista Autônomo",
       veiculo: dadosCadastro.vehicle||"",
     });
@@ -6228,6 +6230,7 @@ export default function App(){
       nome: dadosCadastro.name||"",
       email: dadosCadastro.email||"",
       telefone: dadosCadastro.phone||"",
+      documento: dadosCadastro.documento||"",
       tipo: profileLabels[dadosCadastro.profile]||"Motorista Autônomo",
       veiculo: dadosCadastro.vehicle||"",
     });
@@ -6488,7 +6491,7 @@ export default function App(){
                 setHistoricoFretes([]);setManutencoes([]);setDespesas([]);setDocs([]);
                 setMetaMes(8000);setValorKm("");setAdicionalFixo("");
                 setVehicles(DEFAULT_VEHICLES);
-                setPerfil({nome:"",email:"",telefone:"",tipo:"Motorista Autônomo",veiculo:""});
+                setPerfil({nome:"",email:"",telefone:"",documento:"",tipo:"Motorista Autônomo",veiculo:""});
                 setPlan("free");
                 setTrialDias(0);
                 setConfirmLimpar(false);

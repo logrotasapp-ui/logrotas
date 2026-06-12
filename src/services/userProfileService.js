@@ -13,6 +13,7 @@ export function cadastroToFirestorePayload(data) {
     nome: data.name?.trim() || "",
     email: data.email?.trim() || "",
     telefone: data.phone?.trim() || "",
+    documento: data.documento?.trim() || "",
     profile: data.profile || "",
     tipo: PROFILE_LABELS[data.profile] || "Motorista Autônomo",
     veiculo: data.vehicle || "",
@@ -24,6 +25,7 @@ export function firestoreToPerfil(data) {
     nome: data.nome || "",
     email: data.email || "",
     telefone: data.telefone || "",
+    documento: data.documento || "",
     tipo: data.tipo || "Motorista Autônomo",
     veiculo: data.veiculo || "",
   };
@@ -34,6 +36,7 @@ export function perfilToFirestorePayload(perfil) {
     nome: perfil.nome?.trim() || "",
     email: perfil.email?.trim() || "",
     telefone: perfil.telefone?.trim() || "",
+    documento: perfil.documento?.trim() || "",
     tipo: perfil.tipo || "Motorista Autônomo",
     veiculo: perfil.veiculo || "",
   };
@@ -67,6 +70,7 @@ export async function ensureGoogleUserProfile(user) {
     nome: user.displayName || "",
     email: user.email || "",
     telefone: "",
+    documento: "",
     profile: "",
     tipo: "Motorista Autônomo",
     veiculo: "",
