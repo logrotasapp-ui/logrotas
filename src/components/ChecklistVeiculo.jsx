@@ -1198,8 +1198,10 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
   const recebedorEntregaPadRef = useRef(null);
   const prestadorEntregaPadRef = useRef(null);
   const checklistRef = useRef(checklist);
+  const etapaRef = useRef(etapa);
   const migrationRanRef = useRef(null);
   checklistRef.current = checklist;
+  etapaRef.current = etapa;
 
   const validacao = coletaCompleta(checklist, perfil);
   const validacaoEntrega = entregaCompleta(checklist, perfil);
@@ -1526,8 +1528,10 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
     }
     if (pdfBlobCache && pdfModalTipo === "entrega") {
       setShowPdfShare(true);
+      if (etapaRef.current === 6) setEtapa(6);
       return;
     }
+    const manterEtapa6 = etapaRef.current === 6;
     setGerandoPdfEntrega(true);
     setErro("");
     try {
@@ -1544,6 +1548,7 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
       setToastMsg("Não foi possível gerar o PDF da entrega.");
     } finally {
       setGerandoPdfEntrega(false);
+      if (manterEtapa6) setEtapa(6);
     }
   };
 
@@ -1568,8 +1573,10 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
     }
     if (pdfBlobCache && pdfModalTipo === "completo") {
       setShowPdfShare(true);
+      if (etapaRef.current === 6) setEtapa(6);
       return;
     }
+    const manterEtapa6 = etapaRef.current === 6;
     setGerandoPdfCompleto(true);
     setErro("");
     try {
@@ -1586,6 +1593,7 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
       setToastMsg("Não foi possível gerar o PDF completo.");
     } finally {
       setGerandoPdfCompleto(false);
+      if (manterEtapa6) setEtapa(6);
     }
   };
 
@@ -2403,7 +2411,6 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
         recebedorEntregaPadRef.current?.clear?.();
         prestadorEntregaPadRef.current?.clear?.();
         setSubstituirEntrega({ recebedor: false, prestador: false });
-        setEtapa(5);
       }
     } catch (err) {
       console.error("[Checklist] Falha finalizar entrega:", err);
