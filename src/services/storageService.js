@@ -1,5 +1,6 @@
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { storage } from "../firebase.js";
+import { logChecklist } from "./checklistLogSanitizer.js";
 
 const MAX_DIM = 1280;
 const JPEG_QUALITY = 0.7;
@@ -124,7 +125,7 @@ export async function migrateChecklistColetaMedia(coleta) {
           return { ...foto, url };
         }
       } catch (err) {
-        console.warn("[Checklist] Falha ao migrar URL da foto:", foto.url, err);
+        logChecklist("warn", "[Checklist] Falha ao migrar URL da foto:", foto.url, err);
       }
       return foto;
     })
@@ -141,7 +142,7 @@ export async function migrateChecklistColetaMedia(coleta) {
         changed = true;
       }
     } catch (err) {
-      console.warn("[Checklist] Falha ao migrar URL da assinatura:", assin.imagemUrl, err);
+      logChecklist("warn", "[Checklist] Falha ao migrar URL da assinatura:", assin.imagemUrl, err);
     }
   }
 
@@ -203,7 +204,7 @@ export async function migrateChecklistEntregaMedia(entrega) {
           return { ...foto, url };
         }
       } catch (err) {
-        console.warn("[Checklist] Falha ao migrar URL da foto entrega:", foto.url, err);
+        logChecklist("warn", "[Checklist] Falha ao migrar URL da foto entrega:", foto.url, err);
       }
       return foto;
     })
@@ -220,7 +221,7 @@ export async function migrateChecklistEntregaMedia(entrega) {
         changed = true;
       }
     } catch (err) {
-      console.warn("[Checklist] Falha ao migrar URL da assinatura entrega:", assin.imagemUrl, err);
+      logChecklist("warn", "[Checklist] Falha ao migrar URL da assinatura entrega:", assin.imagemUrl, err);
     }
   }
 

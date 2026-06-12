@@ -40,6 +40,7 @@ import {
   shareChecklistEntregaWhatsApp,
 } from "../services/checklistColetaPdf.js";
 import { sharePdfFileViaSystem } from "../services/deliveryReportPdf.js";
+import { logChecklist } from "../services/checklistLogSanitizer.js";
 
 /** Cache em memória de objectURLs por storagePath — evita re-fetch a cada render. */
 const storageBlobUrlCache = new Map();
@@ -110,7 +111,7 @@ function stripBase64AssinaturasColeta(coleta) {
   ["responsavel", "prestador"].forEach((bloco) => {
     const a = assinaturas[bloco];
     if (a?.imagemUrl && String(a.imagemUrl).startsWith("data:")) {
-      console.warn("[Checklist] imagemUrl base64 removida antes de gravar coleta", { bloco });
+      logChecklist("warn", "[Checklist] imagemUrl base64 removida antes de gravar coleta", { bloco });
       assinaturas[bloco] = { ...a, imagemUrl: "" };
       changed = true;
     }
@@ -126,7 +127,7 @@ function stripBase64AssinaturasEntrega(entrega) {
   ["recebedor", "prestador"].forEach((bloco) => {
     const a = assinaturas[bloco];
     if (a?.imagemUrl && String(a.imagemUrl).startsWith("data:")) {
-      console.warn("[Checklist] imagemUrl base64 removida antes de gravar entrega", { bloco });
+      logChecklist("warn", "[Checklist] imagemUrl base64 removida antes de gravar entrega", { bloco });
       assinaturas[bloco] = { ...a, imagemUrl: "" };
       changed = true;
     }
@@ -231,7 +232,7 @@ function FotoPreviewImg({ urlOrPath, alt, style }) {
         const objUrl = await getCachedStorageBlobUrl(urlOrPath);
         if (!cancelled) setSrc(objUrl);
       } catch (err) {
-        console.error("[Checklist] Falha preview foto:", urlOrPath, err);
+        logChecklist("error", "[Checklist] Falha preview foto:", urlOrPath, err);
       }
     })();
     return () => {
@@ -246,7 +247,7 @@ function FotoPreviewImg({ urlOrPath, alt, style }) {
       const objUrl = await getCachedStorageBlobUrl(urlOrPath);
       setSrc(objUrl);
     } catch (err) {
-      console.error("[Checklist] Falha fallback foto:", urlOrPath, err);
+      logChecklist("error", "[Checklist] Falha fallback foto:", urlOrPath, err);
     }
   };
 
@@ -277,7 +278,7 @@ function FotoViewerModal({ previewUrl, storageUrl, label, onClose }) {
         const objUrl = await getCachedStorageBlobUrl(storageUrl);
         if (!cancelled) setSrc(objUrl);
       } catch (err) {
-        console.error("[Checklist] Falha visualizador foto:", storageUrl, err);
+        logChecklist("error", "[Checklist] Falha visualizador foto:", storageUrl, err);
       }
     })();
     return () => {
@@ -535,7 +536,7 @@ class AssinaturaErrorBoundary extends Component {
   }
 
   componentDidCatch(error) {
-    console.error("[Checklist] Erro no bloco de assinatura:", error);
+    logChecklist("error", "[Checklist] Erro no bloco de assinatura:", error);
   }
 
   render() {
@@ -585,7 +586,7 @@ function AssinaturaPreviewImg({ imagemUrl, bloco }) {
       objectUrlRef.current = objUrl;
       setSrc(objUrl);
     } catch (err) {
-      console.error("[Checklist] Falha preview assinatura:", bloco, err);
+      logChecklist("error", "[Checklist] Falha preview assinatura:", bloco, err);
     }
   };
 
@@ -697,7 +698,7 @@ function BlocoAssinatura({
     try {
       onCampoChange?.(campo, typeof valor === "string" ? valor : "");
     } catch (err) {
-      console.error("[Checklist] Erro ao atualizar campo de assinatura:", bloco, campo, err);
+      logChecklist("error", "[Checklist] Erro ao atualizar campo de assinatura:", bloco, campo, err);
     }
   };
 
@@ -706,7 +707,7 @@ function BlocoAssinatura({
       onSubstituir?.();
       padRef?.current?.clear?.();
     } catch (err) {
-      console.error("[Checklist] Erro ao substituir assinatura:", bloco, err);
+      logChecklist("error", "[Checklist] Erro ao substituir assinatura:", bloco, err);
     }
   };
 
@@ -1213,7 +1214,7 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
 
   useEffect(() => {
     if (!initial?.id || checklist?.id) return;
-    console.warn("[Checklist] State sem id — sincronizando da prop", { propId: initial.id });
+    logChecklist("warn", "[Checklist] State sem id — sincronizando da prop", { propId: initial.id });
     setChecklist((c) => ({ ...c, id: initial.id }));
   }, [initial?.id, checklist?.id]);
 
@@ -1243,7 +1244,7 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
         setChecklist(merged);
         onSaved?.(merged);
       } catch (err) {
-        console.warn("[Checklist] Falha ao persistir migracao de URLs:", err);
+        logChecklist("warn", "[Checklist] Falha ao persistir migracao de URLs:", err);
         if (!cancelled) {
           const merged = {
             ...checklistRef.current,
@@ -1378,7 +1379,7 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
   }, []);
 
   const notificarErroSalvar = useCallback((mensagem, err) => {
-    console.error("[Checklist] Falha ao salvar:", mensagem, err || "");
+    logChecklist("error", "[Checklist] Falha ao salvar:", mensagem, err || "");
     setErro(mensagem);
     setToastMsg(mensagem);
   }, []);
@@ -1386,12 +1387,12 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
   const salvar = useCallback(
     async (dados) => {
       const checklistId = checklist?.id || initial?.id;
-      console.log("[Checklist] salvar() iniciado", { checklistId, uid: !!uid });
+      logChecklist("log", "[Checklist] salvar() iniciado", { checklistId, uid: !!uid });
       if (!uid || !checklistId) {
         const mensagem = !uid
           ? "Usuário não autenticado. Faça login novamente."
           : "Checklist sem identificador. Feche e abra o checklist novamente.";
-        console.warn("[Checklist] salvar() retorno antecipado: sem uid ou checklistId", {
+        logChecklist("warn", "[Checklist] salvar() retorno antecipado: sem uid ou checklistId", {
           uid: !!uid,
           checklistId,
           stateId: checklist?.id,
@@ -1424,7 +1425,7 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
         if (merged.coleta) merged.coleta = normalizeColetaData(merged.coleta, merged);
         if (merged.entrega) merged.entrega = normalizeEntregaData(merged.entrega);
         if (!merged?.id) {
-          console.warn("[Checklist] Retorno antecipado: merged sem id após gravar", {
+          logChecklist("warn", "[Checklist] Retorno antecipado: merged sem id após gravar", {
             checklistId,
             mergedKeys: merged ? Object.keys(merged) : null,
           });
@@ -1434,12 +1435,12 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
         setChecklist(merged);
         checklistRef.current = merged;
         onSaved?.(merged);
-        console.log("[Checklist] salvar() concluído com sucesso", { checklistId });
+        logChecklist("log", "[Checklist] salvar() concluído com sucesso", { checklistId });
         return merged;
       } catch (err) {
         const codigo = err?.code ? ` (${err.code})` : "";
         const detalhe = err?.message ? `: ${err.message}` : "";
-        console.warn("[Checklist] Retorno antecipado: exceção em atualizarChecklist", {
+        logChecklist("warn", "[Checklist] Retorno antecipado: exceção em atualizarChecklist", {
           checklistId,
           code: err?.code,
           message: err?.message,
@@ -1462,7 +1463,7 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
       atual?.status === "aguardando_entrega" ||
       atual?.status === "concluido" ||
       coletaCompleta(atual, perfil).completa;
-    console.log("[Checklist] Gerar PDF clicado", {
+    logChecklist("log", "[Checklist] Gerar PDF clicado", {
       coletaOk: okColeta,
       gerandoPdf,
       gerandoPdfCompleto,
@@ -1471,7 +1472,7 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
       temAssinPrest: !!atual?.coleta?.assinaturas?.prestador?.imagemUrl,
     });
     if (gerandoPdf || gerandoPdfEntrega || gerandoPdfCompleto) {
-      console.warn("[Checklist] Gerar PDF retorno antecipado: geração em andamento");
+      logChecklist("warn", "[Checklist] Gerar PDF retorno antecipado: geração em andamento");
       return;
     }
     if (!okColeta) {
@@ -1479,13 +1480,13 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
       const msg = val.faltando.length
         ? `Complete a coleta para gerar o PDF: ${val.faltando.slice(0, 3).join(", ")}${val.faltando.length > 3 ? "…" : ""}`
         : "Finalize a coleta antes de gerar o PDF.";
-      console.warn("[Checklist] Gerar PDF bloqueado — pré-condições", { faltando: val.faltando });
+      logChecklist("warn", "[Checklist] Gerar PDF bloqueado — pré-condições", { faltando: val.faltando });
       setErro(msg);
       setToastMsg(msg);
       return;
     }
     if (pdfBlobCache && pdfModalTipo === "coleta") {
-      console.log("[Checklist] Gerar PDF: reutilizando cache");
+      logChecklist("log", "[Checklist] Gerar PDF: reutilizando cache");
       setPdfModalTipo("coleta");
       setShowPdfShare(true);
       return;
@@ -1494,15 +1495,15 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
     setErro("");
     try {
       const params = { checklist: atual, frete, perfil };
-      console.log("[Checklist] Gerar PDF: iniciando generateChecklistColetaPdf");
+      logChecklist("log", "[Checklist] Gerar PDF: iniciando generateChecklistColetaPdf");
       const { blob, filename } = await generateChecklistColetaPdf(params);
-      console.log("[Checklist] Gerar PDF concluído", { filename, bytes: blob?.size });
+      logChecklist("log", "[Checklist] Gerar PDF concluído", { filename, bytes: blob?.size });
       setPdfBlobCache(blob);
       setPdfFilenameCache(filename);
       setPdfModalTipo("coleta");
       setShowPdfShare(true);
     } catch (err) {
-      console.error("[Checklist] Gerar PDF falhou:", err);
+      logChecklist("error", "[Checklist] Gerar PDF falhou:", err);
       setErro("Não foi possível gerar o PDF. Verifique sua conexão e tente novamente.");
       setToastMsg("Não foi possível gerar o PDF.");
     } finally {
@@ -1512,7 +1513,7 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
 
   const handleGerarPdfEntrega = async () => {
     const atual = checklistRef.current || checklist;
-    console.log("[Checklist] Gerar PDF entrega clicado", {
+    logChecklist("log", "[Checklist] Gerar PDF entrega clicado", {
       status: atual?.status,
       gerandoPdfEntrega,
       gerandoPdfCompleto,
@@ -1537,13 +1538,13 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
     try {
       const params = { checklist: atual, frete, perfil };
       const { blob, filename } = await generateChecklistEntregaPdf(params);
-      console.log("[Checklist] Gerar PDF entrega concluído", { filename, bytes: blob?.size });
+      logChecklist("log", "[Checklist] Gerar PDF entrega concluído", { filename, bytes: blob?.size });
       setPdfBlobCache(blob);
       setPdfFilenameCache(filename);
       setPdfModalTipo("entrega");
       setShowPdfShare(true);
     } catch (err) {
-      console.error("[Checklist] Gerar PDF entrega falhou:", err);
+      logChecklist("error", "[Checklist] Gerar PDF entrega falhou:", err);
       setErro("Não foi possível gerar o PDF da entrega.");
       setToastMsg("Não foi possível gerar o PDF da entrega.");
     } finally {
@@ -1554,19 +1555,19 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
 
   const handleGerarPdfCompleto = async () => {
     const atual = checklistRef.current || checklist;
-    console.log("[Checklist] Gerar PDF completo clicado", {
+    logChecklist("log", "[Checklist] Gerar PDF completo clicado", {
       entregaConcluida: atual?.status === "concluido",
       gerandoPdf,
       gerandoPdfEntrega,
       gerandoPdfCompleto,
     });
     if (gerandoPdf || gerandoPdfEntrega || gerandoPdfCompleto) {
-      console.warn("[Checklist] Gerar PDF completo retorno antecipado: geração em andamento");
+      logChecklist("warn", "[Checklist] Gerar PDF completo retorno antecipado: geração em andamento");
       return;
     }
     if (atual?.status !== "concluido") {
       const msg = "Finalize a entrega antes de gerar o PDF completo.";
-      console.warn("[Checklist] Gerar PDF completo bloqueado", { status: atual?.status });
+      logChecklist("warn", "[Checklist] Gerar PDF completo bloqueado", { status: atual?.status });
       setErro(msg);
       setToastMsg(msg);
       return;
@@ -1582,13 +1583,13 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
     try {
       const params = { checklist: atual, frete, perfil };
       const { blob, filename } = await generateChecklistCompletoPdf(params);
-      console.log("[Checklist] Gerar PDF completo concluído", { filename, bytes: blob?.size });
+      logChecklist("log", "[Checklist] Gerar PDF completo concluído", { filename, bytes: blob?.size });
       setPdfBlobCache(blob);
       setPdfFilenameCache(filename);
       setPdfModalTipo("completo");
       setShowPdfShare(true);
     } catch (err) {
-      console.error("[Checklist] Gerar PDF completo falhou:", err);
+      logChecklist("error", "[Checklist] Gerar PDF completo falhou:", err);
       setErro("Não foi possível gerar o PDF completo.");
       setToastMsg("Não foi possível gerar o PDF completo.");
     } finally {
@@ -1606,7 +1607,7 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
       const atual = checklistRef.current || checklist;
       const checklistId = atual?.id;
 
-      console.log("[Checklist] Salvar assinatura clicado", { bloco, checklistId });
+      logChecklist("log", "[Checklist] Salvar assinatura clicado", { bloco, checklistId });
 
       if (!uid || !checklistId) {
         setErro("Checklist indisponível. Feche e abra novamente.");
@@ -1628,9 +1629,9 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
         const blob = await padRef.current.toBlob();
         const jpeg = await compressImageToJpegBlob(blob);
         const nomeArquivo = `assinatura_${bloco}_${Date.now()}`;
-        console.log("[Checklist] Enviando assinatura ao Storage", { bloco, nomeArquivo });
+        logChecklist("log", "[Checklist] Enviando assinatura ao Storage", { bloco, nomeArquivo });
         const url = await uploadChecklistImage(uid, checklistId, nomeArquivo, jpeg);
-        console.log("[Checklist] Upload assinatura OK", { bloco, url: url?.slice(0, 80) });
+        logChecklist("log", "[Checklist] Upload assinatura OK", { bloco, url: url?.slice(0, 80) });
 
         const dataHora = formatStampDataHora();
         const assinaturas = {
@@ -1650,12 +1651,12 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
         if (ok) {
           padRef.current?.clear?.();
           setSubstituirColeta((s) => ({ ...s, [bloco]: false }));
-          console.log("[Checklist] Assinatura persistida no Firestore", { bloco });
+          logChecklist("log", "[Checklist] Assinatura persistida no Firestore", { bloco });
         } else {
           setErro("Não foi possível gravar a assinatura. Tente novamente.");
         }
       } catch (err) {
-        console.error("[Checklist] Falha salvar assinatura:", bloco, err);
+        logChecklist("error", "[Checklist] Falha salvar assinatura:", bloco, err);
         setErro("Não foi possível salvar a assinatura. Tente novamente.");
         setToastMsg("Falha ao salvar assinatura.");
       } finally {
@@ -1671,7 +1672,7 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
       const atual = checklistRef.current || checklist;
       const checklistId = atual?.id;
 
-      console.log("[Checklist] Salvar assinatura entrega clicado", { bloco, checklistId });
+      logChecklist("log", "[Checklist] Salvar assinatura entrega clicado", { bloco, checklistId });
 
       if (!uid || !checklistId) {
         setErro("Checklist indisponível. Feche e abra novamente.");
@@ -1694,7 +1695,7 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
         const blob = await padRef.current.toBlob();
         const jpeg = await compressImageToJpegBlob(blob);
         const nomeArquivo = `assinatura_entrega_${bloco}_${Date.now()}`;
-        console.log("[Checklist] Enviando assinatura entrega ao Storage", { bloco, nomeArquivo });
+        logChecklist("log", "[Checklist] Enviando assinatura entrega ao Storage", { bloco, nomeArquivo });
         const url = await uploadChecklistEntregaImage(uid, checklistId, nomeArquivo, jpeg);
 
         const assinaturas = {
@@ -1714,12 +1715,12 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
         if (ok) {
           padRef.current?.clear?.();
           setSubstituirEntrega((s) => ({ ...s, [bloco]: false }));
-          console.log("[Checklist] Assinatura entrega persistida", { bloco });
+          logChecklist("log", "[Checklist] Assinatura entrega persistida", { bloco });
         } else {
           setErro("Não foi possível gravar a assinatura. Tente novamente.");
         }
       } catch (err) {
-        console.error("[Checklist] Falha salvar assinatura entrega:", bloco, err);
+        logChecklist("error", "[Checklist] Falha salvar assinatura entrega:", bloco, err);
         setErro("Não foi possível salvar a assinatura. Tente novamente.");
         setToastMsg("Falha ao salvar assinatura.");
       } finally {
@@ -1733,7 +1734,7 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
     async (imagemUrl, padRef, nomeArquivo, checklistId) => {
       if (imagemUrl && isChecklistDownloadUrl(imagemUrl)) return imagemUrl;
       if (imagemUrl && String(imagemUrl).startsWith("data:image")) {
-        console.log("[Checklist] Convertendo assinatura base64 para Storage", { nomeArquivo });
+        logChecklist("log", "[Checklist] Convertendo assinatura base64 para Storage", { nomeArquivo });
         const resp = await fetch(imagemUrl);
         const rawBlob = await resp.blob();
         const jpeg = await compressImageToJpegBlob(rawBlob);
@@ -1754,7 +1755,7 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
       const atual = checklistRef.current || checklist;
       const checklistId = atual?.id;
       if (!uid || !checklistId) {
-        console.warn("[Checklist] persistirAssinaturas retorno antecipado: sem uid/id");
+        logChecklist("warn", "[Checklist] persistirAssinaturas retorno antecipado: sem uid/id");
         return null;
       }
 
@@ -1793,7 +1794,7 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
         const lng = gps?.lng ?? null;
         const dataHora = formatStampDataHora();
 
-        console.log("[Checklist] persistirAssinaturas iniciado", {
+        logChecklist("log", "[Checklist] persistirAssinaturas iniciado", {
           finalizar,
           respPadNovo,
           prestPadNovo,
@@ -1814,10 +1815,10 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
         );
 
         if (respPadNovo && respUrl) {
-          console.log("[Checklist] Upload assinatura responsavel OK", { url: respUrl.slice(0, 80) });
+          logChecklist("log", "[Checklist] Upload assinatura responsavel OK", { url: respUrl.slice(0, 80) });
         }
         if (prestPadNovo && prestUrl) {
-          console.log("[Checklist] Upload assinatura prestador OK", { url: prestUrl.slice(0, 80) });
+          logChecklist("log", "[Checklist] Upload assinatura prestador OK", { url: prestUrl.slice(0, 80) });
         }
 
         const assinaturas = {
@@ -1852,14 +1853,14 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
         }
 
         const payloadBytes = JSON.stringify(payload).length;
-        console.log("[Checklist] persistirAssinaturas payload", {
+        logChecklist("log", "[Checklist] persistirAssinaturas payload", {
           bytes: payloadBytes,
           finalizar,
           temAssinResp: !!assinaturas.responsavel.imagemUrl,
           temAssinPrest: !!assinaturas.prestador.imagemUrl,
         });
         if (payloadBytes > 900000) {
-          console.error("[Checklist] Payload próximo do limite Firestore (1MB)", { payloadBytes });
+          logChecklist("error", "[Checklist] Payload próximo do limite Firestore (1MB)", { payloadBytes });
           setErro("Dados muito grandes para salvar. As assinaturas devem ser enviadas como imagem, não texto.");
           return null;
         }
@@ -1872,7 +1873,7 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
         }
         return ok;
       } catch (err) {
-        console.error("[Checklist] Falha persistirAssinaturas:", err);
+        logChecklist("error", "[Checklist] Falha persistirAssinaturas:", err);
         setErro("Falha ao salvar assinaturas. Tente novamente.");
         return null;
       } finally {
@@ -1896,19 +1897,19 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
     void (async () => {
       const atual = checklistRef.current;
       if (etapa === 2 && id !== 2 && atual?.coleta) {
-        console.log("[Checklist] Auto-save vistoria ao trocar aba", { de: etapa, para: id });
+        logChecklist("log", "[Checklist] Auto-save vistoria ao trocar aba", { de: etapa, para: id });
         await salvar({ coleta: atual.coleta });
       }
       if (etapa === 3 && id !== 3 && atual?.coleta) {
-        console.log("[Checklist] Auto-save fotos ao trocar aba", { de: etapa, para: id });
+        logChecklist("log", "[Checklist] Auto-save fotos ao trocar aba", { de: etapa, para: id });
         await salvar({ coleta: atual.coleta });
       }
       if (etapa === 4 && id !== 4) {
-        console.log("[Checklist] Auto-save assinaturas ao trocar aba", { de: etapa, para: id });
+        logChecklist("log", "[Checklist] Auto-save assinaturas ao trocar aba", { de: etapa, para: id });
         await persistirAssinaturasColeta({ finalizar: false });
       }
       if (etapa === 6 && id !== 6 && atual?.entrega) {
-        console.log("[Checklist] Auto-save entrega ao trocar aba", { de: etapa, para: id });
+        logChecklist("log", "[Checklist] Auto-save entrega ao trocar aba", { de: etapa, para: id });
         await salvar({ entrega: normalizeEntregaData(atual.entrega) });
       }
       setEtapa(id);
@@ -1917,18 +1918,18 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
 
   const avancarEtapa1 = async () => {
     const checklistId = checklist?.id || initial?.id;
-    console.log("[Checklist] Salvar clicado", { etapa, checklistId, uid: !!uid, salvando });
+    logChecklist("log", "[Checklist] Salvar clicado", { etapa, checklistId, uid: !!uid, salvando });
     if (salvando) {
-      console.warn("[Checklist] Retorno antecipado: salvando em andamento");
+      logChecklist("warn", "[Checklist] Retorno antecipado: salvando em andamento");
       return;
     }
     if (!uid) {
-      console.warn("[Checklist] Retorno antecipado: uid ausente");
+      logChecklist("warn", "[Checklist] Retorno antecipado: uid ausente");
       notificarErroSalvar("Usuário não autenticado. Faça login novamente.");
       return;
     }
     if (!checklistId) {
-      console.warn("[Checklist] Retorno antecipado: checklist sem id", {
+      logChecklist("warn", "[Checklist] Retorno antecipado: checklist sem id", {
         stateId: checklist?.id,
         propId: initial?.id,
       });
@@ -1943,10 +1944,10 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
         origem: checklist.origem,
         destino: checklist.destino,
       });
-      console.log("[Checklist] Salvar etapa 1 concluído", { ok: !!ok });
+      logChecklist("log", "[Checklist] Salvar etapa 1 concluído", { ok: !!ok });
       if (ok) setEtapa(2);
     } catch (err) {
-      console.error("[Checklist] Erro não tratado em avancarEtapa1:", err);
+      logChecklist("error", "[Checklist] Erro não tratado em avancarEtapa1:", err);
       notificarErroSalvar("Falha inesperada ao salvar. Tente novamente.", err);
     }
   };
@@ -1971,7 +1972,7 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
     const file = e.target.files?.[0];
     e.target.value = "";
     if (!file || !slotAtivo || !uid || !checklist?.id) {
-      console.warn("[Checklist] Foto ignorada: arquivo/slot/uid/id ausente", {
+      logChecklist("warn", "[Checklist] Foto ignorada: arquivo/slot/uid/id ausente", {
         temArquivo: !!file,
         slotAtivo,
         uid: !!uid,
@@ -1982,7 +1983,7 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
 
     const isEntrega = fotoContexto === "entrega";
     const checklistId = checklist.id;
-    console.log("[Checklist] Foto capturada", { slot: slotAtivo, contexto: fotoContexto, checklistId });
+    logChecklist("log", "[Checklist] Foto capturada", { slot: slotAtivo, contexto: fotoContexto, checklistId });
 
     if (isEntrega) setUploadingEntregaSlot(slotAtivo);
     else setUploadingSlot(slotAtivo);
@@ -1999,7 +2000,7 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
       const stamp = buildPhotoStampText(lat, lng, now);
       const blob = await stampAndCompressImage(file, stamp);
       previewUrl = URL.createObjectURL(blob);
-      console.log("[Checklist] Foto comprimida, preview local criado", { slot: slotAtivo });
+      logChecklist("log", "[Checklist] Foto comprimida, preview local criado", { slot: slotAtivo });
 
       const slots = isEntrega ? CHECKLIST_ENTREGA_FOTO_SLOTS : CHECKLIST_FOTO_SLOTS;
       const slotInfo = slots.find((s) => s.id === slotAtivo);
@@ -2032,11 +2033,11 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
           : isEntrega
             ? `entrega_${slotAtivo}`
             : slotAtivo;
-      console.log("[Checklist] Enviando foto ao Storage", { nomeArquivo, checklistId });
+      logChecklist("log", "[Checklist] Enviando foto ao Storage", { nomeArquivo, checklistId });
       const url = isEntrega
         ? await uploadChecklistEntregaImage(uid, checklistId, nomeArquivo, blob)
         : await uploadChecklistImage(uid, checklistId, nomeArquivo, blob);
-      console.log("[Checklist] Upload concluído", { slot: slotAtivo, url: url?.slice(0, 80) });
+      logChecklist("log", "[Checklist] Upload concluído", { slot: slotAtivo, url: url?.slice(0, 80) });
 
       const fotoFinal = { ...novaFoto, url };
       delete fotoFinal.previewUrl;
@@ -2047,28 +2048,28 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
         const entregaSalvar = { ...atual.entrega, fotos };
         setChecklist((c) => ({ ...c, entrega: entregaSalvar }));
         checklistRef.current = { ...atual, entrega: entregaSalvar };
-        console.log("[Checklist] Persistindo foto entrega no Firestore", {
+        logChecklist("log", "[Checklist] Persistindo foto entrega no Firestore", {
           slot: slotAtivo,
           totalFotos: fotos.length,
         });
         const ok = await salvar({ entrega: entregaSalvar });
-        console.log("[Checklist] Foto entrega salva", { ok: !!ok, slot: slotAtivo });
+        logChecklist("log", "[Checklist] Foto entrega salva", { ok: !!ok, slot: slotAtivo });
         fotoPersistida = !!ok;
       } else {
         const fotos = atualizarFotosLista(atual.coleta?.fotos, slotAtivo, fotoFinal, previewUrl);
         const coletaSalvar = { ...atual.coleta, fotos };
         setChecklist((c) => ({ ...c, coleta: coletaSalvar }));
         checklistRef.current = { ...atual, coleta: coletaSalvar };
-        console.log("[Checklist] Persistindo foto coleta no Firestore", {
+        logChecklist("log", "[Checklist] Persistindo foto coleta no Firestore", {
           slot: slotAtivo,
           totalFotos: fotos.length,
         });
         const ok = await salvar({ coleta: coletaSalvar });
-        console.log("[Checklist] Foto coleta salva", { ok: !!ok, slot: slotAtivo });
+        logChecklist("log", "[Checklist] Foto coleta salva", { ok: !!ok, slot: slotAtivo });
         fotoPersistida = !!ok;
       }
     } catch (err) {
-      console.error("[Checklist] Falha no fluxo de foto:", err);
+      logChecklist("error", "[Checklist] Falha no fluxo de foto:", err);
       const base = checklistRef.current || checklist;
       if (isEntrega) {
         const fotos = (base.entrega?.fotos || []).filter((f) => f.previewUrl !== previewUrl);
@@ -2129,11 +2130,11 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
 
   const avancarEtapa4 = async () => {
     setTentouFinalizarColeta(true);
-    console.log("[Checklist] Finalizar coleta clicado");
+    logChecklist("log", "[Checklist] Finalizar coleta clicado");
     const ok = await persistirAssinaturasColeta({ finalizar: true });
     if (ok) {
       const val = coletaCompleta(checklistRef.current, perfil);
-      console.log("[Checklist] Finalizar coleta concluído", { completa: val.completa });
+      logChecklist("log", "[Checklist] Finalizar coleta concluído", { completa: val.completa });
       if (val.completa || checklistRef.current?.status === "aguardando_entrega") setEtapa(5);
     }
   };
@@ -2413,7 +2414,7 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
         setSubstituirEntrega({ recebedor: false, prestador: false });
       }
     } catch (err) {
-      console.error("[Checklist] Falha finalizar entrega:", err);
+      logChecklist("error", "[Checklist] Falha finalizar entrega:", err);
       setErro("Falha ao finalizar entrega. Tente novamente.");
     } finally {
       setSalvando(false);

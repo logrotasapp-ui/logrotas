@@ -1,0 +1,50 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function isOwner(userId) {
+      return request.auth != null && request.auth.uid == userId;
+    }
+
+    function isAllowedImageType() {
+      return request.resource.contentType == 'image/jpeg'
+        || request.resource.contentType == 'image/png';
+    }
+
+    function isPhotoSize() {
+      return request.resource.size <= 10 * 1024 * 1024;
+    }
+
+    function isSignatureSize() {
+      return request.resource.size <= 2 * 1024 * 1024;
+    }
+
+    function isValidChecklistUpload(fileName) {
+      return isAllowedImageType()
+        && (fileName.matches('.*assinatura.*') ? isSignatureSize() : isPhotoSize());
+    }
+
+    // Fotos e assinaturas da coleta
+    match /users/{userId}/checklists/{checklistId}/{fileName} {
+      allow read: if isOwner(userId);
+      allow write: if isOwner(userId) && isValidChecklistUpload(fileName);
+    }
+
+    // Fotos e assinaturas da entrega
+    match /users/{userId}/checklists/{checklistId}/entrega/{fileName} {
+      allow read: if isOwner(userId);
+      allow write: if isOwner(userId) && isValidChecklistUpload(fileName);
+    }
+
+    // Demais arquivos do usuário (somente dentro de /users/{userId}/)
+    match /users/{userId}/{allPaths=**} {
+      allow read: if isOwner(userId);
+      allow write: if isOwner(userId) && isAllowedImageType() && isPhotoSize();
+    }
+
+    // Tudo fora de /users/{userId}/ — negado explicitamente
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

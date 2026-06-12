@@ -55,6 +55,7 @@ import NavigationMap from "./src/components/NavigationMap.jsx";
 import ProgressOverlay from "./src/components/ProgressOverlay.jsx";
 import ChecklistVeiculo from "./src/components/ChecklistVeiculo.jsx";
 import { criarChecklist, buscarChecklistPorFrete } from "./src/services/checklistService.js";
+import { logChecklist } from "./src/services/checklistLogSanitizer.js";
 import { loadDeliveryRoutes, saveDeliveryRoute, deleteDeliveryRoute } from "./src/services/deliveryRouteService.js";
 import {
   saveDeliveryReportPdf,
@@ -102,7 +103,7 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="V252";
+const APP_VERSION="V253";
 const BETA_HIDE_PLANOS=true;
 
 const OfflineRestoredBanner=({show})=>show?(
@@ -6083,26 +6084,26 @@ export default function App(){
   const handleOpenChecklist=useCallback(async(frete,existente)=>{
     const uid=firebaseUser?.uid;
     if(!uid||!frete?.id){
-      console.warn("[Checklist] handleOpenChecklist abortado: uid ou frete.id ausente",{uid:!!uid,freteId:frete?.id});
+      logChecklist("warn","[Checklist] handleOpenChecklist abortado: uid ou frete.id ausente",{uid:!!uid,freteId:frete?.id});
       return;
     }
     try{
       let checklist=existente?.id?existente:await buscarChecklistPorFrete(uid,frete.id);
       if(!checklist?.id){
-        console.log("[Checklist] Criando checklist novo para frete",frete.id);
+        logChecklist("log","[Checklist] Criando checklist novo para frete",frete.id);
         checklist=await criarChecklist(uid,frete.id,{
           origem:{endereco:frete.origin||""},
           destino:{endereco:frete.dest||""},
         });
       }
       if(!checklist?.id){
-        console.error("[Checklist] Checklist sem id após buscar/criar",{freteId:frete.id,checklist});
+        logChecklist("error","[Checklist] Checklist sem id após buscar/criar",{freteId:frete.id,checklist});
         return;
       }
-      console.log("[Checklist] Abrindo checklist",{checklistId:checklist.id,freteId:frete.id,novo:!existente?.id});
+      logChecklist("log","[Checklist] Abrindo checklist",{checklistId:checklist.id,freteId:frete.id,novo:!existente?.id});
       setChecklistScreen({frete,checklist});
     }catch(err){
-      console.error("[Checklist] Falha ao abrir/criar checklist:",err);
+      logChecklist("error","[Checklist] Falha ao abrir/criar checklist:",err);
     }
   },[firebaseUser?.uid]);
 
@@ -6402,7 +6403,7 @@ export default function App(){
           onClose={()=>setChecklistScreen(null)}
           onSaved={(c)=>{
             if(!c?.id){
-              console.warn("[Checklist] onSaved ignorado: checklist sem id",c);
+              logChecklist("warn","[Checklist] onSaved ignorado: checklist sem id",c);
               return;
             }
             setChecklistScreen(s=>({...s,checklist:c}));

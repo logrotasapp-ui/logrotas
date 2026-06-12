@@ -1,12 +1,55 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    match /users/{userId}/{document=**} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
+
+    function isOwner(userId) {
+      return request.auth != null && request.auth.uid == userId;
     }
+
+    function isAdmin() {
+      return request.auth != null && request.auth.token.admin == true;
+    }
+
+    // ── Dados do motorista (perfil + subcoleções) ──────────────────────────
+    match /users/{userId} {
+      allow read, write: if isOwner(userId);
+
+      // Checklists — contém CPF/RG/CNH de terceiros (LGPD)
+      match /checklists/{checklistId} {
+        allow read, write: if isOwner(userId);
+      }
+
+      match /fretes/{docId} {
+        allow read, write: if isOwner(userId);
+      }
+
+      match /despesas/{docId} {
+        allow read, write: if isOwner(userId);
+      }
+
+      match /manutencao/{docId} {
+        allow read, write: if isOwner(userId);
+      }
+
+      match /documentos/{docId} {
+        allow read, write: if isOwner(userId);
+      }
+
+      match /financeiro/{docId} {
+        allow read, write: if isOwner(userId);
+      }
+
+      match /entregas/{docId} {
+        allow read, write: if isOwner(userId);
+      }
+    }
+
+    // ── Códigos beta (leitura autenticada; gravação só admin) ─────────────
     match /betaCodes/{codeId} {
       allow read: if request.auth != null;
-      allow write: if false;
+      allow write: if isAdmin();
     }
+
+    // Demais caminhos: negado implicitamente (sem match = sem acesso)
   }
 }

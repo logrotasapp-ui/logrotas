@@ -1,4 +1,5 @@
 import { ref, getBlob } from "firebase/storage";
+import { logChecklist } from "./checklistLogSanitizer.js";
 import { storage } from "../firebase.js";
 import {
   CHECKLIST_TIPOS_SERVICO,
@@ -95,7 +96,7 @@ function blobToDataUrl(blob) {
  */
 async function fetchImageDataUrl(urlOrPath, context = "") {
   if (!urlOrPath) {
-    console.warn("[Checklist PDF] Imagem ausente:", context);
+    logChecklist("warn", "[Checklist PDF] Imagem ausente:", context);
     return null;
   }
 
@@ -111,23 +112,25 @@ async function fetchImageDataUrl(urlOrPath, context = "") {
         ]);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         blob = await res.blob();
-        console.log("[Checklist PDF] Imagem OK via fetch:", context);
+        logChecklist("log", "[Checklist PDF] Imagem OK via fetch:", context);
       } catch (fetchErr) {
-        console.warn(
+        logChecklist(
+          "warn",
           "[Checklist PDF] fetch falhou, fallback getBlob SDK:",
           context,
           fetchErr?.message || fetchErr
         );
         blob = await blobViaGetBlob(urlOrPath, context);
-        console.log("[Checklist PDF] Imagem OK via getBlob fallback:", context);
+        logChecklist("log", "[Checklist PDF] Imagem OK via getBlob fallback:", context);
       }
     } else {
       blob = await blobViaGetBlob(urlOrPath, context);
-      console.log("[Checklist PDF] Imagem OK via getBlob path:", context);
+      logChecklist("log", "[Checklist PDF] Imagem OK via getBlob path:", context);
     }
     return await blobToDataUrl(blob);
   } catch (err) {
-    console.error(
+    logChecklist(
+      "error",
       "[Checklist PDF] Falha ao carregar imagem (placeholder no PDF):",
       context,
       String(urlOrPath).slice(0, 80),
@@ -190,7 +193,7 @@ async function preloadChecklistImages({
       cache[task.mapKey] = result.value;
     } else {
       cache[task.mapKey] = null;
-      console.error("[Checklist PDF] Falha ao carregar imagem:", task.mapKey, result.reason);
+      logChecklist("error", "[Checklist PDF] Falha ao carregar imagem:", task.mapKey, result.reason);
     }
   });
   return cache;
@@ -292,7 +295,7 @@ function renderFotosGrid(doc, {
       try {
         doc.addImage(dataUrl, imageFormat(dataUrl), x, rowStartY, cellW, imgH);
       } catch (err) {
-        console.error("[Checklist PDF] addImage falhou:", slotLabel, err);
+        logChecklist("error", "[Checklist PDF] addImage falhou:", slotLabel, err);
         drawPlaceholder(doc, x, rowStartY, cellW, imgH, "Sem foto");
       }
     } else {
@@ -381,7 +384,7 @@ function renderAssinaturasBlock(doc, {
       try {
         doc.addImage(sigUrl, imageFormat(sigUrl), margin, yRef.y, 80, 22);
       } catch (err) {
-        console.error("[Checklist PDF] addImage assinatura falhou:", key, err);
+        logChecklist("error", "[Checklist PDF] addImage assinatura falhou:", key, err);
         drawPlaceholder(doc, margin, yRef.y, 80, 22, "Sem assinatura");
       }
     } else {
@@ -407,7 +410,7 @@ export async function generateChecklistColetaPdf({
 }) {
   const showColeta = !onlyEntrega;
   const showEntrega = includeEntrega || onlyEntrega;
-  console.log("[Checklist PDF] generateChecklistColetaPdf iniciado", {
+  logChecklist("log", "[Checklist PDF] generateChecklistColetaPdf iniciado", {
     numero: checklist?.numero,
     includeEntrega,
     onlyEntrega,
@@ -644,7 +647,7 @@ export async function generateChecklistColetaPdf({
       ? `checklist-completo-${safeNum}.pdf`
       : `checklist-coleta-${safeNum}.pdf`;
   const blob = doc.output("blob");
-  console.log("[Checklist PDF] generateChecklistColetaPdf concluído", {
+  logChecklist("log", "[Checklist PDF] generateChecklistColetaPdf concluído", {
     filename,
     bytes: blob?.size,
     paginas: totalPages,
