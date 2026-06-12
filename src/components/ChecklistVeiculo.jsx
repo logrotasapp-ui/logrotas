@@ -360,7 +360,17 @@ function ToastAviso({ mensagem }) {
   );
 }
 
-function BlocoAssinatura({ titulo, assin, bloco, padRef, substituindo, onSubstituir, onCampoChange }) {
+function BlocoAssinatura({
+  titulo,
+  assin,
+  bloco,
+  padRef,
+  substituindo,
+  onSubstituir,
+  onCampoChange,
+  onSalvarAssinatura,
+  salvandoAssinatura,
+}) {
   const assinSafe = { ...assinaturaVazia(), ...(assin && typeof assin === "object" ? assin : {}) };
   const temAssinaturaSalva =
     !!assinSafe.imagemUrl?.trim() && !String(assinSafe.imagemUrl).startsWith("data:");
@@ -447,7 +457,33 @@ function BlocoAssinatura({ titulo, assin, bloco, padRef, substituindo, onSubstit
             </div>
           </div>
         )}
-        {mostrarPad && <SignaturePad ref={padRef} hideClear={temAssinaturaSalva && substituindo} />}
+        {mostrarPad && (
+          <>
+            <SignaturePad ref={padRef} hideClear={temAssinaturaSalva && substituindo} />
+            <button
+              type="button"
+              onClick={() => void onSalvarAssinatura?.()}
+              disabled={salvandoAssinatura}
+              style={{
+                marginTop: 12,
+                width: "100%",
+                padding: "12px 0",
+                background: C.orange,
+                border: "none",
+                borderRadius: 11,
+                color: "#fff",
+                fontWeight: 800,
+                fontSize: 14,
+                cursor: salvandoAssinatura ? "wait" : "pointer",
+                fontFamily: "'Sora',sans-serif",
+                opacity: salvandoAssinatura ? 0.75 : 1,
+                boxShadow: `0 3px 10px ${C.orange}44`,
+              }}
+            >
+              {salvandoAssinatura ? "Salvando assinatura…" : "Salvar assinatura"}
+            </button>
+          </>
+        )}
       </div>
     </AssinaturaErrorBoundary>
   );
@@ -742,6 +778,10 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
   const [mostrarDivergencias, setMostrarDivergencias] = useState(false);
   const [toastMsg, setToastMsg] = useState("");
   const [substituirColeta, setSubstituirColeta] = useState({ responsavel: false, prestador: false });
+  const [salvandoAssinaturaBloco, setSalvandoAssinaturaBloco] = useState({
+    responsavel: false,
+    prestador: false,
+  });
   const [substituirEntrega, setSubstituirEntrega] = useState({ recebedor: false, prestador: false });
   const fileInputRef = useRef(null);
   const responsavelPadRef = useRef(null);
@@ -995,6 +1035,72 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
     }
   };
 
+  const assinaturaSalvaValida = (assin) =>
+    !!assin?.imagemUrl?.trim() && !String(assin.imagemUrl).startsWith("data:");
+
+  const salvarAssinaturaBloco = useCallback(
+    async (bloco) => {
+      const padRef = bloco === "responsavel" ? responsavelPadRef : prestadorPadRef;
+      const atual = checklistRef.current || checklist;
+      const checklistId = atual?.id;
+
+      console.log("[Checklist] Salvar assinatura clicado", { bloco, checklistId });
+
+      if (!uid || !checklistId) {
+        setErro("Checklist indisponível. Feche e abra novamente.");
+        return;
+      }
+      if (padRef.current?.isEmpty?.()) {
+        setErro("Desenhe a assinatura no quadro antes de salvar.");
+        setToastMsg("Desenhe a assinatura antes de salvar.");
+        return;
+      }
+
+      const assinAtual = atual.coleta?.assinaturas?.[bloco] || assinaturaVazia();
+      setSalvandoAssinaturaBloco((s) => ({ ...s, [bloco]: true }));
+      setErro("");
+      try {
+        const gps = await getDriverGeolocation({ preferFresh: true });
+        const blob = await padRef.current.toBlob();
+        const jpeg = await compressImageToJpegBlob(blob);
+        const nomeArquivo = `assinatura_${bloco}_${Date.now()}`;
+        console.log("[Checklist] Enviando assinatura ao Storage", { bloco, nomeArquivo });
+        const url = await uploadChecklistImage(uid, checklistId, nomeArquivo, jpeg);
+        console.log("[Checklist] Upload assinatura OK", { bloco, url: url?.slice(0, 80) });
+
+        const dataHora = formatStampDataHora();
+        const assinaturas = {
+          ...(atual.coleta?.assinaturas || {}),
+          [bloco]: {
+            ...assinAtual,
+            nome: (assinAtual.nome || "").trim(),
+            documento: (assinAtual.documento || "").trim(),
+            imagemUrl: url,
+            dataHora,
+            lat: gps?.lat ?? null,
+            lng: gps?.lng ?? null,
+          },
+        };
+        const coletaAtualizada = { ...atual.coleta, assinaturas };
+        const ok = await salvar({ coleta: coletaAtualizada });
+        if (ok) {
+          padRef.current?.clear?.();
+          setSubstituirColeta((s) => ({ ...s, [bloco]: false }));
+          console.log("[Checklist] Assinatura persistida no Firestore", { bloco });
+        } else {
+          setErro("Não foi possível gravar a assinatura. Tente novamente.");
+        }
+      } catch (err) {
+        console.error("[Checklist] Falha salvar assinatura:", bloco, err);
+        setErro("Não foi possível salvar a assinatura. Tente novamente.");
+        setToastMsg("Falha ao salvar assinatura.");
+      } finally {
+        setSalvandoAssinaturaBloco((s) => ({ ...s, [bloco]: false }));
+      }
+    },
+    [uid, checklist, salvar]
+  );
+
   const uploadAssinaturaImagem = useCallback(
     async (imagemUrl, padRef, nomeArquivo, checklistId) => {
       if (imagemUrl && isChecklistDownloadUrl(imagemUrl)) return imagemUrl;
@@ -1036,16 +1142,12 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
           setErro("Preencha nome e documento do prestador.");
           return null;
         }
-        const respPadNovo = !responsavelPadRef.current?.isEmpty?.();
-        const prestPadNovo = !prestadorPadRef.current?.isEmpty?.();
-        const respSalva = resp.imagemUrl;
-        const prestSalva = prest.imagemUrl;
-        if (!respPadNovo && !respSalva) {
-          setErro("Assinatura do responsável no local é obrigatória.");
+        if (!assinaturaSalvaValida(resp)) {
+          setErro('Salve a assinatura do responsável no local (botão "Salvar assinatura").');
           return null;
         }
-        if (!prestPadNovo && !prestSalva) {
-          setErro("Assinatura do prestador é obrigatória.");
+        if (!assinaturaSalvaValida(prest)) {
+          setErro('Salve a assinatura do prestador (botão "Salvar assinatura").');
           return null;
         }
       }
@@ -2070,6 +2172,8 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
                   substituindo={substituirColeta[bloco]}
                   onSubstituir={() => setSubstituirColeta((s) => ({ ...s, [bloco]: true }))}
                   onCampoChange={(campo, valor) => updateAssinaturaCampo(bloco, campo, valor)}
+                  onSalvarAssinatura={() => salvarAssinaturaBloco(bloco)}
+                  salvandoAssinatura={salvandoAssinaturaBloco[bloco] || salvando}
                 />
               );
             })}
