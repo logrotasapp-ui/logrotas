@@ -396,12 +396,21 @@ function renderAssinaturasBlock(doc, {
 }
 
 /**
- * @param {{ checklist: object, frete?: object, perfil?: object, includeEntrega?: boolean }} params
+ * @param {{ checklist: object, frete?: object, perfil?: object, includeEntrega?: boolean, onlyEntrega?: boolean }} params
  */
-export async function generateChecklistColetaPdf({ checklist, frete, perfil, includeEntrega = false }) {
+export async function generateChecklistColetaPdf({
+  checklist,
+  frete,
+  perfil,
+  includeEntrega = false,
+  onlyEntrega = false,
+}) {
+  const showColeta = !onlyEntrega;
+  const showEntrega = includeEntrega || onlyEntrega;
   console.log("[Checklist PDF] generateChecklistColetaPdf iniciado", {
     numero: checklist?.numero,
     includeEntrega,
+    onlyEntrega,
     fotosColeta: checklist?.coleta?.fotos?.length || 0,
   });
   const { jsPDF } = await import("jspdf");
@@ -446,7 +455,12 @@ export async function generateChecklistColetaPdf({ checklist, frete, perfil, inc
   doc.setFont("helvetica", "bold");
   doc.setFontSize(15);
   doc.setTextColor(30, 58, 138);
-  doc.text(includeEntrega ? "CHECKLIST DE VEICULO - COMPLETO" : "CHECKLIST DE VEICULO - COLETA", margin, y);
+  const tituloPdf = onlyEntrega
+    ? "CHECKLIST DE VEICULO - ENTREGA"
+    : includeEntrega
+      ? "CHECKLIST DE VEICULO - COMPLETO"
+      : "CHECKLIST DE VEICULO - COLETA";
+  doc.text(tituloPdf, margin, y);
   y += 8;
   doc.setFontSize(12);
   doc.text(`No ${numero || "-"}`, margin, y);
@@ -472,37 +486,43 @@ export async function generateChecklistColetaPdf({ checklist, frete, perfil, inc
   line(`Servico: ${labelServico(servico?.tipo)} - Motivo: ${labelMotivo(servico?.motivo)}`);
   y += 3;
 
-  sectionTitle("VISTORIA");
-  (coleta?.perguntas || []).forEach((p, i) => {
-    line(`${i + 1}. ${stripEmojis(p.texto)} - Resposta: ${labelResposta(p.resposta)}`);
-  });
-  y += 2;
-  line("Acessorios:", true);
-  (coleta?.acessorios || []).forEach((a) => {
-    line(`- ${stripEmojis(a.item)}: ${labelAcessorio(a.estado)}`);
-  });
-  y += 2;
-  line(
-    `Pneus - Dianteiro: ${labelPneu(coleta?.pneus?.dianteiro)} - Traseiro: ${labelPneu(coleta?.pneus?.traseiro)} - Estepe: ${labelPneu(coleta?.pneus?.estepe)}`
-  );
-  line(`Combustivel: ${labelCombustivel(coleta?.combustivel)}`);
-  if (coleta?.observacoes?.trim()) {
-    line("Observacoes de avarias:", true);
-    line(coleta.observacoes);
-  }
-  y += 3;
-
   const fotos = coleta?.fotos || [];
   const obrigatorias = CHECKLIST_FOTO_SLOTS.filter((s) => s.obrigatoria).map((s) => s.id);
-  const fotosGrid = [
-    ...obrigatorias.map((id) => fotos.find((f) => f.tipo === id)).filter(Boolean),
-    ...fotos.filter((f) => f.tipo === "avarias"),
-  ];
+  const fotosGrid = showColeta
+    ? [
+        ...obrigatorias.map((id) => fotos.find((f) => f.tipo === id)).filter(Boolean),
+        ...fotos.filter((f) => f.tipo === "avarias"),
+      ]
+    : [];
 
-  const assinBlocks = [
-    { key: "responsavel", titulo: "Responsavel no local" },
-    { key: "prestador", titulo: "Prestador" },
-  ];
+  const assinBlocks = showColeta
+    ? [
+        { key: "responsavel", titulo: "Responsavel no local" },
+        { key: "prestador", titulo: "Prestador" },
+      ]
+    : [];
+
+  if (showColeta) {
+    sectionTitle("VISTORIA");
+    (coleta?.perguntas || []).forEach((p, i) => {
+      line(`${i + 1}. ${stripEmojis(p.texto)} - Resposta: ${labelResposta(p.resposta)}`);
+    });
+    y += 2;
+    line("Acessorios:", true);
+    (coleta?.acessorios || []).forEach((a) => {
+      line(`- ${stripEmojis(a.item)}: ${labelAcessorio(a.estado)}`);
+    });
+    y += 2;
+    line(
+      `Pneus - Dianteiro: ${labelPneu(coleta?.pneus?.dianteiro)} - Traseiro: ${labelPneu(coleta?.pneus?.traseiro)} - Estepe: ${labelPneu(coleta?.pneus?.estepe)}`
+    );
+    line(`Combustivel: ${labelCombustivel(coleta?.combustivel)}`);
+    if (coleta?.observacoes?.trim()) {
+      line("Observacoes de avarias:", true);
+      line(coleta.observacoes);
+    }
+    y += 3;
+  }
 
   const entregaFotos = entrega?.fotos || [];
   const entregaObrigatorias = CHECKLIST_ENTREGA_FOTO_SLOTS.filter((s) => s.obrigatoria).map((s) => s.id);
@@ -517,39 +537,42 @@ export async function generateChecklistColetaPdf({ checklist, frete, perfil, inc
 
   const imageCache = await preloadChecklistImages({
     fotosGrid,
-    coleta,
+    coleta: showColeta ? coleta : null,
     assinBlocks,
-    entregaFotosGrid: includeEntrega ? entregaFotosGrid : [],
-    entregaAssinBlocks: includeEntrega ? entregaAssinBlocks : [],
-    entrega,
+    entregaFotosGrid: showEntrega ? entregaFotosGrid : [],
+    entregaAssinBlocks: showEntrega ? entregaAssinBlocks : [],
+    entrega: showEntrega ? entrega : null,
   });
 
   const yRef = { y };
-  renderFotosGrid(doc, {
-    fotosGrid,
-    imageCache,
-    fotoSlots: CHECKLIST_FOTO_SLOTS,
-    keyPrefix: "foto",
-    margin,
-    contentWidth,
-    yRef,
-    sectionLabel: "FOTOS DA VISTORIA",
-  });
-  y = yRef.y;
 
-  renderAssinaturasBlock(doc, {
-    assinBlocks,
-    assinaturas: coleta?.assinaturas,
-    imageCache,
-    keyPrefix: "assinatura",
-    margin,
-    contentWidth,
-    yRef,
-    sectionLabel: "ASSINATURAS",
-  });
-  y = yRef.y;
+  if (showColeta) {
+    renderFotosGrid(doc, {
+      fotosGrid,
+      imageCache,
+      fotoSlots: CHECKLIST_FOTO_SLOTS,
+      keyPrefix: "foto",
+      margin,
+      contentWidth,
+      yRef,
+      sectionLabel: "FOTOS DA VISTORIA",
+    });
+    y = yRef.y;
 
-  if (includeEntrega) {
+    renderAssinaturasBlock(doc, {
+      assinBlocks,
+      assinaturas: coleta?.assinaturas,
+      imageCache,
+      keyPrefix: "assinatura",
+      margin,
+      contentWidth,
+      yRef,
+      sectionLabel: "ASSINATURAS",
+    });
+    y = yRef.y;
+  }
+
+  if (showEntrega) {
     yRef.y = y;
     renderFotosGrid(doc, {
       fotosGrid: entregaFotosGrid,
@@ -615,9 +638,11 @@ export async function generateChecklistColetaPdf({ checklist, frete, perfil, inc
   }
 
   const safeNum = (numero || "coleta").replace(/\//g, "-");
-  const filename = includeEntrega
-    ? `checklist-completo-${safeNum}.pdf`
-    : `checklist-coleta-${safeNum}.pdf`;
+  const filename = onlyEntrega
+    ? `checklist-entrega-${safeNum}.pdf`
+    : includeEntrega
+      ? `checklist-completo-${safeNum}.pdf`
+      : `checklist-coleta-${safeNum}.pdf`;
   const blob = doc.output("blob");
   console.log("[Checklist PDF] generateChecklistColetaPdf concluído", {
     filename,
@@ -632,6 +657,42 @@ export async function generateChecklistColetaPdf({ checklist, frete, perfil, inc
  */
 export async function generateChecklistCompletoPdf(params) {
   return generateChecklistColetaPdf({ ...params, includeEntrega: true });
+}
+
+/**
+ * @param {{ checklist: object, frete?: object, perfil?: object }} params
+ */
+export async function generateChecklistEntregaPdf(params) {
+  return generateChecklistColetaPdf({ ...params, onlyEntrega: true });
+}
+
+/**
+ * @param {{ checklist: object, frete?: object, perfil?: object }} params
+ */
+export function buildChecklistEntregaShareText({ checklist, frete, perfil }) {
+  const { entrega, numero, destino, veiculo } = checklist || {};
+  const conf = entrega?.conferencia;
+  const lines = [
+    `LogRotas - Checklist de Entrega ${numero || ""}`.trim(),
+    `Prestador: ${perfil?.nome || "-"}`,
+    `Destino: ${destino?.endereco || frete?.dest || "-"}`,
+    `Veiculo: ${veiculo?.placa || "-"} ${[veiculo?.marca, veiculo?.modelo].filter(Boolean).join(" ")}`,
+    "",
+    `Recebedor: ${entrega?.recebedor?.nome || "-"}`,
+    `Documento: ${entrega?.recebedor?.documento || "-"}`,
+    `Conferencia: ${conf?.conforme === true ? "Conforme" : conf?.conforme === false ? "Com divergencia" : "-"}`,
+    `Fotos entrega: ${(entrega?.fotos || []).length}`,
+    `Entrega finalizada: ${entrega?.finalizadaEm ? "Sim" : "Nao"}`,
+  ];
+  return lines.join("\n").trim();
+}
+
+/**
+ * @param {{ checklist: object, frete?: object, perfil?: object }} params
+ */
+export function shareChecklistEntregaWhatsApp(params) {
+  const text = buildChecklistEntregaShareText(params);
+  window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, "_blank");
 }
 
 /**

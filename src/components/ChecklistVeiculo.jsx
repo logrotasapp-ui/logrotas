@@ -34,8 +34,10 @@ import SignaturePad from "./SignaturePad.jsx";
 import {
   generateChecklistColetaPdf,
   generateChecklistCompletoPdf,
+  generateChecklistEntregaPdf,
   shareChecklistColetaWhatsApp,
   shareChecklistCompletoWhatsApp,
+  shareChecklistEntregaWhatsApp,
 } from "../services/checklistColetaPdf.js";
 import { sharePdfFileViaSystem } from "../services/deliveryReportPdf.js";
 
@@ -256,7 +258,12 @@ function FotoPreviewImg({ urlOrPath, alt, style }) {
 function FotoViewerModal({ previewUrl, storageUrl, label, onClose }) {
   const [src, setSrc] = useState(previewUrl || "");
   const [scale, setScale] = useState(1);
-  const pinchRef = useRef({ dist: 0, baseScale: 1 });
+  const [offset, setOffset] = useState({ x: 0, y: 0 });
+  const [dragging, setDragging] = useState(false);
+  const viewportRef = useRef(null);
+  const imgRef = useRef(null);
+  const baseSizeRef = useRef({ w: 0, h: 0 });
+  const gestureRef = useRef({ mode: null, dist: 0, baseScale: 1, startX: 0, startY: 0, baseOffsetX: 0, baseOffsetY: 0 });
 
   useEffect(() => {
     let cancelled = false;
@@ -280,31 +287,131 @@ function FotoViewerModal({ previewUrl, storageUrl, label, onClose }) {
 
   useEffect(() => {
     setScale(1);
-    pinchRef.current = { dist: 0, baseScale: 1 };
+    setOffset({ x: 0, y: 0 });
+    gestureRef.current = { mode: null, dist: 0, baseScale: 1, startX: 0, startY: 0, baseOffsetX: 0, baseOffsetY: 0 };
+    baseSizeRef.current = { w: 0, h: 0 };
   }, [previewUrl, storageUrl]);
 
   const clampScale = (v) => Math.min(5, Math.max(0.5, v));
 
+  const measureBaseSize = useCallback(() => {
+    const img = imgRef.current;
+    const vp = viewportRef.current;
+    if (!img || !vp || !img.naturalWidth) return;
+    const maxW = vp.clientWidth;
+    const maxH = vp.clientHeight;
+    const ratio = Math.min(maxW / img.naturalWidth, maxH / img.naturalHeight, 1);
+    baseSizeRef.current = {
+      w: img.naturalWidth * ratio,
+      h: img.naturalHeight * ratio,
+    };
+  }, []);
+
+  const clampOffset = useCallback((x, y, currentScale) => {
+    const vp = viewportRef.current;
+    const base = baseSizeRef.current;
+    if (!vp || !base.w) return { x: 0, y: 0 };
+    const sw = base.w * currentScale;
+    const sh = base.h * currentScale;
+    const maxX = Math.max(0, (sw - vp.clientWidth) / 2);
+    const maxY = Math.max(0, (sh - vp.clientHeight) / 2);
+    if (currentScale <= 1) return { x: 0, y: 0 };
+    return {
+      x: Math.min(maxX, Math.max(-maxX, x)),
+      y: Math.min(maxY, Math.max(-maxY, y)),
+    };
+  }, []);
+
+  const applyScale = useCallback(
+    (nextScale) => {
+      const clamped = clampScale(nextScale);
+      setScale(clamped);
+      setOffset((prev) => clampOffset(prev.x, prev.y, clamped));
+    },
+    [clampOffset]
+  );
+
+  const handleImgLoad = () => {
+    measureBaseSize();
+    setOffset({ x: 0, y: 0 });
+  };
+
   const handleWheel = (e) => {
     e.preventDefault();
-    setScale((s) => clampScale(s + (e.deltaY < 0 ? 0.12 : -0.12)));
+    applyScale(scale + (e.deltaY < 0 ? 0.12 : -0.12));
+  };
+
+  const startPan = (clientX, clientY) => {
+    if (scale <= 1) return;
+    gestureRef.current = {
+      ...gestureRef.current,
+      mode: "pan",
+      startX: clientX,
+      startY: clientY,
+      baseOffsetX: offset.x,
+      baseOffsetY: offset.y,
+    };
+    setDragging(true);
+  };
+
+  const movePan = (clientX, clientY) => {
+    if (gestureRef.current.mode !== "pan") return;
+    const dx = clientX - gestureRef.current.startX;
+    const dy = clientY - gestureRef.current.startY;
+    setOffset(clampOffset(gestureRef.current.baseOffsetX + dx, gestureRef.current.baseOffsetY + dy, scale));
+  };
+
+  const endGesture = () => {
+    gestureRef.current.mode = null;
+    setDragging(false);
   };
 
   const handleTouchStart = (e) => {
     if (e.touches.length === 2) {
       const dx = e.touches[0].clientX - e.touches[1].clientX;
       const dy = e.touches[0].clientY - e.touches[1].clientY;
-      pinchRef.current = { dist: Math.hypot(dx, dy), baseScale: scale };
+      gestureRef.current = {
+        mode: "pinch",
+        dist: Math.hypot(dx, dy),
+        baseScale: scale,
+        startX: 0,
+        startY: 0,
+        baseOffsetX: offset.x,
+        baseOffsetY: offset.y,
+      };
+      setDragging(true);
+      return;
+    }
+    if (e.touches.length === 1) {
+      startPan(e.touches[0].clientX, e.touches[0].clientY);
     }
   };
 
   const handleTouchMove = (e) => {
-    if (e.touches.length !== 2 || !pinchRef.current.dist) return;
-    const dx = e.touches[0].clientX - e.touches[1].clientX;
-    const dy = e.touches[0].clientY - e.touches[1].clientY;
-    const dist = Math.hypot(dx, dy);
-    const ratio = dist / pinchRef.current.dist;
-    setScale(clampScale(pinchRef.current.baseScale * ratio));
+    if (gestureRef.current.mode === "pinch" && e.touches.length === 2) {
+      e.preventDefault();
+      const dx = e.touches[0].clientX - e.touches[1].clientX;
+      const dy = e.touches[0].clientY - e.touches[1].clientY;
+      const dist = Math.hypot(dx, dy);
+      const ratio = dist / (gestureRef.current.dist || 1);
+      applyScale(gestureRef.current.baseScale * ratio);
+      return;
+    }
+    if (gestureRef.current.mode === "pan" && e.touches.length === 1) {
+      e.preventDefault();
+      movePan(e.touches[0].clientX, e.touches[0].clientY);
+    }
+  };
+
+  const handlePointerDown = (e) => {
+    if (e.pointerType === "touch") return;
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+    startPan(e.clientX, e.clientY);
+  };
+
+  const handlePointerMove = (e) => {
+    if (gestureRef.current.mode !== "pan" || e.pointerType === "touch") return;
+    movePan(e.clientX, e.clientY);
   };
 
   if (!src) return null;
@@ -354,32 +461,52 @@ function FotoViewerModal({ previewUrl, storageUrl, label, onClose }) {
         </button>
       </div>
       <div
+        ref={viewportRef}
         style={{
           flex: 1,
-          overflow: "auto",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          padding: 16,
+          overflow: "hidden",
+          position: "relative",
           touchAction: "none",
+          cursor: scale > 1 ? (dragging ? "grabbing" : "grab") : "default",
         }}
         onWheel={handleWheel}
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
+        onTouchEnd={endGesture}
+        onTouchCancel={endGesture}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={endGesture}
+        onPointerCancel={endGesture}
         onClick={(e) => e.stopPropagation()}
       >
-        <img
-          src={src}
-          alt={label || "Foto ampliada"}
+        <div
           style={{
-            maxWidth: "100%",
-            transform: `scale(${scale})`,
-            transformOrigin: "center center",
-            transition: scale === 1 ? "transform .15s" : "none",
-            userSelect: "none",
+            position: "absolute",
+            left: "50%",
+            top: "50%",
+            transform: `translate(calc(-50% + ${offset.x}px), calc(-50% + ${offset.y}px)) scale(${scale})`,
+            transition: dragging ? "none" : "transform 0.12s ease-out",
+            willChange: "transform",
           }}
-          draggable={false}
-        />
+        >
+          <img
+            ref={imgRef}
+            src={src}
+            alt={label || "Foto ampliada"}
+            onLoad={handleImgLoad}
+            style={{
+              display: "block",
+              maxWidth: "100vw",
+              maxHeight: "calc(100vh - 120px)",
+              width: "auto",
+              height: "auto",
+              userSelect: "none",
+              pointerEvents: "none",
+            }}
+            draggable={false}
+          />
+        </div>
       </div>
       <div
         style={{
@@ -390,7 +517,7 @@ function FotoViewerModal({ previewUrl, storageUrl, label, onClose }) {
           flexShrink: 0,
         }}
       >
-        Pinça ou scroll para zoom
+        Pinça ou scroll para zoom · arraste para mover
       </div>
     </div>,
     document.body
@@ -710,39 +837,15 @@ function EtapaPdfColeta({
   frete,
   perfil,
   gerandoPdf,
-  gerandoPdfCompleto,
   onGerarPdf,
-  onGerarPdfCompleto,
   onWhatsApp,
   coletaOk,
-  entregaConcluida,
-  variant = "full",
 }) {
-  if (!coletaOk) {
-    return (
-      <div
-        style={{
-          background: C.orangeLight,
-          border: `1px solid ${C.orange}44`,
-          borderRadius: 16,
-          padding: "28px 20px",
-          textAlign: "center",
-        }}
-      >
-        <div style={{ fontSize: 36, marginBottom: 10 }}>📋</div>
-        <div style={{ color: C.navy, fontWeight: 800, fontSize: 15, fontFamily: "'Sora',sans-serif" }}>
-          Coleta ainda não concluída
-        </div>
-        <div style={{ color: C.muted, fontSize: 13, marginTop: 8, lineHeight: 1.5 }}>
-          Complete todas as etapas anteriores para gerar o PDF da coleta.
-        </div>
-      </div>
-    );
-  }
+  const pdfBusy = gerandoPdf;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-      {variant === "full" && (
+      {coletaOk ? (
         <div
           style={{
             background: C.greenLight,
@@ -754,18 +857,34 @@ function EtapaPdfColeta({
         >
           <div style={{ fontSize: 40, marginBottom: 10 }}>✅</div>
           <div style={{ color: C.green, fontWeight: 800, fontSize: 16, fontFamily: "'Sora',sans-serif" }}>
-            {entregaConcluida ? "Checklist completo" : "Coleta concluída"}
+            Coleta concluída
           </div>
           <div style={{ color: C.text2, fontSize: 13, marginTop: 8, lineHeight: 1.5 }}>
-            Gere o laudo em PDF do checklist {checklist?.numero || ""}.
-            {!entregaConcluida && " O PDF completo fica disponível após finalizar a entrega."}
+            Gere o laudo em PDF da coleta do checklist {checklist?.numero || ""}.
+          </div>
+        </div>
+      ) : (
+        <div
+          style={{
+            background: C.orangeLight,
+            border: `1px solid ${C.orange}44`,
+            borderRadius: 16,
+            padding: "16px 18px",
+            textAlign: "center",
+          }}
+        >
+          <div style={{ color: C.navy, fontWeight: 800, fontSize: 14, fontFamily: "'Sora',sans-serif" }}>
+            Coleta em andamento
+          </div>
+          <div style={{ color: C.muted, fontSize: 12, marginTop: 6, lineHeight: 1.5 }}>
+            Você já pode gerar o PDF da coleta com os dados preenchidos até aqui.
           </div>
         </div>
       )}
       <button
         type="button"
         onClick={onGerarPdf}
-        disabled={gerandoPdf || gerandoPdfCompleto}
+        disabled={pdfBusy}
         style={{
           width: "100%",
           padding: "14px 0",
@@ -775,9 +894,9 @@ function EtapaPdfColeta({
           color: "#fff",
           fontWeight: 800,
           fontSize: 15,
-          cursor: gerandoPdf || gerandoPdfCompleto ? "wait" : "pointer",
+          cursor: pdfBusy ? "wait" : "pointer",
           fontFamily: "'Sora',sans-serif",
-          opacity: gerandoPdf || gerandoPdfCompleto ? 0.7 : 1,
+          opacity: pdfBusy ? 0.7 : 1,
         }}
       >
         {gerandoPdf ? (
@@ -791,18 +910,84 @@ function EtapaPdfColeta({
       </button>
       <button
         type="button"
-        onClick={onGerarPdfCompleto}
-        disabled={!entregaConcluida || gerandoPdf || gerandoPdfCompleto}
+        onClick={onWhatsApp}
+        style={{
+          width: "100%",
+          padding: "13px 0",
+          background: "#25D366",
+          border: "none",
+          borderRadius: 12,
+          color: "#fff",
+          fontWeight: 700,
+          fontSize: 14,
+          cursor: "pointer",
+        }}
+      >
+        Compartilhar no WhatsApp
+      </button>
+      <div style={{ color: C.muted, fontSize: 11, textAlign: "center", lineHeight: 1.5 }}>
+        Origem: {checklist?.origem?.endereco || frete?.origin || "—"}
+        <br />
+        Destino: {checklist?.destino?.endereco || frete?.dest || "—"}
+        <br />
+        Prestador: {perfil?.nome || "—"}
+      </div>
+    </div>
+  );
+}
+
+function EtapaPdfEntrega({
+  gerandoPdfEntrega,
+  gerandoPdfCompleto,
+  onGerarPdfEntrega,
+  onGerarPdfCompleto,
+  onWhatsApp,
+}) {
+  const pdfBusy = gerandoPdfEntrega || gerandoPdfCompleto;
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <button
+        type="button"
+        onClick={onGerarPdfEntrega}
+        disabled={pdfBusy}
         style={{
           width: "100%",
           padding: "14px 0",
-          background: entregaConcluida ? C.green : C.subtle,
-          border: entregaConcluida ? "none" : `1.5px solid ${C.border}`,
+          background: C.navy,
+          border: "none",
           borderRadius: 12,
-          color: entregaConcluida ? "#fff" : C.muted,
+          color: "#fff",
           fontWeight: 800,
           fontSize: 15,
-          cursor: !entregaConcluida || gerandoPdf || gerandoPdfCompleto ? "not-allowed" : "pointer",
+          cursor: pdfBusy ? "wait" : "pointer",
+          fontFamily: "'Sora',sans-serif",
+          opacity: gerandoPdfEntrega ? 0.7 : 1,
+        }}
+      >
+        {gerandoPdfEntrega ? (
+          <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+            <RefreshCwIcon size={16} style={{ animation: "lr-btn-spin 1s linear infinite" }} />
+            Gerando PDF...
+          </span>
+        ) : (
+          "📄 PDF da Entrega"
+        )}
+      </button>
+      <button
+        type="button"
+        onClick={onGerarPdfCompleto}
+        disabled={pdfBusy}
+        style={{
+          width: "100%",
+          padding: "14px 0",
+          background: C.green,
+          border: "none",
+          borderRadius: 12,
+          color: "#fff",
+          fontWeight: 800,
+          fontSize: 15,
+          cursor: pdfBusy ? "wait" : "pointer",
           fontFamily: "'Sora',sans-serif",
           opacity: gerandoPdfCompleto ? 0.7 : 1,
         }}
@@ -833,13 +1018,6 @@ function EtapaPdfColeta({
       >
         Compartilhar no WhatsApp
       </button>
-      <div style={{ color: C.muted, fontSize: 11, textAlign: "center", lineHeight: 1.5 }}>
-        Origem: {checklist?.origem?.endereco || frete?.origin || "—"}
-        <br />
-        Destino: {checklist?.destino?.endereco || frete?.dest || "—"}
-        <br />
-        Prestador: {perfil?.nome || "—"}
-      </div>
     </div>
   );
 }
@@ -991,6 +1169,7 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
   const [uploadingSlot, setUploadingSlot] = useState(null);
   const [slotAtivo, setSlotAtivo] = useState(null);
   const [gerandoPdf, setGerandoPdf] = useState(false);
+  const [gerandoPdfEntrega, setGerandoPdfEntrega] = useState(false);
   const [gerandoPdfCompleto, setGerandoPdfCompleto] = useState(false);
   const [showPdfShare, setShowPdfShare] = useState(false);
   const [pdfBlobCache, setPdfBlobCache] = useState(null);
@@ -1289,7 +1468,7 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
       temAssinResp: !!atual?.coleta?.assinaturas?.responsavel?.imagemUrl,
       temAssinPrest: !!atual?.coleta?.assinaturas?.prestador?.imagemUrl,
     });
-    if (gerandoPdf || gerandoPdfCompleto) {
+    if (gerandoPdf || gerandoPdfEntrega || gerandoPdfCompleto) {
       console.warn("[Checklist] Gerar PDF retorno antecipado: geração em andamento");
       return;
     }
@@ -1329,14 +1508,54 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
     }
   };
 
+  const handleGerarPdfEntrega = async () => {
+    const atual = checklistRef.current || checklist;
+    console.log("[Checklist] Gerar PDF entrega clicado", {
+      status: atual?.status,
+      gerandoPdfEntrega,
+      gerandoPdfCompleto,
+    });
+    if (gerandoPdf || gerandoPdfEntrega || gerandoPdfCompleto) {
+      return;
+    }
+    if (atual?.status !== "concluido") {
+      const msg = "Finalize a entrega antes de gerar o PDF da entrega.";
+      setErro(msg);
+      setToastMsg(msg);
+      return;
+    }
+    if (pdfBlobCache && pdfModalTipo === "entrega") {
+      setShowPdfShare(true);
+      return;
+    }
+    setGerandoPdfEntrega(true);
+    setErro("");
+    try {
+      const params = { checklist: atual, frete, perfil };
+      const { blob, filename } = await generateChecklistEntregaPdf(params);
+      console.log("[Checklist] Gerar PDF entrega concluído", { filename, bytes: blob?.size });
+      setPdfBlobCache(blob);
+      setPdfFilenameCache(filename);
+      setPdfModalTipo("entrega");
+      setShowPdfShare(true);
+    } catch (err) {
+      console.error("[Checklist] Gerar PDF entrega falhou:", err);
+      setErro("Não foi possível gerar o PDF da entrega.");
+      setToastMsg("Não foi possível gerar o PDF da entrega.");
+    } finally {
+      setGerandoPdfEntrega(false);
+    }
+  };
+
   const handleGerarPdfCompleto = async () => {
     const atual = checklistRef.current || checklist;
     console.log("[Checklist] Gerar PDF completo clicado", {
       entregaConcluida: atual?.status === "concluido",
       gerandoPdf,
+      gerandoPdfEntrega,
       gerandoPdfCompleto,
     });
-    if (gerandoPdf || gerandoPdfCompleto) {
+    if (gerandoPdf || gerandoPdfEntrega || gerandoPdfCompleto) {
       console.warn("[Checklist] Gerar PDF completo retorno antecipado: geração em andamento");
       return;
     }
@@ -2674,11 +2893,8 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
             frete={frete}
             perfil={perfil}
             gerandoPdf={gerandoPdf}
-            gerandoPdfCompleto={gerandoPdfCompleto}
             coletaOk={coletaOk}
-            entregaConcluida={entregaConcluida}
             onGerarPdf={handleGerarPdf}
-            onGerarPdfCompleto={handleGerarPdfCompleto}
             onWhatsApp={() => shareChecklistColetaWhatsApp(pdfParams)}
           />
         )}
@@ -2999,18 +3215,12 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
                 >
                   ✅ Entrega finalizada — checklist completo
                 </div>
-                <EtapaPdfColeta
-                  checklist={checklist}
-                  frete={frete}
-                  perfil={perfil}
-                  gerandoPdf={gerandoPdf}
+                <EtapaPdfEntrega
+                  gerandoPdfEntrega={gerandoPdfEntrega}
                   gerandoPdfCompleto={gerandoPdfCompleto}
-                  coletaOk={coletaOk}
-                  entregaConcluida={entregaConcluida}
-                  onGerarPdf={handleGerarPdf}
+                  onGerarPdfEntrega={handleGerarPdfEntrega}
                   onGerarPdfCompleto={handleGerarPdfCompleto}
-                  onWhatsApp={() => shareChecklistColetaWhatsApp(pdfParams)}
-                  variant="inline"
+                  onWhatsApp={() => shareChecklistCompletoWhatsApp(pdfParams)}
                 />
               </>
             )}
@@ -3134,7 +3344,9 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
               <div style={{ color: C.muted, fontSize: 13, marginBottom: 18, lineHeight: 1.5 }}>
                 {pdfModalTipo === "completo"
                   ? "Compartilhe o laudo completo (coleta + entrega):"
-                  : "Compartilhe o laudo da coleta:"}
+                  : pdfModalTipo === "entrega"
+                    ? "Compartilhe o laudo da entrega:"
+                    : "Compartilhe o laudo da coleta:"}
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                 {pdfBlobCache && (
@@ -3145,10 +3357,15 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
                         await sharePdfFileViaSystem(
                           pdfBlobCache,
                           pdfFilenameCache ||
-                            (pdfModalTipo === "completo" ? "checklist-completo.pdf" : "checklist-coleta.pdf")
+                            (pdfModalTipo === "completo"
+                              ? "checklist-completo.pdf"
+                              : pdfModalTipo === "entrega"
+                                ? "checklist-entrega.pdf"
+                                : "checklist-coleta.pdf")
                         );
                       } catch {
                         if (pdfModalTipo === "completo") shareChecklistCompletoWhatsApp(pdfParams);
+                        else if (pdfModalTipo === "entrega") shareChecklistEntregaWhatsApp(pdfParams);
                         else shareChecklistColetaWhatsApp(pdfParams);
                       }
                     }}
@@ -3169,11 +3386,11 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
                 )}
                 <button
                   type="button"
-                  onClick={() =>
-                    pdfModalTipo === "completo"
-                      ? shareChecklistCompletoWhatsApp(pdfParams)
-                      : shareChecklistColetaWhatsApp(pdfParams)
-                  }
+                  onClick={() => {
+                    if (pdfModalTipo === "completo") shareChecklistCompletoWhatsApp(pdfParams);
+                    else if (pdfModalTipo === "entrega") shareChecklistEntregaWhatsApp(pdfParams);
+                    else shareChecklistColetaWhatsApp(pdfParams);
+                  }}
                   style={{
                     width: "100%",
                     padding: 13,
