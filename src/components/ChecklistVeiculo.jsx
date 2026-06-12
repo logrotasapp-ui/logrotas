@@ -39,6 +39,19 @@ import {
 } from "../services/checklistColetaPdf.js";
 import { sharePdfFileViaSystem } from "../services/deliveryReportPdf.js";
 
+/** Cache em memória de objectURLs por storagePath — evita re-fetch a cada render. */
+const storageBlobUrlCache = new Map();
+
+async function getCachedStorageBlobUrl(urlOrPath) {
+  if (!urlOrPath) return "";
+  if (urlOrPath.startsWith("blob:") || isChecklistDownloadUrl(urlOrPath)) return urlOrPath;
+  if (storageBlobUrlCache.has(urlOrPath)) return storageBlobUrlCache.get(urlOrPath);
+  const blob = await getBlob(ref(storage, urlOrPath));
+  const objUrl = URL.createObjectURL(blob);
+  storageBlobUrlCache.set(urlOrPath, objUrl);
+  return objUrl;
+}
+
 const C = {
   bg: "#F4F6FA",
   surface: "#FFFFFF",
@@ -189,31 +202,32 @@ function BtnSelecao({ label, ativo, onClick, cor = C.navy }) {
 }
 
 function FotoPreviewImg({ urlOrPath, alt, style }) {
-  const [src, setSrc] = useState(urlOrPath || "");
-  const objectUrlRef = useRef(null);
+  const [src, setSrc] = useState(() => {
+    if (!urlOrPath) return "";
+    if (urlOrPath.startsWith("blob:") || isChecklistDownloadUrl(urlOrPath)) return urlOrPath;
+    return storageBlobUrlCache.get(urlOrPath) || "";
+  });
   const fallbackTriedRef = useRef(false);
 
   useEffect(() => {
     fallbackTriedRef.current = false;
-    setSrc(urlOrPath || "");
-    return () => {
-      if (objectUrlRef.current) {
-        URL.revokeObjectURL(objectUrlRef.current);
-        objectUrlRef.current = null;
-      }
-    };
-  }, [urlOrPath]);
-
-  useEffect(() => {
-    if (!urlOrPath || urlOrPath.startsWith("blob:") || isChecklistDownloadUrl(urlOrPath)) return;
+    if (!urlOrPath) {
+      setSrc("");
+      return;
+    }
+    if (urlOrPath.startsWith("blob:") || isChecklistDownloadUrl(urlOrPath)) {
+      setSrc(urlOrPath);
+      return;
+    }
+    if (storageBlobUrlCache.has(urlOrPath)) {
+      setSrc(storageBlobUrlCache.get(urlOrPath));
+      return;
+    }
     let cancelled = false;
     (async () => {
       try {
-        const blob = await getBlob(ref(storage, urlOrPath));
-        if (cancelled) return;
-        const objUrl = URL.createObjectURL(blob);
-        objectUrlRef.current = objUrl;
-        setSrc(objUrl);
+        const objUrl = await getCachedStorageBlobUrl(urlOrPath);
+        if (!cancelled) setSrc(objUrl);
       } catch (err) {
         console.error("[Checklist] Falha preview foto:", urlOrPath, err);
       }
@@ -224,12 +238,10 @@ function FotoPreviewImg({ urlOrPath, alt, style }) {
   }, [urlOrPath]);
 
   const handleError = async () => {
-    if (!urlOrPath || fallbackTriedRef.current || src !== urlOrPath) return;
+    if (!urlOrPath || fallbackTriedRef.current) return;
     fallbackTriedRef.current = true;
     try {
-      const blob = await getBlob(ref(storage, urlOrPath));
-      const objUrl = URL.createObjectURL(blob);
-      objectUrlRef.current = objUrl;
+      const objUrl = await getCachedStorageBlobUrl(urlOrPath);
       setSrc(objUrl);
     } catch (err) {
       console.error("[Checklist] Falha fallback foto:", urlOrPath, err);
@@ -239,6 +251,150 @@ function FotoPreviewImg({ urlOrPath, alt, style }) {
   if (!src) return null;
 
   return <img src={src} alt={alt} onError={handleError} style={style} />;
+}
+
+function FotoViewerModal({ previewUrl, storageUrl, label, onClose }) {
+  const [src, setSrc] = useState(previewUrl || "");
+  const [scale, setScale] = useState(1);
+  const pinchRef = useRef({ dist: 0, baseScale: 1 });
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (previewUrl) {
+        setSrc(previewUrl);
+        return;
+      }
+      if (!storageUrl) return;
+      try {
+        const objUrl = await getCachedStorageBlobUrl(storageUrl);
+        if (!cancelled) setSrc(objUrl);
+      } catch (err) {
+        console.error("[Checklist] Falha visualizador foto:", storageUrl, err);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [previewUrl, storageUrl]);
+
+  useEffect(() => {
+    setScale(1);
+    pinchRef.current = { dist: 0, baseScale: 1 };
+  }, [previewUrl, storageUrl]);
+
+  const clampScale = (v) => Math.min(5, Math.max(0.5, v));
+
+  const handleWheel = (e) => {
+    e.preventDefault();
+    setScale((s) => clampScale(s + (e.deltaY < 0 ? 0.12 : -0.12)));
+  };
+
+  const handleTouchStart = (e) => {
+    if (e.touches.length === 2) {
+      const dx = e.touches[0].clientX - e.touches[1].clientX;
+      const dy = e.touches[0].clientY - e.touches[1].clientY;
+      pinchRef.current = { dist: Math.hypot(dx, dy), baseScale: scale };
+    }
+  };
+
+  const handleTouchMove = (e) => {
+    if (e.touches.length !== 2 || !pinchRef.current.dist) return;
+    const dx = e.touches[0].clientX - e.touches[1].clientX;
+    const dy = e.touches[0].clientY - e.touches[1].clientY;
+    const dist = Math.hypot(dx, dy);
+    const ratio = dist / pinchRef.current.dist;
+    setScale(clampScale(pinchRef.current.baseScale * ratio));
+  };
+
+  if (!src) return null;
+
+  return createPortal(
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 1200,
+        background: "rgba(0,0,0,0.92)",
+        display: "flex",
+        flexDirection: "column",
+      }}
+      onClick={onClose}
+    >
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          padding: "12px 16px",
+          color: "#fff",
+          flexShrink: 0,
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div style={{ fontWeight: 700, fontSize: 14 }}>{label || "Foto"}</div>
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Fechar"
+          style={{
+            background: "rgba(255,255,255,0.15)",
+            border: "none",
+            borderRadius: 10,
+            width: 40,
+            height: 40,
+            cursor: "pointer",
+            color: "#fff",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          <XIcon size={22} />
+        </button>
+      </div>
+      <div
+        style={{
+          flex: 1,
+          overflow: "auto",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          padding: 16,
+          touchAction: "none",
+        }}
+        onWheel={handleWheel}
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <img
+          src={src}
+          alt={label || "Foto ampliada"}
+          style={{
+            maxWidth: "100%",
+            transform: `scale(${scale})`,
+            transformOrigin: "center center",
+            transition: scale === 1 ? "transform .15s" : "none",
+            userSelect: "none",
+          }}
+          draggable={false}
+        />
+      </div>
+      <div
+        style={{
+          textAlign: "center",
+          color: "rgba(255,255,255,0.65)",
+          fontSize: 11,
+          padding: "8px 16px 16px",
+          flexShrink: 0,
+        }}
+      >
+        Pinça ou scroll para zoom
+      </div>
+    </div>,
+    document.body
+  );
 }
 
 class AssinaturaErrorBoundary extends Component {
@@ -560,6 +716,7 @@ function EtapaPdfColeta({
   onWhatsApp,
   coletaOk,
   entregaConcluida,
+  variant = "full",
 }) {
   if (!coletaOk) {
     return (
@@ -585,24 +742,26 @@ function EtapaPdfColeta({
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-      <div
-        style={{
-          background: C.greenLight,
-          border: `1px solid ${C.green}33`,
-          borderRadius: 16,
-          padding: "20px 18px",
-          textAlign: "center",
-        }}
-      >
-        <div style={{ fontSize: 40, marginBottom: 10 }}>✅</div>
-        <div style={{ color: C.green, fontWeight: 800, fontSize: 16, fontFamily: "'Sora',sans-serif" }}>
-          {entregaConcluida ? "Checklist completo" : "Coleta concluída"}
+      {variant === "full" && (
+        <div
+          style={{
+            background: C.greenLight,
+            border: `1px solid ${C.green}33`,
+            borderRadius: 16,
+            padding: "20px 18px",
+            textAlign: "center",
+          }}
+        >
+          <div style={{ fontSize: 40, marginBottom: 10 }}>✅</div>
+          <div style={{ color: C.green, fontWeight: 800, fontSize: 16, fontFamily: "'Sora',sans-serif" }}>
+            {entregaConcluida ? "Checklist completo" : "Coleta concluída"}
+          </div>
+          <div style={{ color: C.text2, fontSize: 13, marginTop: 8, lineHeight: 1.5 }}>
+            Gere o laudo em PDF do checklist {checklist?.numero || ""}.
+            {!entregaConcluida && " O PDF completo fica disponível após finalizar a entrega."}
+          </div>
         </div>
-        <div style={{ color: C.text2, fontSize: 13, marginTop: 8, lineHeight: 1.5 }}>
-          Gere o laudo em PDF do checklist {checklist?.numero || ""}.
-          {!entregaConcluida && " O PDF completo fica disponível após finalizar a entrega."}
-        </div>
-      </div>
+      )}
       <button
         type="button"
         onClick={onGerarPdf}
@@ -685,9 +844,14 @@ function EtapaPdfColeta({
   );
 }
 
-function PhotoSlot({ slot, foto, onCapture, uploading, onRemove }) {
+function PhotoSlot({ slot, foto, onCapture, onView, uploading, onRemove }) {
   const displayUrl = foto?.previewUrl || foto?.url;
   const temFoto = !!displayUrl;
+  const handleAreaClick = () => {
+    if (uploading) return;
+    if (temFoto) onView?.(foto, slot.label);
+    else onCapture();
+  };
   return (
     <div
       style={{
@@ -699,7 +863,7 @@ function PhotoSlot({ slot, foto, onCapture, uploading, onRemove }) {
     >
       <button
         type="button"
-        onClick={onCapture}
+        onClick={handleAreaClick}
         disabled={uploading}
         style={{
           width: "100%",
@@ -837,6 +1001,7 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
   const [fotoContexto, setFotoContexto] = useState("coleta");
   const [mostrarDivergencias, setMostrarDivergencias] = useState(false);
   const [modalConfirmarDivergencia, setModalConfirmarDivergencia] = useState(false);
+  const [fotoViewer, setFotoViewer] = useState(null);
   const [toastMsg, setToastMsg] = useState("");
   const [substituirColeta, setSubstituirColeta] = useState({ responsavel: false, prestador: false });
   const [salvandoAssinaturaBloco, setSalvandoAssinaturaBloco] = useState({
@@ -1005,6 +1170,31 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
       return next;
     });
   }, [etapa, perfil?.nome, perfil?.documento, prestadorPerfilOk]);
+
+  useEffect(() => {
+    if (etapa !== 6) return;
+    const atual = checklistRef.current || checklist;
+    const conf = atual?.entrega?.conferencia;
+    if (conf && (conf.conforme === true || conf.conforme === false)) return;
+    const entrega = {
+      ...normalizeEntregaData(atual.entrega),
+      conferencia: { conforme: true, divergencias: [], observacao: "" },
+    };
+    setChecklist((c) => {
+      const next = { ...c, entrega };
+      checklistRef.current = next;
+      return next;
+    });
+  }, [etapa, checklist?.id]);
+
+  const abrirVisualizadorFoto = useCallback((foto, label) => {
+    if (!foto?.previewUrl && !foto?.url) return;
+    setFotoViewer({
+      previewUrl: foto.previewUrl || null,
+      storageUrl: foto.url || null,
+      label: label || "Foto",
+    });
+  }, []);
 
   const notificarErroSalvar = useCallback((mensagem, err) => {
     console.error("[Checklist] Falha ao salvar:", mensagem, err || "");
@@ -1770,12 +1960,22 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
   const usarMesmaPessoaColeta = async () => {
     const atual = checklistRef.current || checklist;
     const resp = atual.coleta?.assinaturas?.responsavel || {};
+    const entregaNorm = normalizeEntregaData(atual.entrega);
+    const assinRec = entregaNorm.assinaturas?.recebedor || assinaturaVazia();
     const entrega = {
-      ...normalizeEntregaData(atual.entrega),
+      ...entregaNorm,
       recebedor: {
         nome: resp.nome || "",
         documento: resp.documento || "",
         mesmaPessoaColeta: true,
+      },
+      assinaturas: {
+        ...entregaNorm.assinaturas,
+        recebedor: {
+          ...assinRec,
+          nome: resp.nome || assinRec.nome || "",
+          documento: resp.documento || assinRec.documento || "",
+        },
       },
     };
     setChecklist((c) => {
@@ -1804,7 +2004,7 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
     const atual = checklistRef.current || checklist;
     const entrega = {
       ...normalizeEntregaData(atual.entrega),
-      conferencia: { conforme: true },
+      conferencia: { conforme: true, divergencias: [], observacao: "" },
     };
     setMostrarDivergencias(false);
     setChecklist((c) => {
@@ -1956,6 +2156,16 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
       return;
     }
 
+    const conf = entregaNorm.conferencia;
+    if (conf?.conforme !== true && conf?.conforme !== false) {
+      setErro('Indique se o veículo está conforme ou há divergência.');
+      return;
+    }
+    if (conf?.conforme === false && !(conf.divergencias || []).length) {
+      setErro("Marque ao menos um item divergente na conferência.");
+      return;
+    }
+
     const val = entregaCompleta({ ...atual, entrega: entregaNorm }, perfil);
     if (!val.completa) {
       setErro(`Complete a entrega: ${val.faltando.slice(0, 3).join(", ")}${val.faltando.length > 3 ? "…" : ""}`);
@@ -1974,6 +2184,7 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
         recebedorEntregaPadRef.current?.clear?.();
         prestadorEntregaPadRef.current?.clear?.();
         setSubstituirEntrega({ recebedor: false, prestador: false });
+        setEtapa(5);
       }
     } catch (err) {
       console.error("[Checklist] Falha finalizar entrega:", err);
@@ -2321,6 +2532,7 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
                   foto={fotoPorSlot(slot.id)}
                   uploading={uploadingSlot === slot.id}
                   onCapture={() => abrirCaptura(slot.id)}
+                  onView={abrirVisualizadorFoto}
                 />
               ))}
             </div>
@@ -2336,6 +2548,7 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
                   foto={foto}
                   uploading={uploadingSlot === "avarias"}
                   onCapture={() => abrirCaptura("avarias")}
+                  onView={abrirVisualizadorFoto}
                   onRemove={() => removerFotoAvaria(globalIdx)}
                 />
               );
@@ -2492,6 +2705,7 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
                   foto={fotoEntregaPorSlot(slot.id)}
                   uploading={uploadingEntregaSlot === slot.id}
                   onCapture={() => abrirCaptura(slot.id, "entrega")}
+                  onView={abrirVisualizadorFoto}
                 />
               ))}
             </div>
@@ -2507,6 +2721,7 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
                   foto={foto}
                   uploading={uploadingEntregaSlot === "avarias"}
                   onCapture={() => abrirCaptura("avarias", "entrega")}
+                  onView={abrirVisualizadorFoto}
                   onRemove={() => removerFotoAvaria(globalIdx, "entrega")}
                 />
               );
@@ -2545,18 +2760,42 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
                 onClick={usarOutraPessoa}
               />
             </div>
-            <Field
-              label="Nome completo"
-              value={checklist.entrega?.recebedor?.nome || ""}
-              onChange={(v) => updateRecebedor("nome", v)}
-              placeholder="Nome de quem recebe"
-            />
-            <Field
-              label="Documento (RG/CPF)"
-              value={checklist.entrega?.recebedor?.documento || ""}
-              onChange={(v) => updateRecebedor("documento", v)}
-              placeholder="000.000.000-00"
-            />
+            {checklist.entrega?.recebedor?.mesmaPessoaColeta === true ? (
+              <div
+                style={{
+                  color: C.text2,
+                  fontSize: 14,
+                  fontWeight: 600,
+                  lineHeight: 1.5,
+                  padding: "12px 14px",
+                  background: C.navyLight,
+                  borderRadius: 12,
+                  border: `1px solid ${C.navy}18`,
+                }}
+              >
+                Recebedor: {checklist.entrega?.recebedor?.nome || "—"} ·{" "}
+                {checklist.entrega?.recebedor?.documento || "—"}
+              </div>
+            ) : checklist.entrega?.recebedor?.mesmaPessoaColeta === false ? (
+              <>
+                <Field
+                  label="Nome completo"
+                  value={checklist.entrega?.recebedor?.nome || ""}
+                  onChange={(v) => updateRecebedor("nome", v)}
+                  placeholder="Nome de quem recebe"
+                />
+                <Field
+                  label="Documento (CPF/RG/CNH)"
+                  value={checklist.entrega?.recebedor?.documento || ""}
+                  onChange={(v) => updateRecebedor("documento", v)}
+                  placeholder="000.000.000-00"
+                />
+              </>
+            ) : (
+              <div style={{ color: C.muted, fontSize: 13, lineHeight: 1.5 }}>
+                Selecione acima se quem recebe é a mesma pessoa da coleta ou outra pessoa.
+              </div>
+            )}
 
             <div style={{ color: C.navy, fontWeight: 800, fontSize: 15, fontFamily: "'Sora',sans-serif", marginTop: 8 }}>
               🔍 Conferência
@@ -2745,26 +2984,50 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
               {salvando ? "Salvando…" : entregaConcluida ? "Entrega concluída" : "Finalizar entrega"}
             </button>
             {entregaConcluida && (
-              <div
-                style={{
-                  background: C.greenLight,
-                  border: `1px solid ${C.green}33`,
-                  borderRadius: 12,
-                  padding: "12px 16px",
-                  color: C.green,
-                  fontWeight: 700,
-                  fontSize: 14,
-                  textAlign: "center",
-                }}
-              >
-                ✅ Entrega finalizada — checklist completo
-              </div>
+              <>
+                <div
+                  style={{
+                    background: C.greenLight,
+                    border: `1px solid ${C.green}33`,
+                    borderRadius: 12,
+                    padding: "12px 16px",
+                    color: C.green,
+                    fontWeight: 700,
+                    fontSize: 14,
+                    textAlign: "center",
+                  }}
+                >
+                  ✅ Entrega finalizada — checklist completo
+                </div>
+                <EtapaPdfColeta
+                  checklist={checklist}
+                  frete={frete}
+                  perfil={perfil}
+                  gerandoPdf={gerandoPdf}
+                  gerandoPdfCompleto={gerandoPdfCompleto}
+                  coletaOk={coletaOk}
+                  entregaConcluida={entregaConcluida}
+                  onGerarPdf={handleGerarPdf}
+                  onGerarPdfCompleto={handleGerarPdfCompleto}
+                  onWhatsApp={() => shareChecklistColetaWhatsApp(pdfParams)}
+                  variant="inline"
+                />
+              </>
             )}
           </div>
         )}
       </div>
 
       <ToastAviso mensagem={toastMsg} />
+
+      {fotoViewer && (
+        <FotoViewerModal
+          previewUrl={fotoViewer.previewUrl}
+          storageUrl={fotoViewer.storageUrl}
+          label={fotoViewer.label}
+          onClose={() => setFotoViewer(null)}
+        />
+      )}
 
       {modalConfirmarDivergencia &&
         createPortal(
