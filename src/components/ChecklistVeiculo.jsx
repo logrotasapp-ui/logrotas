@@ -87,6 +87,22 @@ function normalizeChecklist(cl) {
   };
 }
 
+/** Impede gravar assinaturas como base64 no Firestore (limite 1MB). */
+function stripBase64AssinaturasColeta(coleta) {
+  if (!coleta?.assinaturas) return coleta;
+  let changed = false;
+  const assinaturas = { ...coleta.assinaturas };
+  ["responsavel", "prestador"].forEach((bloco) => {
+    const a = assinaturas[bloco];
+    if (a?.imagemUrl && String(a.imagemUrl).startsWith("data:")) {
+      console.warn("[Checklist] imagemUrl base64 removida antes de gravar coleta", { bloco });
+      assinaturas[bloco] = { ...a, imagemUrl: "" };
+      changed = true;
+    }
+  });
+  return changed ? { ...coleta, assinaturas } : coleta;
+}
+
 /** Atualiza lista de fotos de coleta/entrega sem depender do callback assíncrono do setState. */
 function atualizarFotosLista(fotosAtuais, slotAtivo, foto, previewUrlRef = null) {
   let fotos = [...(fotosAtuais || [])];
@@ -346,7 +362,8 @@ function ToastAviso({ mensagem }) {
 
 function BlocoAssinatura({ titulo, assin, bloco, padRef, substituindo, onSubstituir, onCampoChange }) {
   const assinSafe = { ...assinaturaVazia(), ...(assin && typeof assin === "object" ? assin : {}) };
-  const temAssinaturaSalva = !!assinSafe.imagemUrl?.trim() && isChecklistDownloadUrl(assinSafe.imagemUrl);
+  const temAssinaturaSalva =
+    !!assinSafe.imagemUrl?.trim() && !String(assinSafe.imagemUrl).startsWith("data:");
   const mostrarPad = !temAssinaturaSalva || substituindo;
 
   const handleCampo = (campo, valor) => {
@@ -835,7 +852,7 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
       });
       const base = checklistRef.current || checklist;
       if (payload.coleta) {
-        payload.coleta = normalizeColetaData(payload.coleta, base);
+        payload.coleta = stripBase64AssinaturasColeta(normalizeColetaData(payload.coleta, base));
       }
       if (payload.entrega) {
         payload.entrega = normalizeEntregaData(payload.entrega);
@@ -884,8 +901,35 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
   );
 
   const handleGerarPdf = async () => {
-    if (gerandoPdf || gerandoPdfCompleto || !coletaOk) return;
+    const atual = checklistRef.current || checklist;
+    const okColeta =
+      atual?.status === "aguardando_entrega" ||
+      atual?.status === "concluido" ||
+      coletaCompleta(atual).completa;
+    console.log("[Checklist] Gerar PDF clicado", {
+      coletaOk: okColeta,
+      gerandoPdf,
+      gerandoPdfCompleto,
+      status: atual?.status,
+      temAssinResp: !!atual?.coleta?.assinaturas?.responsavel?.imagemUrl,
+      temAssinPrest: !!atual?.coleta?.assinaturas?.prestador?.imagemUrl,
+    });
+    if (gerandoPdf || gerandoPdfCompleto) {
+      console.warn("[Checklist] Gerar PDF retorno antecipado: geração em andamento");
+      return;
+    }
+    if (!okColeta) {
+      const val = coletaCompleta(atual);
+      const msg = val.faltando.length
+        ? `Complete a coleta para gerar o PDF: ${val.faltando.slice(0, 3).join(", ")}${val.faltando.length > 3 ? "…" : ""}`
+        : "Finalize a coleta antes de gerar o PDF.";
+      console.warn("[Checklist] Gerar PDF bloqueado — pré-condições", { faltando: val.faltando });
+      setErro(msg);
+      setToastMsg(msg);
+      return;
+    }
     if (pdfBlobCache && pdfModalTipo === "coleta") {
+      console.log("[Checklist] Gerar PDF: reutilizando cache");
       setPdfModalTipo("coleta");
       setShowPdfShare(true);
       return;
@@ -893,20 +937,41 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
     setGerandoPdf(true);
     setErro("");
     try {
-      const { blob, filename } = await generateChecklistColetaPdf(pdfParams);
+      const params = { checklist: atual, frete, perfil };
+      console.log("[Checklist] Gerar PDF: iniciando generateChecklistColetaPdf");
+      const { blob, filename } = await generateChecklistColetaPdf(params);
+      console.log("[Checklist] Gerar PDF concluído", { filename, bytes: blob?.size });
       setPdfBlobCache(blob);
       setPdfFilenameCache(filename);
       setPdfModalTipo("coleta");
       setShowPdfShare(true);
-    } catch {
-      setErro("Não foi possível gerar o PDF.");
+    } catch (err) {
+      console.error("[Checklist] Gerar PDF falhou:", err);
+      setErro("Não foi possível gerar o PDF. Verifique sua conexão e tente novamente.");
+      setToastMsg("Não foi possível gerar o PDF.");
     } finally {
       setGerandoPdf(false);
     }
   };
 
   const handleGerarPdfCompleto = async () => {
-    if (gerandoPdf || gerandoPdfCompleto || !entregaConcluida) return;
+    const atual = checklistRef.current || checklist;
+    console.log("[Checklist] Gerar PDF completo clicado", {
+      entregaConcluida: atual?.status === "concluido",
+      gerandoPdf,
+      gerandoPdfCompleto,
+    });
+    if (gerandoPdf || gerandoPdfCompleto) {
+      console.warn("[Checklist] Gerar PDF completo retorno antecipado: geração em andamento");
+      return;
+    }
+    if (atual?.status !== "concluido") {
+      const msg = "Finalize a entrega antes de gerar o PDF completo.";
+      console.warn("[Checklist] Gerar PDF completo bloqueado", { status: atual?.status });
+      setErro(msg);
+      setToastMsg(msg);
+      return;
+    }
     if (pdfBlobCache && pdfModalTipo === "completo") {
       setShowPdfShare(true);
       return;
@@ -914,17 +979,176 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
     setGerandoPdfCompleto(true);
     setErro("");
     try {
-      const { blob, filename } = await generateChecklistCompletoPdf(pdfParams);
+      const params = { checklist: atual, frete, perfil };
+      const { blob, filename } = await generateChecklistCompletoPdf(params);
+      console.log("[Checklist] Gerar PDF completo concluído", { filename, bytes: blob?.size });
       setPdfBlobCache(blob);
       setPdfFilenameCache(filename);
       setPdfModalTipo("completo");
       setShowPdfShare(true);
-    } catch {
+    } catch (err) {
+      console.error("[Checklist] Gerar PDF completo falhou:", err);
       setErro("Não foi possível gerar o PDF completo.");
+      setToastMsg("Não foi possível gerar o PDF completo.");
     } finally {
       setGerandoPdfCompleto(false);
     }
   };
+
+  const uploadAssinaturaImagem = useCallback(
+    async (imagemUrl, padRef, nomeArquivo, checklistId) => {
+      if (imagemUrl && isChecklistDownloadUrl(imagemUrl)) return imagemUrl;
+      if (imagemUrl && String(imagemUrl).startsWith("data:image")) {
+        console.log("[Checklist] Convertendo assinatura base64 para Storage", { nomeArquivo });
+        const resp = await fetch(imagemUrl);
+        const rawBlob = await resp.blob();
+        const jpeg = await compressImageToJpegBlob(rawBlob);
+        return uploadChecklistImage(uid, checklistId, nomeArquivo, jpeg);
+      }
+      if (padRef?.current && !padRef.current.isEmpty?.()) {
+        const blob = await padRef.current.toBlob();
+        const jpeg = await compressImageToJpegBlob(blob);
+        return uploadChecklistImage(uid, checklistId, nomeArquivo, jpeg);
+      }
+      return imagemUrl || "";
+    },
+    [uid]
+  );
+
+  const persistirAssinaturasColeta = useCallback(
+    async ({ finalizar = false } = {}) => {
+      const atual = checklistRef.current || checklist;
+      const checklistId = atual?.id;
+      if (!uid || !checklistId) {
+        console.warn("[Checklist] persistirAssinaturas retorno antecipado: sem uid/id");
+        return null;
+      }
+
+      const resp = atual.coleta?.assinaturas?.responsavel || {};
+      const prest = atual.coleta?.assinaturas?.prestador || {};
+
+      if (finalizar) {
+        if (!resp.nome?.trim() || !resp.documento?.trim()) {
+          setErro("Preencha nome e documento do responsável no local.");
+          return null;
+        }
+        if (!prest.nome?.trim() || !prest.documento?.trim()) {
+          setErro("Preencha nome e documento do prestador.");
+          return null;
+        }
+        const respPadNovo = !responsavelPadRef.current?.isEmpty?.();
+        const prestPadNovo = !prestadorPadRef.current?.isEmpty?.();
+        const respSalva = resp.imagemUrl;
+        const prestSalva = prest.imagemUrl;
+        if (!respPadNovo && !respSalva) {
+          setErro("Assinatura do responsável no local é obrigatória.");
+          return null;
+        }
+        if (!prestPadNovo && !prestSalva) {
+          setErro("Assinatura do prestador é obrigatória.");
+          return null;
+        }
+      }
+
+      setSalvando(true);
+      setErro("");
+      try {
+        const respPadNovo = !responsavelPadRef.current?.isEmpty?.();
+        const prestPadNovo = !prestadorPadRef.current?.isEmpty?.();
+        const precisaGps = finalizar || respPadNovo || prestPadNovo;
+        const gps = precisaGps ? await getDriverGeolocation({ preferFresh: true }) : null;
+        const lat = gps?.lat ?? null;
+        const lng = gps?.lng ?? null;
+        const dataHora = formatStampDataHora();
+
+        console.log("[Checklist] persistirAssinaturas iniciado", {
+          finalizar,
+          respPadNovo,
+          prestPadNovo,
+          checklistId,
+        });
+
+        const respUrl = await uploadAssinaturaImagem(
+          resp.imagemUrl,
+          responsavelPadRef,
+          `assinatura_responsavel_${Date.now()}`,
+          checklistId
+        );
+        const prestUrl = await uploadAssinaturaImagem(
+          prest.imagemUrl,
+          prestadorPadRef,
+          `assinatura_prestador_${Date.now()}`,
+          checklistId
+        );
+
+        if (respPadNovo && respUrl) {
+          console.log("[Checklist] Upload assinatura responsavel OK", { url: respUrl.slice(0, 80) });
+        }
+        if (prestPadNovo && prestUrl) {
+          console.log("[Checklist] Upload assinatura prestador OK", { url: prestUrl.slice(0, 80) });
+        }
+
+        const assinaturas = {
+          responsavel: {
+            nome: (resp.nome || "").trim(),
+            documento: (resp.documento || "").trim(),
+            imagemUrl: respUrl,
+            dataHora: respPadNovo || !resp.dataHora ? dataHora : resp.dataHora,
+            lat: respPadNovo ? lat : resp.lat ?? lat,
+            lng: respPadNovo ? lng : resp.lng ?? lng,
+          },
+          prestador: {
+            nome: (prest.nome || "").trim(),
+            documento: (prest.documento || "").trim(),
+            imagemUrl: prestUrl,
+            dataHora: prestPadNovo || !prest.dataHora ? dataHora : prest.dataHora,
+            lat: prestPadNovo ? lat : prest.lat ?? lat,
+            lng: prestPadNovo ? lng : prest.lng ?? lng,
+          },
+        };
+
+        const coletaAtualizada = { ...atual.coleta, assinaturas };
+        const payload = { coleta: coletaAtualizada };
+
+        if (finalizar) {
+          const checklistAtualizado = { ...atual, coleta: coletaAtualizada };
+          const val = coletaCompleta(checklistAtualizado);
+          if (val.completa) {
+            coletaAtualizada.finalizadaEm = new Date().toISOString();
+            payload.status = "aguardando_entrega";
+          }
+        }
+
+        const payloadBytes = JSON.stringify(payload).length;
+        console.log("[Checklist] persistirAssinaturas payload", {
+          bytes: payloadBytes,
+          finalizar,
+          temAssinResp: !!assinaturas.responsavel.imagemUrl,
+          temAssinPrest: !!assinaturas.prestador.imagemUrl,
+        });
+        if (payloadBytes > 900000) {
+          console.error("[Checklist] Payload próximo do limite Firestore (1MB)", { payloadBytes });
+          setErro("Dados muito grandes para salvar. As assinaturas devem ser enviadas como imagem, não texto.");
+          return null;
+        }
+
+        const ok = await salvar(payload);
+        if (ok) {
+          if (respPadNovo) responsavelPadRef.current?.clear?.();
+          if (prestPadNovo) prestadorPadRef.current?.clear?.();
+          setSubstituirColeta({ responsavel: false, prestador: false });
+        }
+        return ok;
+      } catch (err) {
+        console.error("[Checklist] Falha persistirAssinaturas:", err);
+        setErro("Falha ao salvar assinaturas. Tente novamente.");
+        return null;
+      } finally {
+        setSalvando(false);
+      }
+    },
+    [uid, checklist, salvar, uploadAssinaturaImagem]
+  );
 
   const irParaEtapa = (id) => {
     const etapaInfo = ETAPAS.find((e) => e.id === id);
@@ -946,6 +1170,10 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
       if (etapa === 3 && id !== 3 && atual?.coleta) {
         console.log("[Checklist] Auto-save fotos ao trocar aba", { de: etapa, para: id });
         await salvar({ coleta: atual.coleta });
+      }
+      if (etapa === 4 && id !== 4) {
+        console.log("[Checklist] Auto-save assinaturas ao trocar aba", { de: etapa, para: id });
+        await persistirAssinaturasColeta({ finalizar: false });
       }
       setEtapa(id);
     })();
@@ -1140,7 +1368,7 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
     setChecklist((c) => {
       const coleta = normalizeColetaData(c.coleta, c);
       const assinAtual = coleta.assinaturas?.[bloco] || assinaturaVazia();
-      return {
+      const next = {
         ...c,
         coleta: {
           ...coleta,
@@ -1150,99 +1378,18 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
           },
         },
       };
+      checklistRef.current = next;
+      return next;
     });
 
   const avancarEtapa4 = async () => {
     setTentouFinalizarColeta(true);
-
-    const resp = checklist.coleta?.assinaturas?.responsavel || {};
-    const prest = checklist.coleta?.assinaturas?.prestador || {};
-
-    if (!resp.nome?.trim() || !resp.documento?.trim()) {
-      setErro("Preencha nome e documento do responsável no local.");
-      return;
-    }
-    if (!prest.nome?.trim() || !prest.documento?.trim()) {
-      setErro("Preencha nome e documento do prestador.");
-      return;
-    }
-    const respPadNovo = !responsavelPadRef.current?.isEmpty?.();
-    const prestPadNovo = !prestadorPadRef.current?.isEmpty?.();
-    const respSalva = checklist.coleta?.assinaturas?.responsavel?.imagemUrl;
-    const prestSalva = checklist.coleta?.assinaturas?.prestador?.imagemUrl;
-
-    if (!respPadNovo && !respSalva) {
-      setErro("Assinatura do responsável no local é obrigatória.");
-      return;
-    }
-    if (!prestPadNovo && !prestSalva) {
-      setErro("Assinatura do prestador é obrigatória.");
-      return;
-    }
-
-    setSalvando(true);
-    setErro("");
-    try {
-      const gps = await getDriverGeolocation({ preferFresh: true });
-      const lat = gps?.lat ?? null;
-      const lng = gps?.lng ?? null;
-      const dataHora = formatStampDataHora();
-
-      let respUrl = respSalva || "";
-      let prestUrl = prestSalva || "";
-
-      if (respPadNovo) {
-        const respBlob = await responsavelPadRef.current.toBlob();
-        const respJpeg = await compressImageToJpegBlob(respBlob);
-        respUrl = await uploadChecklistImage(uid, checklist.id, `assinatura_responsavel_${Date.now()}`, respJpeg);
-      }
-      if (prestPadNovo) {
-        const prestBlob = await prestadorPadRef.current.toBlob();
-        const prestJpeg = await compressImageToJpegBlob(prestBlob);
-        prestUrl = await uploadChecklistImage(uid, checklist.id, `assinatura_prestador_${Date.now()}`, prestJpeg);
-      }
-
-      const assinRespSalva = checklist.coleta?.assinaturas?.responsavel || {};
-      const assinPrestSalva = checklist.coleta?.assinaturas?.prestador || {};
-
-      const assinaturas = {
-        responsavel: {
-          nome: resp.nome.trim(),
-          documento: resp.documento.trim(),
-          imagemUrl: respUrl,
-          dataHora: respPadNovo ? dataHora : assinRespSalva.dataHora || dataHora,
-          lat: respPadNovo ? lat : assinRespSalva.lat ?? lat,
-          lng: respPadNovo ? lng : assinRespSalva.lng ?? lng,
-        },
-        prestador: {
-          nome: prest.nome.trim(),
-          documento: prest.documento.trim(),
-          imagemUrl: prestUrl,
-          dataHora: prestPadNovo ? dataHora : assinPrestSalva.dataHora || dataHora,
-          lat: prestPadNovo ? lat : assinPrestSalva.lat ?? lat,
-          lng: prestPadNovo ? lng : assinPrestSalva.lng ?? lng,
-        },
-      };
-
-      const coletaAtualizada = { ...checklist.coleta, assinaturas };
-      const checklistAtualizado = { ...checklist, coleta: coletaAtualizada };
-      const val = coletaCompleta(checklistAtualizado);
-      const status = val.completa ? "aguardando_entrega" : "coleta";
-      if (val.completa) {
-        coletaAtualizada.finalizadaEm = new Date().toISOString();
-      }
-
-      setChecklist((c) => ({ ...c, coleta: coletaAtualizada, status }));
-      const ok = await salvar({ coleta: coletaAtualizada, status });
-      if (ok) {
-        responsavelPadRef.current?.clear?.();
-        prestadorPadRef.current?.clear?.();
-        if (val.completa) setEtapa(5);
-      }
-    } catch {
-      setErro("Falha ao salvar assinaturas. Tente novamente.");
-    } finally {
-      setSalvando(false);
+    console.log("[Checklist] Finalizar coleta clicado");
+    const ok = await persistirAssinaturasColeta({ finalizar: true });
+    if (ok) {
+      const val = coletaCompleta(checklistRef.current);
+      console.log("[Checklist] Finalizar coleta concluído", { completa: val.completa });
+      if (val.completa || checklistRef.current?.status === "aguardando_entrega") setEtapa(5);
     }
   };
 

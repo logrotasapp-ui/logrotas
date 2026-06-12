@@ -70,12 +70,24 @@ async function fetchImageDataUrl(urlOrPath, context = "") {
   if (!urlOrPath) return null;
 
   try {
-    const blob = await Promise.race([
-      getBlob(ref(storage, urlOrPath)),
-      new Promise((_, reject) =>
-        setTimeout(() => reject(new Error("timeout 10s")), IMAGE_FETCH_TIMEOUT_MS)
-      ),
-    ]);
+    let blob;
+    if (typeof urlOrPath === "string" && urlOrPath.startsWith("https://")) {
+      const res = await Promise.race([
+        fetch(urlOrPath),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error("timeout 10s")), IMAGE_FETCH_TIMEOUT_MS)
+        ),
+      ]);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      blob = await res.blob();
+    } else {
+      blob = await Promise.race([
+        getBlob(ref(storage, urlOrPath)),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error("timeout 10s")), IMAGE_FETCH_TIMEOUT_MS)
+        ),
+      ]);
+    }
     return await blobToDataUrl(blob);
   } catch (err) {
     console.error("[Checklist PDF] Falha ao carregar imagem:", context, urlOrPath, err);
