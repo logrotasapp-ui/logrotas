@@ -103,6 +103,22 @@ function stripBase64AssinaturasColeta(coleta) {
   return changed ? { ...coleta, assinaturas } : coleta;
 }
 
+/** Impede gravar assinaturas de entrega como base64 no Firestore. */
+function stripBase64AssinaturasEntrega(entrega) {
+  if (!entrega?.assinaturas) return entrega;
+  let changed = false;
+  const assinaturas = { ...entrega.assinaturas };
+  ["recebedor", "prestador"].forEach((bloco) => {
+    const a = assinaturas[bloco];
+    if (a?.imagemUrl && String(a.imagemUrl).startsWith("data:")) {
+      console.warn("[Checklist] imagemUrl base64 removida antes de gravar entrega", { bloco });
+      assinaturas[bloco] = { ...a, imagemUrl: "" };
+      changed = true;
+    }
+  });
+  return changed ? { ...entrega, assinaturas } : entrega;
+}
+
 /** Atualiza lista de fotos de coleta/entrega sem depender do callback assíncrono do setState. */
 function atualizarFotosLista(fotosAtuais, slotAtivo, foto, previewUrlRef = null) {
   let fotos = [...(fotosAtuais || [])];
@@ -782,6 +798,10 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
     responsavel: false,
     prestador: false,
   });
+  const [salvandoAssinaturaEntregaBloco, setSalvandoAssinaturaEntregaBloco] = useState({
+    recebedor: false,
+    prestador: false,
+  });
   const [substituirEntrega, setSubstituirEntrega] = useState({ recebedor: false, prestador: false });
   const fileInputRef = useRef(null);
   const responsavelPadRef = useRef(null);
@@ -895,7 +915,7 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
         payload.coleta = stripBase64AssinaturasColeta(normalizeColetaData(payload.coleta, base));
       }
       if (payload.entrega) {
-        payload.entrega = normalizeEntregaData(payload.entrega);
+        payload.entrega = stripBase64AssinaturasEntrega(normalizeEntregaData(payload.entrega));
       }
       setSalvando(true);
       setErro("");
@@ -1101,6 +1121,68 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
     [uid, checklist, salvar]
   );
 
+  const salvarAssinaturaEntregaBloco = useCallback(
+    async (bloco) => {
+      const padRef = bloco === "recebedor" ? recebedorEntregaPadRef : prestadorEntregaPadRef;
+      const atual = checklistRef.current || checklist;
+      const checklistId = atual?.id;
+
+      console.log("[Checklist] Salvar assinatura entrega clicado", { bloco, checklistId });
+
+      if (!uid || !checklistId) {
+        setErro("Checklist indisponível. Feche e abra novamente.");
+        return;
+      }
+      if (padRef.current?.isEmpty?.()) {
+        setErro("Desenhe a assinatura no quadro antes de salvar.");
+        setToastMsg("Desenhe a assinatura antes de salvar.");
+        return;
+      }
+
+      const entregaNorm = normalizeEntregaData(atual.entrega);
+      const assinAtual = entregaNorm.assinaturas?.[bloco] || assinaturaVazia();
+      setSalvandoAssinaturaEntregaBloco((s) => ({ ...s, [bloco]: true }));
+      setErro("");
+      try {
+        const gps = await getDriverGeolocation({ preferFresh: true });
+        const blob = await padRef.current.toBlob();
+        const jpeg = await compressImageToJpegBlob(blob);
+        const nomeArquivo = `assinatura_entrega_${bloco}_${Date.now()}`;
+        console.log("[Checklist] Enviando assinatura entrega ao Storage", { bloco, nomeArquivo });
+        const url = await uploadChecklistEntregaImage(uid, checklistId, nomeArquivo, jpeg);
+
+        const assinaturas = {
+          ...entregaNorm.assinaturas,
+          [bloco]: {
+            ...assinAtual,
+            nome: (assinAtual.nome || "").trim(),
+            documento: (assinAtual.documento || "").trim(),
+            imagemUrl: url,
+            dataHora: formatStampDataHora(),
+            lat: gps?.lat ?? null,
+            lng: gps?.lng ?? null,
+          },
+        };
+        const entregaSalvar = { ...entregaNorm, assinaturas };
+        const ok = await salvar({ entrega: entregaSalvar });
+        if (ok) {
+          padRef.current?.clear?.();
+          setSubstituirEntrega((s) => ({ ...s, [bloco]: false }));
+          console.log("[Checklist] Assinatura entrega persistida", { bloco });
+        } else {
+          setErro("Não foi possível gravar a assinatura. Tente novamente.");
+        }
+      } catch (err) {
+        console.error("[Checklist] Falha salvar assinatura entrega:", bloco, err);
+        setErro("Não foi possível salvar a assinatura. Tente novamente.");
+        setToastMsg("Falha ao salvar assinatura.");
+      } finally {
+        setSalvandoAssinaturaEntregaBloco((s) => ({ ...s, [bloco]: false }));
+      }
+    },
+    [uid, salvar]
+  );
+
   const uploadAssinaturaImagem = useCallback(
     async (imagemUrl, padRef, nomeArquivo, checklistId) => {
       if (imagemUrl && isChecklistDownloadUrl(imagemUrl)) return imagemUrl;
@@ -1276,6 +1358,10 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
       if (etapa === 4 && id !== 4) {
         console.log("[Checklist] Auto-save assinaturas ao trocar aba", { de: etapa, para: id });
         await persistirAssinaturasColeta({ finalizar: false });
+      }
+      if (etapa === 6 && id !== 6 && atual?.entrega) {
+        console.log("[Checklist] Auto-save entrega ao trocar aba", { de: etapa, para: id });
+        await salvar({ entrega: normalizeEntregaData(atual.entrega) });
       }
       setEtapa(id);
     })();
@@ -1453,16 +1539,25 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
   };
 
   const removerFotoAvaria = async (idx, contexto = "coleta") => {
+    const atual = checklistRef.current || checklist;
     if (contexto === "entrega") {
-      const fotos = (checklist.entrega?.fotos || []).filter((_, i) => i !== idx);
-      const entrega = { ...checklist.entrega, fotos };
-      setChecklist((c) => ({ ...c, entrega }));
+      const fotos = (atual.entrega?.fotos || []).filter((_, i) => i !== idx);
+      const entrega = { ...normalizeEntregaData(atual.entrega), fotos };
+      setChecklist((c) => {
+        const next = { ...c, entrega };
+        checklistRef.current = next;
+        return next;
+      });
       await salvar({ entrega });
       return;
     }
-    const fotos = (checklist.coleta?.fotos || []).filter((_, i) => i !== idx);
-    const coleta = { ...checklist.coleta, fotos };
-    setChecklist((c) => ({ ...c, coleta }));
+    const fotos = (atual.coleta?.fotos || []).filter((_, i) => i !== idx);
+    const coleta = { ...atual.coleta, fotos };
+    setChecklist((c) => {
+      const next = { ...c, coleta };
+      checklistRef.current = next;
+      return next;
+    });
     await salvar({ coleta });
   };
 
@@ -1529,109 +1624,148 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
     setChecklist((c) => ({ ...c, coleta: { ...c.coleta, observacoes: valor } }));
 
   const updateRecebedor = (campo, valor) =>
-    setChecklist((c) => ({
-      ...c,
-      entrega: {
-        ...c.entrega,
-        recebedor: { ...c.entrega.recebedor, [campo]: valor },
-      },
-    }));
+    setChecklist((c) => {
+      const next = {
+        ...c,
+        entrega: {
+          ...c.entrega,
+          recebedor: { ...c.entrega?.recebedor, [campo]: valor },
+        },
+      };
+      checklistRef.current = next;
+      return next;
+    });
 
   const usarMesmaPessoaColeta = async () => {
-    const resp = checklist.coleta?.assinaturas?.responsavel || {};
+    const atual = checklistRef.current || checklist;
+    const resp = atual.coleta?.assinaturas?.responsavel || {};
     const entrega = {
-      ...checklist.entrega,
+      ...normalizeEntregaData(atual.entrega),
       recebedor: {
         nome: resp.nome || "",
         documento: resp.documento || "",
         mesmaPessoaColeta: true,
       },
     };
-    setChecklist((c) => ({ ...c, entrega }));
+    setChecklist((c) => {
+      const next = { ...c, entrega };
+      checklistRef.current = next;
+      return next;
+    });
     await salvar({ entrega });
   };
 
   const usarOutraPessoa = async () => {
+    const atual = checklistRef.current || checklist;
     const entrega = {
-      ...checklist.entrega,
+      ...normalizeEntregaData(atual.entrega),
       recebedor: { nome: "", documento: "", mesmaPessoaColeta: false },
     };
-    setChecklist((c) => ({ ...c, entrega }));
+    setChecklist((c) => {
+      const next = { ...c, entrega };
+      checklistRef.current = next;
+      return next;
+    });
     await salvar({ entrega });
   };
 
   const marcarConforme = async () => {
+    const atual = checklistRef.current || checklist;
     const entrega = {
-      ...checklist.entrega,
+      ...normalizeEntregaData(atual.entrega),
       conferencia: { conforme: true },
     };
     setMostrarDivergencias(false);
-    setChecklist((c) => ({ ...c, entrega }));
+    setChecklist((c) => {
+      const next = { ...c, entrega };
+      checklistRef.current = next;
+      return next;
+    });
     await salvar({ entrega });
   };
 
   const marcarDivergencia = async () => {
+    const atual = checklistRef.current || checklist;
     const entrega = {
-      ...checklist.entrega,
+      ...normalizeEntregaData(atual.entrega),
       conferencia: {
         conforme: false,
-        divergencias: checklist.entrega?.conferencia?.divergencias || [],
-        observacao: checklist.entrega?.conferencia?.observacao || "",
+        divergencias: atual.entrega?.conferencia?.divergencias || [],
+        observacao: atual.entrega?.conferencia?.observacao || "",
       },
     };
     setMostrarDivergencias(true);
-    setChecklist((c) => ({ ...c, entrega }));
+    setChecklist((c) => {
+      const next = { ...c, entrega };
+      checklistRef.current = next;
+      return next;
+    });
     await salvar({ entrega });
   };
 
   const toggleDivergenciaItem = (item, estadoColeta) => {
-    const conf = checklist.entrega?.conferencia || { conforme: false, divergencias: [], observacao: "" };
+    const atual = checklistRef.current || checklist;
+    const conf = atual.entrega?.conferencia || { conforme: false, divergencias: [], observacao: "" };
     const divergencias = [...(conf.divergencias || [])];
     const idx = divergencias.findIndex((d) => d.item === item);
     if (idx < 0) {
       divergencias.push({ item, estadoColeta, estadoEntrega: CHECKLIST_ESTADOS_ACESSORIO[0] });
     } else {
-      const atual = divergencias[idx].estadoEntrega;
-      const nextIdx = (CHECKLIST_ESTADOS_ACESSORIO.indexOf(atual) + 1) % CHECKLIST_ESTADOS_ACESSORIO.length;
+      const estadoAtual = divergencias[idx].estadoEntrega;
+      const nextIdx = (CHECKLIST_ESTADOS_ACESSORIO.indexOf(estadoAtual) + 1) % CHECKLIST_ESTADOS_ACESSORIO.length;
       divergencias[idx] = { ...divergencias[idx], estadoEntrega: CHECKLIST_ESTADOS_ACESSORIO[nextIdx] };
     }
-    setChecklist((c) => ({
-      ...c,
-      entrega: {
-        ...c.entrega,
-        conferencia: { ...conf, conforme: false, divergencias },
-      },
-    }));
+    setChecklist((c) => {
+      const next = {
+        ...c,
+        entrega: {
+          ...c.entrega,
+          conferencia: { ...conf, conforme: false, divergencias },
+        },
+      };
+      checklistRef.current = next;
+      return next;
+    });
   };
 
   const removerDivergenciaItem = (item) => {
-    const conf = checklist.entrega?.conferencia || {};
+    const atual = checklistRef.current || checklist;
+    const conf = atual.entrega?.conferencia || {};
     const divergencias = (conf.divergencias || []).filter((d) => d.item !== item);
-    setChecklist((c) => ({
-      ...c,
-      entrega: {
-        ...c.entrega,
-        conferencia: { ...conf, conforme: false, divergencias },
-      },
-    }));
+    setChecklist((c) => {
+      const next = {
+        ...c,
+        entrega: {
+          ...c.entrega,
+          conferencia: { ...conf, conforme: false, divergencias },
+        },
+      };
+      checklistRef.current = next;
+      return next;
+    });
   };
 
   const updateObservacaoDivergencia = (valor) => {
-    const conf = checklist.entrega?.conferencia || { conforme: false, divergencias: [] };
-    setChecklist((c) => ({
-      ...c,
-      entrega: {
-        ...c.entrega,
-        conferencia: { ...conf, conforme: false, observacao: valor },
-      },
-    }));
+    const atual = checklistRef.current || checklist;
+    const conf = atual.entrega?.conferencia || { conforme: false, divergencias: [] };
+    setChecklist((c) => {
+      const next = {
+        ...c,
+        entrega: {
+          ...c.entrega,
+          conferencia: { ...conf, conforme: false, observacao: valor },
+        },
+      };
+      checklistRef.current = next;
+      return next;
+    });
   };
 
   const updateAssinaturaEntregaCampo = (bloco, campo, valor) =>
     setChecklist((c) => {
       const entrega = normalizeEntregaData(c.entrega);
       const assinAtual = entrega.assinaturas?.[bloco] || assinaturaVazia();
-      return {
+      const next = {
         ...c,
         entrega: {
           ...entrega,
@@ -1641,14 +1775,17 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
           },
         },
       };
+      checklistRef.current = next;
+      return next;
     });
 
   const finalizarEntrega = async () => {
     setTentouFinalizarEntrega(true);
-
-    const recebedor = checklist.entrega?.recebedor || {};
-    const rec = checklist.entrega?.assinaturas?.recebedor || {};
-    const prest = checklist.entrega?.assinaturas?.prestador || {};
+    const atual = checklistRef.current || checklist;
+    const entregaNorm = normalizeEntregaData(atual.entrega);
+    const recebedor = entregaNorm.recebedor || {};
+    const rec = entregaNorm.assinaturas?.recebedor || {};
+    const prest = entregaNorm.assinaturas?.prestador || {};
 
     if (!recebedor.nome?.trim() || !recebedor.documento?.trim()) {
       setErro("Preencha quem recebeu o veículo.");
@@ -1662,95 +1799,36 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
       setErro("Preencha nome e documento do prestador (entrega).");
       return;
     }
-
-    const recPadNovo = !recebedorEntregaPadRef.current?.isEmpty?.();
-    const prestPadNovo = !prestadorEntregaPadRef.current?.isEmpty?.();
-    const recSalva = checklist.entrega?.assinaturas?.recebedor?.imagemUrl;
-    const prestSalva = checklist.entrega?.assinaturas?.prestador?.imagemUrl;
-
-    if (!recPadNovo && !recSalva) {
-      setErro("Assinatura do recebedor é obrigatória.");
+    if (!assinaturaSalvaValida(rec)) {
+      setErro('Salve a assinatura do recebedor (botão "Salvar assinatura").');
       return;
     }
-    if (!prestPadNovo && !prestSalva) {
-      setErro("Assinatura do prestador é obrigatória.");
+    if (!assinaturaSalvaValida(prest)) {
+      setErro('Salve a assinatura do prestador (botão "Salvar assinatura").');
       return;
     }
 
-    const val = entregaCompleta({
-      ...checklist,
-      entrega: {
-        ...checklist.entrega,
-        assinaturas: {
-          recebedor: { ...rec, imagemUrl: recSalva || "pending" },
-          prestador: { ...prest, imagemUrl: prestSalva || "pending" },
-        },
-      },
-    });
-    if (!val.completa) return;
+    const val = entregaCompleta({ ...atual, entrega: entregaNorm });
+    if (!val.completa) {
+      setErro(`Complete a entrega: ${val.faltando.slice(0, 3).join(", ")}${val.faltando.length > 3 ? "…" : ""}`);
+      return;
+    }
 
     setSalvando(true);
     setErro("");
     try {
-      const gps = await getDriverGeolocation({ preferFresh: true });
-      const lat = gps?.lat ?? null;
-      const lng = gps?.lng ?? null;
-      const dataHora = formatStampDataHora();
-
-      let recUrl = recSalva || "";
-      let prestUrl = prestSalva || "";
-
-      if (recPadNovo) {
-        const recBlob = await recebedorEntregaPadRef.current.toBlob();
-        const recJpeg = await compressImageToJpegBlob(recBlob);
-        recUrl = await uploadChecklistEntregaImage(uid, checklist.id, `assinatura_recebedor_${Date.now()}`, recJpeg);
-      }
-      if (prestPadNovo) {
-        const prestBlob = await prestadorEntregaPadRef.current.toBlob();
-        const prestJpeg = await compressImageToJpegBlob(prestBlob);
-        prestUrl = await uploadChecklistEntregaImage(uid, checklist.id, `assinatura_prestador_${Date.now()}`, prestJpeg);
-      }
-
-      const assinRecSalva = checklist.entrega?.assinaturas?.recebedor || {};
-      const assinPrestSalva = checklist.entrega?.assinaturas?.prestador || {};
-
       const entregaAtualizada = {
-        ...checklist.entrega,
-        recebedor: {
-          nome: recebedor.nome.trim(),
-          documento: recebedor.documento.trim(),
-          mesmaPessoaColeta: recebedor.mesmaPessoaColeta,
-        },
-        assinaturas: {
-          recebedor: {
-            nome: rec.nome.trim(),
-            documento: rec.documento.trim(),
-            imagemUrl: recUrl,
-            dataHora: recPadNovo ? dataHora : assinRecSalva.dataHora || dataHora,
-            lat: recPadNovo ? lat : assinRecSalva.lat ?? lat,
-            lng: recPadNovo ? lng : assinRecSalva.lng ?? lng,
-          },
-          prestador: {
-            nome: prest.nome.trim(),
-            documento: prest.documento.trim(),
-            imagemUrl: prestUrl,
-            dataHora: prestPadNovo ? dataHora : assinPrestSalva.dataHora || dataHora,
-            lat: prestPadNovo ? lat : assinPrestSalva.lat ?? lat,
-            lng: prestPadNovo ? lng : assinPrestSalva.lng ?? lng,
-          },
-        },
+        ...entregaNorm,
         finalizadaEm: new Date().toISOString(),
       };
-
-      const status = "concluido";
-      setChecklist((c) => ({ ...c, entrega: entregaAtualizada, status }));
-      const ok = await salvar({ entrega: entregaAtualizada, status });
+      const ok = await salvar({ entrega: entregaAtualizada, status: "concluido" });
       if (ok) {
         recebedorEntregaPadRef.current?.clear?.();
         prestadorEntregaPadRef.current?.clear?.();
         setSubstituirEntrega({ recebedor: false, prestador: false });
       }
-    } catch {
+    } catch (err) {
+      console.error("[Checklist] Falha finalizar entrega:", err);
       setErro("Falha ao finalizar entrega. Tente novamente.");
     } finally {
       setSalvando(false);
@@ -2457,6 +2535,8 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
                   substituindo={substituirEntrega[bloco]}
                   onSubstituir={() => setSubstituirEntrega((s) => ({ ...s, [bloco]: true }))}
                   onCampoChange={(campo, valor) => updateAssinaturaEntregaCampo(bloco, campo, valor)}
+                  onSalvarAssinatura={() => salvarAssinaturaEntregaBloco(bloco)}
+                  salvandoAssinatura={salvandoAssinaturaEntregaBloco[bloco] || salvando}
                 />
               );
             })}
@@ -2509,7 +2589,7 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
             style={{
               position: "fixed",
               inset: 0,
-              zIndex: 400,
+              zIndex: 1100,
               background: "#1E3A8A66",
               display: "flex",
               alignItems: "center",

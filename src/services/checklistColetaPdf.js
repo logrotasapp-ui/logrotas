@@ -9,6 +9,33 @@ import {
 
 const IMAGE_FETCH_TIMEOUT_MS = 10000;
 
+/** Extrai caminho do Storage a partir de URL HTTPS de download do Firebase. */
+function storagePathFromHttpsUrl(url) {
+  if (!url || typeof url !== "string") return null;
+  try {
+    const u = new URL(url);
+    if (!u.hostname.includes("firebasestorage.googleapis.com")) return null;
+    const oIdx = u.pathname.indexOf("/o/");
+    if (oIdx < 0) return null;
+    return decodeURIComponent(u.pathname.slice(oIdx + 3));
+  } catch {
+    return null;
+  }
+}
+
+async function blobViaGetBlob(pathOrUrl, context) {
+  const path =
+    typeof pathOrUrl === "string" && pathOrUrl.startsWith("https://")
+      ? storagePathFromHttpsUrl(pathOrUrl) || pathOrUrl
+      : pathOrUrl;
+  return Promise.race([
+    getBlob(ref(storage, path)),
+    new Promise((_, reject) =>
+      setTimeout(() => reject(new Error("timeout 10s")), IMAGE_FETCH_TIMEOUT_MS)
+    ),
+  ]);
+}
+
 function wrapLines(doc, text, maxWidth) {
   return doc.splitTextToSize(String(text || "—"), maxWidth);
 }
@@ -67,30 +94,45 @@ function blobToDataUrl(blob) {
  * Firebase Storage SDK (getBlob) -> FileReader -> dataURL (timeout 10s por imagem)
  */
 async function fetchImageDataUrl(urlOrPath, context = "") {
-  if (!urlOrPath) return null;
+  if (!urlOrPath) {
+    console.warn("[Checklist PDF] Imagem ausente:", context);
+    return null;
+  }
 
   try {
     let blob;
     if (typeof urlOrPath === "string" && urlOrPath.startsWith("https://")) {
-      const res = await Promise.race([
-        fetch(urlOrPath),
-        new Promise((_, reject) =>
-          setTimeout(() => reject(new Error("timeout 10s")), IMAGE_FETCH_TIMEOUT_MS)
-        ),
-      ]);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      blob = await res.blob();
+      try {
+        const res = await Promise.race([
+          fetch(urlOrPath),
+          new Promise((_, reject) =>
+            setTimeout(() => reject(new Error("timeout 10s")), IMAGE_FETCH_TIMEOUT_MS)
+          ),
+        ]);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        blob = await res.blob();
+        console.log("[Checklist PDF] Imagem OK via fetch:", context);
+      } catch (fetchErr) {
+        console.warn(
+          "[Checklist PDF] fetch falhou, fallback getBlob SDK:",
+          context,
+          fetchErr?.message || fetchErr
+        );
+        blob = await blobViaGetBlob(urlOrPath, context);
+        console.log("[Checklist PDF] Imagem OK via getBlob fallback:", context);
+      }
     } else {
-      blob = await Promise.race([
-        getBlob(ref(storage, urlOrPath)),
-        new Promise((_, reject) =>
-          setTimeout(() => reject(new Error("timeout 10s")), IMAGE_FETCH_TIMEOUT_MS)
-        ),
-      ]);
+      blob = await blobViaGetBlob(urlOrPath, context);
+      console.log("[Checklist PDF] Imagem OK via getBlob path:", context);
     }
     return await blobToDataUrl(blob);
   } catch (err) {
-    console.error("[Checklist PDF] Falha ao carregar imagem:", context, urlOrPath, err);
+    console.error(
+      "[Checklist PDF] Falha ao carregar imagem (placeholder no PDF):",
+      context,
+      String(urlOrPath).slice(0, 80),
+      err
+    );
     return null;
   }
 }
@@ -334,18 +376,18 @@ function renderAssinaturasBlock(doc, {
     yRef.y += 6;
 
     const sigUrl = imageCache[`${keyPrefix}:${key}`];
+    ensureSpace(28);
     if (sigUrl) {
       try {
-        ensureSpace(28);
         doc.addImage(sigUrl, imageFormat(sigUrl), margin, yRef.y, 80, 22);
-        yRef.y += 26;
       } catch (err) {
         console.error("[Checklist PDF] addImage assinatura falhou:", key, err);
-        line("(Assinatura nao carregada)");
+        drawPlaceholder(doc, margin, yRef.y, 80, 22, "Sem assinatura");
       }
     } else {
-      line("(Sem assinatura)");
+      drawPlaceholder(doc, margin, yRef.y, 80, 22, "Sem assinatura");
     }
+    yRef.y += 26;
 
     line(`Nome: ${assin.nome || "-"} - Doc: ${assin.documento || "-"}`);
     line(`${assin.dataHora || "-"} - ${formatCoords(assin.lat, assin.lng)}`);
@@ -357,6 +399,11 @@ function renderAssinaturasBlock(doc, {
  * @param {{ checklist: object, frete?: object, perfil?: object, includeEntrega?: boolean }} params
  */
 export async function generateChecklistColetaPdf({ checklist, frete, perfil, includeEntrega = false }) {
+  console.log("[Checklist PDF] generateChecklistColetaPdf iniciado", {
+    numero: checklist?.numero,
+    includeEntrega,
+    fotosColeta: checklist?.coleta?.fotos?.length || 0,
+  });
   const { jsPDF } = await import("jspdf");
   const doc = new jsPDF({ unit: "mm", format: "a4" });
   const margin = 14;
@@ -572,6 +619,11 @@ export async function generateChecklistColetaPdf({ checklist, frete, perfil, inc
     ? `checklist-completo-${safeNum}.pdf`
     : `checklist-coleta-${safeNum}.pdf`;
   const blob = doc.output("blob");
+  console.log("[Checklist PDF] generateChecklistColetaPdf concluído", {
+    filename,
+    bytes: blob?.size,
+    paginas: totalPages,
+  });
   return { doc, blob, filename };
 }
 
