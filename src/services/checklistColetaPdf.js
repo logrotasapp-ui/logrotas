@@ -6,6 +6,7 @@ import {
   CHECKLIST_MOTIVOS,
   CHECKLIST_FOTO_SLOTS,
   CHECKLIST_ENTREGA_FOTO_SLOTS,
+  resolveTipoVeiculo,
 } from "./checklistService.js";
 
 const IMAGE_FETCH_TIMEOUT_MS = 10000;
@@ -517,7 +518,9 @@ export async function generateChecklistColetaPdf({
     });
     y += 2;
     line(
-      `Pneus - Dianteiro: ${labelPneu(coleta?.pneus?.dianteiro)} - Traseiro: ${labelPneu(coleta?.pneus?.traseiro)} - Estepe: ${labelPneu(coleta?.pneus?.estepe)}`
+      resolveTipoVeiculo(veiculo) === "moto"
+        ? `Pneus - Dianteiro: ${labelPneu(coleta?.pneus?.dianteiro)} - Traseiro: ${labelPneu(coleta?.pneus?.traseiro)}`
+        : `Pneus - Dianteiro: ${labelPneu(coleta?.pneus?.dianteiro)} - Traseiro: ${labelPneu(coleta?.pneus?.traseiro)} - Estepe: ${labelPneu(coleta?.pneus?.estepe)}`
     );
     line(`Combustivel: ${labelCombustivel(coleta?.combustivel)}`);
     if (coleta?.observacoes?.trim()) {

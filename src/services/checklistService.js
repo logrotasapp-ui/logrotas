@@ -46,8 +46,6 @@ export const CHECKLIST_ACESSORIOS_MOTO = [
   "Corrente",
   "Escapamento",
   "Buzina",
-  "Macaco",
-  "Triângulo",
 ];
 
 export function resolveTipoVeiculo(veiculo) {
@@ -338,7 +336,7 @@ export function coletaCompleta(checklist, perfil = null) {
 
   if (!coleta?.pneus?.dianteiro) faltando.push("Pneu dianteiro");
   if (!coleta?.pneus?.traseiro) faltando.push("Pneu traseiro");
-  if (!coleta?.pneus?.estepe) faltando.push("Estepe");
+  if (resolveTipoVeiculo(veiculo) !== "moto" && !coleta?.pneus?.estepe) faltando.push("Estepe");
   if (!coleta?.combustivel) faltando.push("Nível de combustível");
 
   const fotos = coleta?.fotos || [];

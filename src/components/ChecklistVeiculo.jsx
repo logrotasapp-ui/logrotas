@@ -159,7 +159,7 @@ function proximoEstadoAcessorio(atual) {
   return CHECKLIST_ESTADOS_ACESSORIO[(idx + 1) % CHECKLIST_ESTADOS_ACESSORIO.length];
 }
 
-function Field({ label, value, onChange, placeholder }) {
+function Field({ label, value, onChange, placeholder, autoComplete }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
       {label && (
@@ -170,6 +170,7 @@ function Field({ label, value, onChange, placeholder }) {
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
+        autoComplete={autoComplete}
         style={{
           background: C.subtle,
           border: `1.5px solid ${C.border}`,
@@ -2619,9 +2620,9 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
                 <Field label="Placa" value={checklist.veiculo?.placa || ""} onChange={(v) => updateVeiculo("placa", v)} placeholder="ABC-1D23" />
-                <Field label="Cor" value={checklist.veiculo?.cor || ""} onChange={(v) => updateVeiculo("cor", v)} placeholder="Prata" />
-                <Field label="Marca" value={checklist.veiculo?.marca || ""} onChange={(v) => updateVeiculo("marca", v)} placeholder="Volkswagen" />
-                <Field label="Modelo" value={checklist.veiculo?.modelo || ""} onChange={(v) => updateVeiculo("modelo", v)} placeholder="Gol" />
+                <Field label="Cor" value={checklist.veiculo?.cor || ""} onChange={(v) => updateVeiculo("cor", v)} autoComplete="off" />
+                <Field label="Marca" value={checklist.veiculo?.marca || ""} onChange={(v) => updateVeiculo("marca", v)} autoComplete="off" />
+                <Field label="Modelo" value={checklist.veiculo?.modelo || ""} onChange={(v) => updateVeiculo("modelo", v)} autoComplete="off" />
               </div>
             </div>
             <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 16, padding: "20px 22px" }}>
@@ -2728,11 +2729,17 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
             </div>
             <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 16, padding: "16px 18px" }}>
               <div style={{ color: C.navy, fontWeight: 800, fontSize: 15, fontFamily: "'Sora',sans-serif", marginBottom: 14 }}>🛞 Pneus</div>
-              {[
-                { campo: "dianteiro", label: "Dianteiro" },
-                { campo: "traseiro", label: "Traseiro" },
-                { campo: "estepe", label: "Estepe" },
-              ].map(({ campo, label }) => (
+              {(resolveTipoVeiculo(checklist.veiculo) === "moto"
+                ? [
+                    { campo: "dianteiro", label: "Dianteiro" },
+                    { campo: "traseiro", label: "Traseiro" },
+                  ]
+                : [
+                    { campo: "dianteiro", label: "Dianteiro" },
+                    { campo: "traseiro", label: "Traseiro" },
+                    { campo: "estepe", label: "Estepe" },
+                  ]
+              ).map(({ campo, label }) => (
                 <div key={campo} style={{ marginBottom: 12 }}>
                   <div style={{ color: C.text2, fontSize: 13, fontWeight: 700, marginBottom: 6 }}>{label}</div>
                   <div style={{ display: "flex", gap: 7 }}>
