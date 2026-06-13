@@ -119,7 +119,7 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="V257";
+const APP_VERSION="V258";
 const BETA_HIDE_PLANOS=true;
 
 const OfflineRestoredBanner=({show})=>show?(
@@ -1390,18 +1390,15 @@ function PacotesParadaRows({parada,paradaId,onEntregue,onNaoEntregue,compact=fal
   );
 }
 
-/** V257 — tela cheia dedicada para paradas com 2+ pacotes (mapa e Ver Lista). */
-function PacotesParadaTela({parada,paradaNum,paradaId,onVoltar,onEntregue,onNaoEntregue}){
-  const m=migrateParada(parada);
+/** V257/V258 — tela cheia dedicada; lê paradaViva do estado canônico (não snapshot). */
+function PacotesParadaTela({paradaViva,paradaNum,paradaId,onVoltar,onEntregue,onNaoEntregue}){
+  const m=paradaViva?migrateParada(paradaViva):null;
+  if(!m)return null;
   const st=getParadaStatus(m);
   const concluida=st==="concluida"||st==="entregue";
 
-  useEffect(()=>{
-    logPacotes("abrir tela dedicada",{paradaId,paradaNum,total:m.pacotes?.length||0});
-  },[paradaId,paradaNum,m.pacotes?.length]);
-
   return(
-    <div style={{position:"fixed",inset:0,zIndex:780,background:"#fff",display:"flex",flexDirection:"column"}}>
+    <div style={{position:"fixed",inset:0,zIndex:790,background:"#fff",display:"flex",flexDirection:"column"}}>
       <div style={{padding:"12px 14px",borderBottom:`1px solid ${C.border}`,display:"flex",alignItems:"center",gap:12,background:"#fff",flexShrink:0}}>
         <button type="button" onClick={onVoltar} aria-label="Voltar"
           style={{background:C.subtle,border:`1px solid ${C.border}`,borderRadius:9,padding:8,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>
@@ -1427,7 +1424,7 @@ function PacotesParadaTela({parada,paradaNum,paradaId,onVoltar,onEntregue,onNaoE
         <PacotesParadaRows
           parada={m}
           paradaId={paradaId}
-          onEntregue={onEntregue}
+          onEntregue={(pid,pkid)=>onEntregue(pid,pkid,"entregue")}
           onNaoEntregue={onNaoEntregue}
         />
       </div>
@@ -1699,14 +1696,17 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
   const paradaAtualIdx=useMemo(()=>paradasDedup.findIndex(p=>getParadaStatus(p)==="pendente"),[paradasDedup]);
   const paradaAtual=paradaAtualIdx>=0?paradasDedup[paradaAtualIdx]:null;
   const totalPacotes=totalPacotesEmParadas(paradasDedup);
-  const pacotesTelaParada=useMemo(
-    ()=>(pacotesTelaParadaId!=null?paradasDedup.find(p=>p.id===pacotesTelaParadaId):null),
-    [paradasDedup,pacotesTelaParadaId]
-  );
-  const pacotesTelaParadaNum=useMemo(
-    ()=>(pacotesTelaParadaId!=null?paradasDedup.findIndex(p=>p.id===pacotesTelaParadaId)+1:0),
-    [paradasDedup,pacotesTelaParadaId]
-  );
+  const pacotesTelaParadaViva=useMemo(()=>{
+    if(pacotesTelaParadaId==null)return null;
+    const idStr=String(pacotesTelaParadaId);
+    const p=paradas.find(x=>String(x.id)===idStr);
+    return p||null;
+  },[paradas,pacotesTelaParadaId]);
+  const pacotesTelaParadaNum=useMemo(()=>{
+    if(pacotesTelaParadaId==null)return 0;
+    const idx=paradasDedup.findIndex(p=>String(p.id)===String(pacotesTelaParadaId));
+    return idx>=0?idx+1:0;
+  },[paradasDedup,pacotesTelaParadaId]);
 
   // V233 — toast discreto de agrupamento some sozinho
   useEffect(()=>{
@@ -1856,12 +1856,23 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
 
   const aplicarMarcarPacote=(paradaId,pacoteId,status,motivoNaoEntrega="")=>{
     const ts=formatNowBR();
+    const idStr=String(paradaId);
+    const pkgStr=String(pacoteId);
+    const origem=pacotesTelaParadaId!=null&&String(pacotesTelaParadaId)===idStr?"tela dedicada":"inline";
+    let achou=false;
     const next=paradas.map((x)=>{
-      if(x.id!==paradaId)return migrateParada(x);
-      return marcarPacoteNaParada(x,pacoteId,status,motivoNaoEntrega,ts);
+      if(String(x.id)!==idStr)return x;
+      const base=migrateParada(x);
+      if(!base.pacotes?.some(pk=>String(pk.id)===pkgStr))return base;
+      achou=true;
+      return marcarPacoteNaParada(base,pacoteId,status,motivoNaoEntrega,ts);
     });
-    logPacotes("marcar status",{paradaId,pacoteId,status});
-    const atualizada=next.find(x=>x.id===paradaId);
+    logPacotes("marcar status",{paradaId,pacoteId,status:status,achou,origem});
+    if(!achou){
+      logPacotes("marcar status falhou",{paradaId,pacoteId,status});
+      return;
+    }
+    const atualizada=next.find(x=>String(x.id)===idStr);
     if(atualizada&&getParadaStatus(atualizada)==="concluida"){
       logPacotes("concluir parada",{paradaId,endereco:atualizada.endereco});
     }
@@ -1871,7 +1882,10 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
   };
 
   const abrirPacotesTela=(paradaId)=>{
+    const idStr=String(paradaId);
+    setParadas(prev=>prev.map(x=>String(x.id)===idStr?migrateParada(x):x));
     setPacotesTelaParadaId(paradaId);
+    logPacotes("abrir tela dedicada",{paradaId});
   };
 
   const handleNavEntregue=()=>{
@@ -2915,7 +2929,7 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
       )}
 
       {showMotivo&&(
-        <div style={{position:"fixed",inset:0,zIndex:750,background:"#1E3A8A66",display:"flex",alignItems:"flex-end",justifyContent:"center",padding:16}}>
+        <div style={{position:"fixed",inset:0,zIndex:pacotesTelaParadaId!=null?800:750,background:"#1E3A8A66",display:"flex",alignItems:"flex-end",justifyContent:"center",padding:16}}>
           <div style={{background:C.surface,borderRadius:18,width:"100%",maxWidth:420,padding:20}}>
             <div style={{color:C.navy,fontWeight:800,fontSize:16,marginBottom:14}}>Motivo da não entrega</div>
             {MOTIVOS_NAO_ENTREGUE.map(m=>(
@@ -2933,15 +2947,16 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
         </div>
       )}
 
-      {pacotesTelaParada&&pacotesTelaParadaId!=null&&(
+      {pacotesTelaParadaViva&&pacotesTelaParadaId!=null&&createPortal(
         <PacotesParadaTela
-          parada={pacotesTelaParada}
+          paradaViva={pacotesTelaParadaViva}
           paradaNum={pacotesTelaParadaNum}
           paradaId={pacotesTelaParadaId}
           onVoltar={()=>setPacotesTelaParadaId(null)}
           onEntregue={aplicarMarcarPacote}
           onNaoEntregue={handlePacoteNaoEntregue}
-        />
+        />,
+        document.body
       )}
 
       {showAddNavMenu&&(
