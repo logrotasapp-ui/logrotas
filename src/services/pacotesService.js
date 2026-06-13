@@ -221,3 +221,29 @@ export function logPacotes(msg, data) {
     console.log(`[Pacotes] ${msg}`, data !== undefined ? data : "");
   }
 }
+
+/** V257 — remove paradas com id duplicado (primeira ocorrência vence). */
+export function dedupParadasPorId(paradas) {
+  const seen = new Set();
+  const out = [];
+  let removidas = 0;
+  for (const p of migrateParadas(paradas || [])) {
+    const id = p?.id;
+    if (id == null) {
+      out.push(p);
+      continue;
+    }
+    if (seen.has(id)) {
+      removidas++;
+      continue;
+    }
+    seen.add(id);
+    out.push(p);
+  }
+  if (removidas > 0) {
+    if (typeof console !== "undefined") {
+      console.log("[Lista] dedup paradas", { removidas, total: out.length });
+    }
+  }
+  return out;
+}

@@ -187,7 +187,7 @@ export function buildStopInfoHtml({
 
   const expandBtn =
     expandId && r && r.total > 1
-      ? `<button id="${expandId}" type="button" style="margin-top:8px;width:100%;padding:8px 10px;background:#EEF4FF;border:1.5px solid #3B82F6;border-radius:8px;color:#1E3A8A;font-weight:700;font-size:11px;cursor:pointer;font-family:system-ui,sans-serif">📦 Ver pacotes (${r.total})</button>`
+      ? `<button id="${expandId}" type="button" data-ver-pacotes="1" style="margin-top:8px;width:100%;padding:8px 10px;background:#EEF4FF;border:1.5px solid #3B82F6;border-radius:8px;color:#1E3A8A;font-weight:700;font-size:11px;cursor:pointer;font-family:system-ui,sans-serif">📦 Ver pacotes</button>`
       : "";
 
   return `<div style="font-family:system-ui,sans-serif;padding:4px 2px;line-height:1.45;max-width:260px">

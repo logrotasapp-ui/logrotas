@@ -9,7 +9,6 @@ import {
   createDriverTriangleMarker,
   packageCountAtCoords,
   buildStopInfoHtml,
-  buildPacotesPopupHtml,
 } from "../services/mapMarkers.js";
 import GoogleLocationIcon from "./GoogleLocationIcon.jsx";
 
@@ -24,7 +23,7 @@ export default function NavigationMap({
   originCoords = null,
   height = "100%",
   onDriverLocationUpdate,
-  onMarkPacote,
+  onVerPacotes,
 }) {
   const containerRef = useRef(null);
   const mapRef = useRef(null);
@@ -32,8 +31,7 @@ export default function NavigationMap({
   const stopMarkersRef = useRef([]);
   const driverMarkerRef = useRef(null);
   const infoWindowRef = useRef(null);
-  const popupExpandedRef = useRef(new Set());
-  const onMarkPacoteRef = useRef(onMarkPacote);
+  const onVerPacotesRef = useRef(onVerPacotes);
   const [ready, setReady] = useState(false);
   const [hint, setHint] = useState("Carregando mapa…");
   const [locating, setLocating] = useState(false);
@@ -47,8 +45,8 @@ export default function NavigationMap({
   }, [originCoords]);
 
   useEffect(() => {
-    onMarkPacoteRef.current = onMarkPacote;
-  }, [onMarkPacote]);
+    onVerPacotesRef.current = onVerPacotes;
+  }, [onVerPacotes]);
 
   const clearStopMarkers = useCallback(() => {
     stopMarkersRef.current.forEach((m) => m.setMap(null));
@@ -66,51 +64,15 @@ export default function NavigationMap({
     driverMarkerRef.current.setMap(map);
   }, []);
 
-  const bindPacotePopupActions = useCallback((paradaIndex, parada, paradaNum, expandId) => {
-    const doc = document;
-    const expandEl = doc.getElementById(expandId);
-    if (expandEl && !popupExpandedRef.current.has(parada.id)) {
-      expandEl.onclick = () => {
-        popupExpandedRef.current.add(parada.id);
-        infoWindowRef.current.setContent(
-          buildPacotesPopupHtml(parada, paradaNum, { expandId, actionPrefix: `nav-${paradaIndex}` })
-        );
-        window.google.maps.event.addListenerOnce(infoWindowRef.current, "domready", () => {
-          bindPacotePopupActions(paradaIndex, parada, paradaNum, expandId);
-        });
-      };
-    }
-    doc.querySelectorAll("[data-pkg-action][data-pkg-id]").forEach((btn) => {
-      btn.onclick = () => {
-        const action = btn.getAttribute("data-pkg-action");
-        const pacoteId = btn.getAttribute("data-pkg-id");
-        const idx = Number(btn.getAttribute("data-parada-idx"));
-        if (!pacoteId || Number.isNaN(idx)) return;
-        if (action === "entregue") onMarkPacoteRef.current?.(idx, pacoteId, "entregue");
-        else if (action === "nao_entregue") onMarkPacoteRef.current?.(idx, pacoteId, "nao_entregue");
-      };
-    });
-    if (expandEl && popupExpandedRef.current.has(parada.id)) {
-      expandEl.onclick = () => {
-        popupExpandedRef.current.delete(parada.id);
-        const status = getParadaStatus(parada);
-        infoWindowRef.current.setContent(
-          buildStopInfoHtml({
-            endereco: parada.endereco,
-            paradaNum,
-            pacotes: packageCountAtCoords(paradas, parada.coords?.[0], parada.coords?.[1]),
-            status,
-            motivo: parada.motivo,
-            parada,
-            expandId,
-          })
-        );
-        window.google.maps.event.addListenerOnce(infoWindowRef.current, "domready", () => {
-          bindPacotePopupActions(paradaIndex, parada, paradaNum, expandId);
-        });
-      };
-    }
-  }, [paradas]);
+  const bindVerPacotesButton = useCallback((paradaId, expandId) => {
+    if (!expandId || paradaId == null) return;
+    const el = document.getElementById(expandId);
+    if (!el) return;
+    el.onclick = () => {
+      infoWindowRef.current?.close();
+      onVerPacotesRef.current?.(paradaId);
+    };
+  }, []);
 
   const renderStopMarkers = useCallback(
     (map) => {
@@ -144,47 +106,33 @@ export default function NavigationMap({
           const expandId = `expand-pkg-${p.id}`;
           const pacoteCount = packageCountAtCoords(paradas, lng, lat);
           const migrated = migrateParada(p);
-          const showExpanded = popupExpandedRef.current.has(p.id) && migrated.pacotes.length > 1;
-          const prefix = `nav-${i}`;
+          const multiPacotes = migrated.pacotes.length > 1;
 
           infoWindowRef.current.setContent(
-            showExpanded
-              ? buildPacotesPopupHtml(migrated, i + 1, { expandId, actionPrefix: prefix })
-              : buildStopInfoHtml({
-                  endereco: p.endereco,
-                  paradaNum: i + 1,
-                  pacotes: pacoteCount,
-                  status,
-                  motivo: p.motivo,
-                  parada: migrated,
-                  expandId: migrated.pacotes.length > 1 ? expandId : null,
-                })
+            buildStopInfoHtml({
+              endereco: p.endereco,
+              paradaNum: i + 1,
+              pacotes: pacoteCount,
+              status,
+              motivo: p.motivo,
+              parada: migrated,
+              expandId: multiPacotes ? expandId : null,
+            })
           );
           infoWindowRef.current.open({ anchor: marker, map });
 
-          window.google.maps.event.addListenerOnce(infoWindowRef.current, "domready", () => {
-            const doc = document;
-            const expandEl = doc.getElementById(expandId);
-            if (expandEl && !showExpanded) {
-              expandEl.onclick = () => {
-                popupExpandedRef.current.add(p.id);
-                infoWindowRef.current.setContent(
-                  buildPacotesPopupHtml(migrateParada(p), i + 1, { expandId, actionPrefix: prefix })
-                );
-                window.google.maps.event.addListenerOnce(infoWindowRef.current, "domready", () => {
-                  bindPacotePopupActions(i, migrateParada(p), i + 1, expandId);
-                });
-              };
-            }
-            bindPacotePopupActions(i, migrateParada(p), i + 1, expandId);
-          });
+          if (multiPacotes) {
+            window.google.maps.event.addListenerOnce(infoWindowRef.current, "domready", () => {
+              bindVerPacotesButton(p.id, expandId);
+            });
+          }
         });
 
         marker.setMap(map);
         stopMarkersRef.current.push(marker);
       });
     },
-    [paradas, currentStopIndex, clearStopMarkers, bindPacotePopupActions]
+    [paradas, currentStopIndex, clearStopMarkers, bindVerPacotesButton]
   );
 
   useEffect(() => {

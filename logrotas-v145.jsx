@@ -81,6 +81,8 @@ import {
   marcarPacoteNaParada,
   sanitizeParadaForFirestore,
   logPacotes,
+  dedupParadasPorId,
+  countPacotes,
 } from "./src/services/pacotesService.js";
 import { OFFLINE_KEYS, AUTH_KEYS, readOfflineCache, writeOfflineCache, clearAllLogRotasStorage, activateProTrial, readProPlanActive, readProTrialDaysLeft, readPerfilLocalFallback, writePerfilLocalCache } from "./src/services/offlineStorage.js";
 import { subscribeAuth, signInWithEmail, signUpWithEmail, signInWithGoogle, signOutUser, deleteCurrentUser, getAuthErrorMessage } from "./src/services/authService.js";
@@ -117,7 +119,7 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="V256";
+const APP_VERSION="V257";
 const BETA_HIDE_PLANOS=true;
 
 const OfflineRestoredBanner=({show})=>show?(
@@ -1352,7 +1354,7 @@ function paradaCardBorder(p,i,paradaAtualIdx,modoNavegacao){
   return C.border;
 }
 
-function PacotesParadaRows({parada,paradaIdx,onEntregue,onNaoEntregue,compact=false}){
+function PacotesParadaRows({parada,paradaId,onEntregue,onNaoEntregue,compact=false}){
   const m=migrateParada(parada);
   return(
     <div style={{display:"flex",flexDirection:"column",gap:compact?6:8,marginTop:compact?6:10}}>
@@ -1372,11 +1374,11 @@ function PacotesParadaRows({parada,paradaIdx,onEntregue,onNaoEntregue,compact=fa
           )}
           {pk.status==="pendente"&&(
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}}>
-              <button type="button" onClick={()=>onEntregue(paradaIdx,pk.id)}
+              <button type="button" onClick={()=>onEntregue(paradaId,pk.id)}
                 style={{padding:"8px 6px",background:"#DCFCE7",border:"2px solid #22C55E",borderRadius:10,cursor:"pointer",color:"#15803D",fontWeight:800,fontSize:12}}>
                 ✅ Entregue
               </button>
-              <button type="button" onClick={()=>onNaoEntregue(paradaIdx,pk.id)}
+              <button type="button" onClick={()=>onNaoEntregue(paradaId,pk.id)}
                 style={{padding:"8px 6px",background:"#FEE2E2",border:"2px solid #DC2626",borderRadius:10,cursor:"pointer",color:"#B91C1C",fontWeight:800,fontSize:12}}>
                 ❌ Não
               </button>
@@ -1384,6 +1386,51 @@ function PacotesParadaRows({parada,paradaIdx,onEntregue,onNaoEntregue,compact=fa
           )}
         </div>
       ))}
+    </div>
+  );
+}
+
+/** V257 — tela cheia dedicada para paradas com 2+ pacotes (mapa e Ver Lista). */
+function PacotesParadaTela({parada,paradaNum,paradaId,onVoltar,onEntregue,onNaoEntregue}){
+  const m=migrateParada(parada);
+  const st=getParadaStatus(m);
+  const concluida=st==="concluida"||st==="entregue";
+
+  useEffect(()=>{
+    logPacotes("abrir tela dedicada",{paradaId,paradaNum,total:m.pacotes?.length||0});
+  },[paradaId,paradaNum,m.pacotes?.length]);
+
+  return(
+    <div style={{position:"fixed",inset:0,zIndex:780,background:"#fff",display:"flex",flexDirection:"column"}}>
+      <div style={{padding:"12px 14px",borderBottom:`1px solid ${C.border}`,display:"flex",alignItems:"center",gap:12,background:"#fff",flexShrink:0}}>
+        <button type="button" onClick={onVoltar} aria-label="Voltar"
+          style={{background:C.subtle,border:`1px solid ${C.border}`,borderRadius:9,padding:8,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>
+          <ArrowLeftIcon size={18} color={C.navy}/>
+        </button>
+        <div style={{flex:1,minWidth:0}}>
+          <div style={{color:C.navy,fontWeight:800,fontSize:15,fontFamily:"'Sora',sans-serif"}}>Parada {paradaNum}</div>
+          <div style={{color:C.muted,fontSize:11,marginTop:2}}>📦 {resumoPacotesLabel(m)}</div>
+        </div>
+      </div>
+      <div style={{flex:1,overflowY:"auto",padding:"16px 16px",paddingBottom:"max(20px, env(safe-area-inset-bottom))"}}>
+        <div style={{
+          padding:"14px 16px",marginBottom:14,borderRadius:12,
+          background:concluida?"#F0FDF4":C.subtle,
+          border:`1.5px solid ${concluida?`${C.green}44`:C.border}`,
+        }}>
+          <div style={{color:C.text,fontSize:14,fontWeight:600,lineHeight:1.45}}>{m.endereco}</div>
+          <div style={{color:concluida?C.green:OTIMIZAR_AZUL,fontSize:12,fontWeight:700,marginTop:8}}>
+            📦 {resumoPacotesLabel(m)}
+          </div>
+          {concluida&&<div style={{color:C.green,fontSize:12,fontWeight:700,marginTop:6}}>✅ Parada concluída{m.horario?` · ${m.horario}`:""}</div>}
+        </div>
+        <PacotesParadaRows
+          parada={m}
+          paradaId={paradaId}
+          onEntregue={onEntregue}
+          onNaoEntregue={onNaoEntregue}
+        />
+      </div>
     </div>
   );
 }
@@ -1591,6 +1638,7 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
   const[novoDestinatario,setNovoDestinatario]=useState("");
   const[pacotesExtrasNomes,setPacotesExtrasNomes]=useState([]);
   const[listaExpandidaIds,setListaExpandidaIds]=useState(()=>new Set());
+  const[pacotesTelaParadaId,setPacotesTelaParadaId]=useState(null);
   const[motivoPacoteTarget,setMotivoPacoteTarget]=useState(null);
 
   const isPro=plan==="pro";
@@ -1641,14 +1689,24 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
     writeOfflineCache(OFFLINE_KEYS.otimizar,{paradas:migrateParadas(paradas)});
   },[offlineHydrated,paradas]);
 
-  const pkgStats=useMemo(()=>countPacotesStats(paradas),[paradas]);
+  const paradasDedup=useMemo(()=>dedupParadasPorId(paradas),[paradas]);
+
+  const pkgStats=useMemo(()=>countPacotesStats(paradasDedup),[paradasDedup]);
   const entreguesCount=pkgStats.entregues;
   const naoEntreguesCount=pkgStats.naoEntregues;
-  const pendentesCount=paradas.filter(p=>getParadaStatus(p)==="pendente").length;
-  const todasEntregues=paradas.length>0&&pendentesCount===0;
-  const paradaAtualIdx=useMemo(()=>paradas.findIndex(p=>getParadaStatus(p)==="pendente"),[paradas]);
-  const paradaAtual=paradaAtualIdx>=0?paradas[paradaAtualIdx]:null;
-  const totalPacotes=totalPacotesEmParadas(paradas);
+  const pendentesCount=paradasDedup.filter(p=>getParadaStatus(p)==="pendente").length;
+  const todasEntregues=paradasDedup.length>0&&pendentesCount===0;
+  const paradaAtualIdx=useMemo(()=>paradasDedup.findIndex(p=>getParadaStatus(p)==="pendente"),[paradasDedup]);
+  const paradaAtual=paradaAtualIdx>=0?paradasDedup[paradaAtualIdx]:null;
+  const totalPacotes=totalPacotesEmParadas(paradasDedup);
+  const pacotesTelaParada=useMemo(
+    ()=>(pacotesTelaParadaId!=null?paradasDedup.find(p=>p.id===pacotesTelaParadaId):null),
+    [paradasDedup,pacotesTelaParadaId]
+  );
+  const pacotesTelaParadaNum=useMemo(
+    ()=>(pacotesTelaParadaId!=null?paradasDedup.findIndex(p=>p.id===pacotesTelaParadaId)+1:0),
+    [paradasDedup,pacotesTelaParadaId]
+  );
 
   // V233 — toast discreto de agrupamento some sozinho
   useEffect(()=>{
@@ -1796,54 +1854,59 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
     if(pendentesCount===0)finalizarRota(paradas);
   },[modoNavegacao,pendentesCount,paradas,showResumo,finalizarRota]);
 
-  const aplicarMarcarPacote=(paradaIdx,pacoteId,status,motivoNaoEntrega="")=>{
+  const aplicarMarcarPacote=(paradaId,pacoteId,status,motivoNaoEntrega="")=>{
     const ts=formatNowBR();
-    const next=paradas.map((x,i)=>{
-      if(i!==paradaIdx)return migrateParada(x);
+    const next=paradas.map((x)=>{
+      if(x.id!==paradaId)return migrateParada(x);
       return marcarPacoteNaParada(x,pacoteId,status,motivoNaoEntrega,ts);
     });
-    logPacotes("marcar status",{paradaIdx,pacoteId,status});
-    if(getParadaStatus(next[paradaIdx])==="concluida"){
-      logPacotes("concluir parada",{paradaIdx,endereco:next[paradaIdx]?.endereco});
+    logPacotes("marcar status",{paradaId,pacoteId,status});
+    const atualizada=next.find(x=>x.id===paradaId);
+    if(atualizada&&getParadaStatus(atualizada)==="concluida"){
+      logPacotes("concluir parada",{paradaId,endereco:atualizada.endereco});
     }
     setParadas(next);
     setShowMotivo(false);
     setMotivoPacoteTarget(null);
   };
 
+  const abrirPacotesTela=(paradaId)=>{
+    setPacotesTelaParadaId(paradaId);
+  };
+
   const handleNavEntregue=()=>{
-    if(paradaAtualIdx<0)return;
-    const p=migrateParada(paradas[paradaAtualIdx]);
+    if(paradaAtualIdx<0||!paradaAtual)return;
+    const p=migrateParada(paradaAtual);
     if(p.pacotes.length<=1){
       const pk=p.pacotes[0];
-      if(pk?.status==="pendente")aplicarMarcarPacote(paradaAtualIdx,pk.id,"entregue");
+      if(pk?.status==="pendente")aplicarMarcarPacote(p.id,pk.id,"entregue");
       return;
     }
-    setListaExpandidaIds(s=>new Set(s).add(p.id));
-    setViewNav("lista");
+    abrirPacotesTela(p.id);
   };
 
   const handleNavNaoEntregue=()=>{
-    if(paradaAtualIdx<0)return;
-    const p=migrateParada(paradas[paradaAtualIdx]);
+    if(paradaAtualIdx<0||!paradaAtual)return;
+    const p=migrateParada(paradaAtual);
     if(p.pacotes.length<=1){
       const pk=p.pacotes[0];
       if(pk?.status==="pendente"){
-        setMotivoPacoteTarget({paradaIdx:paradaAtualIdx,pacoteId:pk.id});
+        setMotivoPacoteTarget({paradaId:p.id,pacoteId:pk.id});
         setShowMotivo(true);
       }
       return;
     }
-    setListaExpandidaIds(s=>new Set(s).add(p.id));
-    setViewNav("lista");
+    abrirPacotesTela(p.id);
   };
 
-  const handlePacoteNaoEntregue=(paradaIdx,pacoteId)=>{
-    setMotivoPacoteTarget({paradaIdx,pacoteId});
+  const handlePacoteNaoEntregue=(paradaId,pacoteId)=>{
+    setMotivoPacoteTarget({paradaId,pacoteId});
     setShowMotivo(true);
   };
 
   const toggleListaExpand=(id)=>{
+    const p=paradasDedup.find(x=>x.id===id);
+    if(p&&countPacotes(p)>1)return;
     setListaExpandidaIds(prev=>{
       const next=new Set(prev);
       if(next.has(id))next.delete(id);
@@ -2463,7 +2526,7 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
         <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:14}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
             <span style={{color:C.navy,fontWeight:700,fontSize:13}}>
-              {paradas.length} endereço{paradas.length!==1?"s":""}{totalPacotes>paradas.length?` · ${totalPacotes} pacotes`:""} · {entreguesCount} entregue{entreguesCount!==1?"s":""} · {pendentesCount} pendente{pendentesCount!==1?"s":""}
+              {paradasDedup.length} endereço{paradasDedup.length!==1?"s":""}{totalPacotes>paradasDedup.length?` · ${totalPacotes} pacotes`:""} · {entreguesCount} entregue{entreguesCount!==1?"s":""} · {pendentesCount} pendente{pendentesCount!==1?"s":""}
               {resultado&&!modoNavegacao&&(
                 <span style={{marginLeft:6,color:OTIMIZAR_AZUL,fontWeight:600}}>— rota otimizada ✅</span>
               )}
@@ -2480,8 +2543,8 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
               </button>
             </div>
           </div>
-          {paradas.map((p,i)=>(
-            <div key={p.id} style={{
+          {paradasDedup.map((p,i)=>(
+            <div key={`parada-${p.id}`} style={{
               display:"flex",flexDirection:"column",gap:8,
               background:paradaCardBg(p),
               border:`1.5px solid ${p.geocodeFalhou||p.outlier?C.amber:paradaCardBorder(p,i,paradaAtualIdx,modoNavegacao)}`,
@@ -2694,15 +2757,12 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
             <>
               <div style={{position:"relative",flex:1,minHeight:0}}>
                 <NavigationMap
-                  paradas={paradas}
+                  paradas={paradasDedup}
                   currentStopIndex={paradaAtualIdx}
                   originCoords={posicaoMotorista}
                   height="100%"
                   onDriverLocationUpdate={setPosicaoMotorista}
-                  onMarkPacote={(paradaIdx,pacoteId,status)=>{
-                    if(status==="nao_entregue")handlePacoteNaoEntregue(paradaIdx,pacoteId);
-                    else aplicarMarcarPacote(paradaIdx,pacoteId,status);
-                  }}
+                  onVerPacotes={abrirPacotesTela}
                 />
                 <button type="button" onClick={()=>setShowConfirmExitNav(true)} aria-label="Pausar navegação"
                   style={{position:"absolute",top:12,right:12,zIndex:20,width:40,height:40,borderRadius:"50%",background:"#fff",border:"none",boxShadow:"0 2px 10px rgba(0,0,0,0.22)",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>
@@ -2717,12 +2777,18 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
               <div style={{padding:"12px 16px",borderTop:`1px solid ${C.border}`,background:C.subtle,flexShrink:0}}>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
                   <span style={{color:C.muted,fontSize:11,fontWeight:700}}>Próxima parada</span>
-                  <span style={{color:OTIMIZAR_AZUL,fontSize:12,fontWeight:800}}>{paradaAtualIdx+1} de {paradas.length}</span>
+                  <span style={{color:OTIMIZAR_AZUL,fontSize:12,fontWeight:800}}>{paradaAtualIdx+1} de {paradasDedup.length}</span>
                 </div>
                 <div style={{color:C.text,fontSize:14,fontWeight:600,lineHeight:1.4,marginBottom:8}}>{paradaAtual.endereco}</div>
                 {migrateParada(paradaAtual).pacotes.length>1&&(
-                  <div style={{color:OTIMIZAR_AZUL,fontSize:11,fontWeight:700,marginBottom:12,padding:"6px 10px",background:"#EEF4FF",borderRadius:8}}>
-                    📦 {resumoPacotesLabel(paradaAtual)}
+                  <div style={{marginBottom:10}}>
+                    <div style={{color:OTIMIZAR_AZUL,fontSize:11,fontWeight:700,marginBottom:8,padding:"6px 10px",background:"#EEF4FF",borderRadius:8}}>
+                      📦 {resumoPacotesLabel(paradaAtual)}
+                    </div>
+                    <button type="button" onClick={()=>abrirPacotesTela(paradaAtual.id)}
+                      style={{width:"100%",padding:"10px 12px",background:"#EEF4FF",border:`1.5px solid ${OTIMIZAR_AZUL}`,borderRadius:10,cursor:"pointer",color:OTIMIZAR_AZUL,fontWeight:800,fontSize:13}}>
+                      📦 Ver pacotes
+                    </button>
                   </div>
                 )}
                 <div style={{display:"grid",gridTemplateColumns:"3fr 2fr",gap:8,marginBottom:0}}>
@@ -2743,14 +2809,16 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
                 style={{position:"absolute",top:12,right:12,zIndex:20,width:40,height:40,borderRadius:"50%",background:"#fff",border:"none",boxShadow:"0 2px 10px rgba(0,0,0,0.22)",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>
                 <XIcon size={18} color={C.muted}/>
               </button>
-              {paradas.map((p,i)=>{
+              {paradasDedup.map((p,i)=>{
                 const expandida=listaExpandidaIds.has(p.id);
                 const st=getParadaStatus(p);
+                const multi=countPacotes(p)>1;
                 return(
-                <div key={p.id} role="button" tabIndex={0} onClick={()=>toggleListaExpand(p.id)}
-                  onKeyDown={e=>{if(e.key==="Enter"||e.key===" ")toggleListaExpand(p.id);}}
+                <div key={`parada-${p.id}`} role={multi?undefined:"button"} tabIndex={multi?undefined:0}
+                  onClick={multi?undefined:()=>toggleListaExpand(p.id)}
+                  onKeyDown={multi?undefined:e=>{if(e.key==="Enter"||e.key===" ")toggleListaExpand(p.id);}}
                   style={{
-                  padding:"12px",marginBottom:8,borderRadius:11,cursor:"pointer",
+                  padding:"12px",marginBottom:8,borderRadius:11,cursor:multi?"default":"pointer",
                   background:paradaCardBg(p),
                   border:`1.5px solid ${paradaCardBorder(p,i,paradaAtualIdx,true)}`,
                 }}>
@@ -2764,20 +2832,26 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
                       {st==="nao_entregue"&&<div style={{color:C.red,fontSize:11,marginTop:4}}>❌ {p.motivo}</div>}
                       {i===paradaAtualIdx&&st==="pendente"&&<div style={{color:OTIMIZAR_AZUL,fontSize:11,fontWeight:700,marginTop:4}}>→ Parada atual</div>}
                     </div>
-                    <span style={{color:C.muted,fontSize:14,fontWeight:700}}>{expandida?"▾":"▸"}</span>
+                    {!multi&&<span style={{color:C.muted,fontSize:14,fontWeight:700}}>{expandida?"▾":"▸"}</span>}
                   </div>
-                  {expandida&&st==="pendente"&&(
+                  {multi&&(
+                    <button type="button" onClick={()=>abrirPacotesTela(p.id)}
+                      style={{width:"100%",marginTop:10,padding:"10px 12px",background:"#EEF4FF",border:`1.5px solid ${OTIMIZAR_AZUL}`,borderRadius:10,cursor:"pointer",color:OTIMIZAR_AZUL,fontWeight:800,fontSize:13}}>
+                      📦 Ver pacotes
+                    </button>
+                  )}
+                  {!multi&&expandida&&st==="pendente"&&(
                     <div onClick={e=>e.stopPropagation()}>
                       <PacotesParadaRows
                         parada={p}
-                        paradaIdx={i}
+                        paradaId={p.id}
                         onEntregue={aplicarMarcarPacote}
                         onNaoEntregue={handlePacoteNaoEntregue}
                         compact
                       />
                     </div>
                   )}
-                  {expandida&&st!=="pendente"&&(
+                  {!multi&&expandida&&st!=="pendente"&&(
                     <div style={{marginTop:8}} onClick={e=>e.stopPropagation()}>
                       {(migrateParada(p).pacotes||[]).map((pk,j)=>(
                         <div key={pk.id} style={{fontSize:11,color:C.text2,marginBottom:4}}>
@@ -2847,7 +2921,7 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
             {MOTIVOS_NAO_ENTREGUE.map(m=>(
               <button key={m} type="button" onClick={()=>{
                 if(motivoPacoteTarget){
-                  aplicarMarcarPacote(motivoPacoteTarget.paradaIdx,motivoPacoteTarget.pacoteId,"nao_entregue",m);
+                  aplicarMarcarPacote(motivoPacoteTarget.paradaId,motivoPacoteTarget.pacoteId,"nao_entregue",m);
                 }
               }}
                 style={{width:"100%",textAlign:"left",padding:"12px 14px",marginBottom:8,background:C.subtle,border:`1px solid ${C.border}`,borderRadius:10,cursor:"pointer",color:C.text,fontWeight:600,fontSize:14}}>
@@ -2857,6 +2931,17 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
             <button type="button" onClick={()=>{setShowMotivo(false);setMotivoPacoteTarget(null);}} style={{width:"100%",padding:10,marginTop:4,background:"transparent",border:"none",cursor:"pointer",color:C.muted}}>Cancelar</button>
           </div>
         </div>
+      )}
+
+      {pacotesTelaParada&&pacotesTelaParadaId!=null&&(
+        <PacotesParadaTela
+          parada={pacotesTelaParada}
+          paradaNum={pacotesTelaParadaNum}
+          paradaId={pacotesTelaParadaId}
+          onVoltar={()=>setPacotesTelaParadaId(null)}
+          onEntregue={aplicarMarcarPacote}
+          onNaoEntregue={handlePacoteNaoEntregue}
+        />
       )}
 
       {showAddNavMenu&&(
