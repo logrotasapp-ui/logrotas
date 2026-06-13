@@ -2,22 +2,18 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { API_KEYS } from "../services/apiConfig.js";
 import { waitForGoogleMaps } from "../services/googleMapsLoader.js";
 import { getDriverGeolocation } from "../services/routingService.js";
+import { getParadaStatus, migrateParada } from "../services/pacotesService.js";
 import {
   applyMarkerRenderOffsets,
   createNumberedStopMarker,
   createDriverTriangleMarker,
   packageCountAtCoords,
   buildStopInfoHtml,
+  buildPacotesPopupHtml,
 } from "../services/mapMarkers.js";
 import GoogleLocationIcon from "./GoogleLocationIcon.jsx";
 
 const DEFAULT_CENTER = { lat: -23.5505, lng: -46.6333 };
-
-function resolveStatus(p) {
-  if (p?.status) return p.status;
-  if (p?.entregue) return "entregue";
-  return "pendente";
-}
 
 /**
  * Mapa de navegação — bolinhas numeradas, motorista laranja, rota azul até parada atual.
@@ -28,6 +24,7 @@ export default function NavigationMap({
   originCoords = null,
   height = "100%",
   onDriverLocationUpdate,
+  onMarkPacote,
 }) {
   const containerRef = useRef(null);
   const mapRef = useRef(null);
@@ -35,6 +32,8 @@ export default function NavigationMap({
   const stopMarkersRef = useRef([]);
   const driverMarkerRef = useRef(null);
   const infoWindowRef = useRef(null);
+  const popupExpandedRef = useRef(new Set());
+  const onMarkPacoteRef = useRef(onMarkPacote);
   const [ready, setReady] = useState(false);
   const [hint, setHint] = useState("Carregando mapa…");
   const [locating, setLocating] = useState(false);
@@ -46,6 +45,10 @@ export default function NavigationMap({
   useEffect(() => {
     driverRef.current = originCoords;
   }, [originCoords]);
+
+  useEffect(() => {
+    onMarkPacoteRef.current = onMarkPacote;
+  }, [onMarkPacote]);
 
   const clearStopMarkers = useCallback(() => {
     stopMarkersRef.current.forEach((m) => m.setMap(null));
@@ -63,13 +66,59 @@ export default function NavigationMap({
     driverMarkerRef.current.setMap(map);
   }, []);
 
+  const bindPacotePopupActions = useCallback((paradaIndex, parada, paradaNum, expandId) => {
+    const doc = document;
+    const expandEl = doc.getElementById(expandId);
+    if (expandEl && !popupExpandedRef.current.has(parada.id)) {
+      expandEl.onclick = () => {
+        popupExpandedRef.current.add(parada.id);
+        infoWindowRef.current.setContent(
+          buildPacotesPopupHtml(parada, paradaNum, { expandId, actionPrefix: `nav-${paradaIndex}` })
+        );
+        window.google.maps.event.addListenerOnce(infoWindowRef.current, "domready", () => {
+          bindPacotePopupActions(paradaIndex, parada, paradaNum, expandId);
+        });
+      };
+    }
+    doc.querySelectorAll("[data-pkg-action][data-pkg-id]").forEach((btn) => {
+      btn.onclick = () => {
+        const action = btn.getAttribute("data-pkg-action");
+        const pacoteId = btn.getAttribute("data-pkg-id");
+        const idx = Number(btn.getAttribute("data-parada-idx"));
+        if (!pacoteId || Number.isNaN(idx)) return;
+        if (action === "entregue") onMarkPacoteRef.current?.(idx, pacoteId, "entregue");
+        else if (action === "nao_entregue") onMarkPacoteRef.current?.(idx, pacoteId, "nao_entregue");
+      };
+    });
+    if (expandEl && popupExpandedRef.current.has(parada.id)) {
+      expandEl.onclick = () => {
+        popupExpandedRef.current.delete(parada.id);
+        const status = getParadaStatus(parada);
+        infoWindowRef.current.setContent(
+          buildStopInfoHtml({
+            endereco: parada.endereco,
+            paradaNum,
+            pacotes: packageCountAtCoords(paradas, parada.coords?.[0], parada.coords?.[1]),
+            status,
+            motivo: parada.motivo,
+            parada,
+            expandId,
+          })
+        );
+        window.google.maps.event.addListenerOnce(infoWindowRef.current, "domready", () => {
+          bindPacotePopupActions(paradaIndex, parada, paradaNum, expandId);
+        });
+      };
+    }
+  }, [paradas]);
+
   const renderStopMarkers = useCallback(
     (map) => {
       clearStopMarkers();
       if (!map) return;
 
       if (!infoWindowRef.current) {
-        infoWindowRef.current = new window.google.maps.InfoWindow({ maxWidth: 280 });
+        infoWindowRef.current = new window.google.maps.InfoWindow({ maxWidth: 300 });
       }
 
       const positioned = applyMarkerRenderOffsets(
@@ -83,33 +132,59 @@ export default function NavigationMap({
       );
 
       positioned.forEach(({ lng, lat, renderLng, renderLat, parada: p, index: i }) => {
-        const status = resolveStatus(p);
+        const status = getParadaStatus(p);
         const isCurrent = i === currentStopIndex && status === "pendente";
         const marker = createNumberedStopMarker(renderLng, renderLat, i + 1, {
-          entregue: status === "entregue",
+          entregue: status === "entregue" || status === "concluida",
           naoEntregue: status === "nao_entregue",
           isCurrent,
         });
 
         marker.addListener("click", () => {
-          const pacotes = packageCountAtCoords(paradas, lng, lat);
+          const expandId = `expand-pkg-${p.id}`;
+          const pacoteCount = packageCountAtCoords(paradas, lng, lat);
+          const migrated = migrateParada(p);
+          const showExpanded = popupExpandedRef.current.has(p.id) && migrated.pacotes.length > 1;
+          const prefix = `nav-${i}`;
+
           infoWindowRef.current.setContent(
-            buildStopInfoHtml({
-              endereco: p.endereco,
-              paradaNum: i + 1,
-              pacotes,
-              status,
-              motivo: p.motivo,
-            })
+            showExpanded
+              ? buildPacotesPopupHtml(migrated, i + 1, { expandId, actionPrefix: prefix })
+              : buildStopInfoHtml({
+                  endereco: p.endereco,
+                  paradaNum: i + 1,
+                  pacotes: pacoteCount,
+                  status,
+                  motivo: p.motivo,
+                  parada: migrated,
+                  expandId: migrated.pacotes.length > 1 ? expandId : null,
+                })
           );
           infoWindowRef.current.open({ anchor: marker, map });
+
+          window.google.maps.event.addListenerOnce(infoWindowRef.current, "domready", () => {
+            const doc = document;
+            const expandEl = doc.getElementById(expandId);
+            if (expandEl && !showExpanded) {
+              expandEl.onclick = () => {
+                popupExpandedRef.current.add(p.id);
+                infoWindowRef.current.setContent(
+                  buildPacotesPopupHtml(migrateParada(p), i + 1, { expandId, actionPrefix: prefix })
+                );
+                window.google.maps.event.addListenerOnce(infoWindowRef.current, "domready", () => {
+                  bindPacotePopupActions(i, migrateParada(p), i + 1, expandId);
+                });
+              };
+            }
+            bindPacotePopupActions(i, migrateParada(p), i + 1, expandId);
+          });
         });
 
         marker.setMap(map);
         stopMarkersRef.current.push(marker);
       });
     },
-    [paradas, currentStopIndex, clearStopMarkers]
+    [paradas, currentStopIndex, clearStopMarkers, bindPacotePopupActions]
   );
 
   useEffect(() => {
@@ -208,7 +283,6 @@ export default function NavigationMap({
           if (status === window.google.maps.DirectionsStatus.OK && result) {
             resolve(result);
           } else {
-            // V233 — diagnóstico: status exato da Directions + endereço do trecho
             console.warn("[LogRotas Directions] falha no trecho da navegação", {
               status: String(status),
               destino: currentParada?.endereco,
@@ -220,7 +294,6 @@ export default function NavigationMap({
 
     let result = await tryRoute();
     if (!result) {
-      // V233 — 1 retry após 1 segundo antes de desistir do trecho
       await new Promise((r) => setTimeout(r, 1000));
       result = await tryRoute();
     }
@@ -237,6 +310,7 @@ export default function NavigationMap({
     onDriverLocationUpdate,
     renderStopMarkers,
     updateDriverMarker,
+    currentParada?.endereco,
   ]);
 
   useEffect(() => {

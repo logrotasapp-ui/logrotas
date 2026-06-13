@@ -9,6 +9,10 @@ import {
 } from "firebase/firestore";
 import { db } from "../firebase.js";
 import { readOfflineCache, writeOfflineCache } from "./offlineStorage.js";
+import {
+  countPacotesStats,
+  sanitizeParadaForFirestore,
+} from "./pacotesService.js";
 
 export const ENTREGAS_COLLECTION = "entregas";
 
@@ -69,23 +73,23 @@ function sanitizeResultado(resultado) {
 }
 
 function normalizeRouteDoc(id, data) {
-  const paradas = data?.paradas || [];
+  const paradas = (data?.paradas || []).map((p) => sanitizeParadaForFirestore(p));
+  const pkgStats = countPacotesStats(paradas);
   return {
     id,
     ...data,
+    paradas,
     totalParadas: data?.totalParadas ?? paradas.length,
-    entregues:
-      data?.entregues ?? paradas.filter((p) => p.status === "entregue").length,
-    naoEntregues:
-      data?.naoEntregues ??
-      paradas.filter((p) => p.status === "nao_entregue").length,
+    entregues: data?.entregues ?? pkgStats.entregues,
+    naoEntregues: data?.naoEntregues ?? pkgStats.naoEntregues,
   };
 }
 
 function buildPayload(routeData) {
-  const paradas = routeData.paradas || [];
-  const entregues = paradas.filter((p) => p.status === "entregue").length;
-  const naoEntregues = paradas.filter((p) => p.status === "nao_entregue").length;
+  const paradas = (routeData.paradas || []).map(sanitizeParadaForFirestore);
+  const pkgStats = countPacotesStats(paradas);
+  const entregues = pkgStats.entregues;
+  const naoEntregues = pkgStats.naoEntregues;
 
   return {
     date: routeData.date || paradas[0]?.data || "",
@@ -94,14 +98,8 @@ function buildPayload(routeData) {
     totalParadas: paradas.length,
     entregues,
     naoEntregues,
-    paradas: paradas.map((p) => ({
-      endereco: p.endereco || "",
-      status: p.status || "pendente",
-      motivo: p.motivo || null,
-      horario: p.horario || "",
-      data: p.data || routeData.date || "",
-      coords: Array.isArray(p.coords) && p.coords.length >= 2 ? p.coords : null,
-    })),
+    totalPacotes: pkgStats.entregues + pkgStats.naoEntregues + pkgStats.pendentes,
+    paradas,
     resultado: sanitizeResultado(routeData.resultado),
   };
 }

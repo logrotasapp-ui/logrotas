@@ -189,7 +189,7 @@ export function parseAddressesFromRomaneioText(rawText) {
 }
 
 /**
- * OCR de etiqueta/romaneio (Vision) — extrai só endereço de entrega.
+ * OCR de etiqueta/romaneio — extrai endereço de entrega (e nome do destinatário quando possível).
  * @param {string} rawText
  * @returns {string[]}
  */
@@ -197,4 +197,95 @@ export function parseDeliveryAddressesFromLabelText(rawText) {
   if (!rawText || !String(rawText).trim()) return [];
   const filtered = filterOcrTextForDeliveryAddress(rawText);
   return parseAddressesFromRomaneioText(filtered || rawText);
+}
+
+const DEST_NOME_LINE =
+  /^(?:destinat[aá]rio|para|nome(?:\s+do\s+destinat[aá]rio)?|cliente|at[eé]ncia)\s*[:\-–]\s*(.+)$/i;
+
+function extractNomeFromLine(line) {
+  const m = line.match(DEST_NOME_LINE);
+  if (m) {
+    const nome = cleanAddressLine(m[1]).replace(/\d{5,}/g, "").trim();
+    if (nome && !looksLikeAddress(nome) && nome.length >= 3) return nome;
+  }
+  return "";
+}
+
+/**
+ * V256 — extrai pares { nome, endereco } do OCR (cada etiqueta/linha = 1 pacote).
+ * @param {string} rawText
+ * @returns {Array<{ nome: string, endereco: string }>}
+ */
+export function parseDeliveryEntriesFromLabelText(rawText) {
+  if (!rawText || !String(rawText).trim()) return [];
+
+  const lines = String(rawText)
+    .split(/\r?\n/)
+    .map(normalizeLine)
+    .filter((l) => l.length > 0);
+
+  const entries = [];
+  let pendingNome = "";
+  let buffer = "";
+
+  const flushAddress = () => {
+    if (!buffer) return;
+    const addrs = normalizeAddressesForRouting([buffer]);
+    if (addrs.length) {
+      entries.push({ nome: pendingNome || "", endereco: addrs[0] });
+      pendingNome = "";
+    }
+    buffer = "";
+  };
+
+  for (const line of lines) {
+    if (TRACKING_CODE.test(line)) {
+      flushAddress();
+      pendingNome = "";
+      continue;
+    }
+    if (SKIP_LINE.test(line)) continue;
+
+    const nomeLabel = extractNomeFromLine(line);
+    if (nomeLabel) {
+      flushAddress();
+      pendingNome = nomeLabel;
+      continue;
+    }
+
+    if (looksLikePersonNameOnly(line) && !STREET_HINT.test(line)) {
+      flushAddress();
+      pendingNome = line;
+      continue;
+    }
+
+    if (buffer && isCityOrCepContinuation(line)) {
+      buffer = `${buffer}, ${line}`;
+      continue;
+    }
+
+    if (!looksLikeAddress(line)) {
+      if (buffer && line.length > 2 && line.length < 80 && !SKIP_LINE.test(line)) {
+        buffer = `${buffer}, ${cleanAddressLine(line)}`;
+      }
+      continue;
+    }
+
+    if (startsNewAddress(line)) {
+      flushAddress();
+      buffer = line;
+    } else if (buffer) {
+      buffer = `${buffer}, ${line}`;
+    } else {
+      buffer = line;
+    }
+  }
+  flushAddress();
+
+  if (entries.length === 0) {
+    const addresses = parseDeliveryAddressesFromLabelText(rawText);
+    return addresses.map((endereco) => ({ nome: "", endereco }));
+  }
+
+  return entries.slice(0, 50);
 }

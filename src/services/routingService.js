@@ -30,14 +30,18 @@ import { fileToImageBlob } from "./fileToImage.js";
 import {
   parseRomaneioTextToDestinations,
   buildParadasFromAddresses,
+  buildParadasFromEntries,
   parseDeliveryAddressesFromLabelText,
+  parseDeliveryEntriesFromLabelText,
   cleanAddressLine,
 } from "./romaneioRouting.js";
 
 export {
   parseRomaneioTextToDestinations,
   buildParadasFromAddresses,
+  buildParadasFromEntries,
   parseDeliveryAddressesFromLabelText,
+  parseDeliveryEntriesFromLabelText,
   cleanAddressLine,
   normalizeAddressesForRouting,
 } from "./romaneioRouting.js";
@@ -812,8 +816,9 @@ export async function extractRomaneioAddressesFromImageVision(file, options = {}
 
     report(75, "Interpretando endereços…");
     const texto = extractVisionOcrText(res.data);
-    const addresses = parseDeliveryAddressesFromLabelText(texto);
-    const paradas = buildParadasFromAddresses(addresses);
+    const entries = parseDeliveryEntriesFromLabelText(texto);
+    const addresses = entries.map((e) => e.endereco);
+    const paradas = buildParadasFromEntries(entries);
 
     if (!texto.trim()) {
       return {

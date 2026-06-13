@@ -1,5 +1,11 @@
-function statusLabel(status) {
+function pacoteStatusLabel(status) {
   if (status === "entregue") return "Entregue";
+  if (status === "nao_entregue") return "Não entregue";
+  return "Pendente";
+}
+
+function statusLabel(status) {
+  if (status === "entregue" || status === "concluida") return "Concluída";
   if (status === "nao_entregue") return "Não entregue";
   return "Pendente";
 }
@@ -36,9 +42,20 @@ export function buildDeliveryReportText(data) {
 
   (data.paradas || []).forEach((p, i) => {
     lines.push(`${i + 1}. ${p.endereco || "—"}`);
-    lines.push(`   Status: ${statusLabel(p.status)}${p.horario ? ` (${p.horario})` : ""}`);
-    if (p.status === "nao_entregue" && p.motivo) {
-      lines.push(`   Motivo: ${p.motivo}`);
+    const pacotes = Array.isArray(p.pacotes) ? p.pacotes : [];
+    if (pacotes.length > 0) {
+      pacotes.forEach((pk, j) => {
+        const nome = (pk.nome || "").trim() || `Pacote ${j + 1}`;
+        lines.push(`   • ${nome}: ${pacoteStatusLabel(pk.status)}`);
+        if (pk.status === "nao_entregue" && pk.motivoNaoEntrega) {
+          lines.push(`     Motivo: ${pk.motivoNaoEntrega}`);
+        }
+      });
+    } else {
+      lines.push(`   Status: ${statusLabel(p.status)}${p.horario ? ` (${p.horario})` : ""}`);
+      if (p.status === "nao_entregue" && p.motivo) {
+        lines.push(`   Motivo: ${p.motivo}`);
+      }
     }
     lines.push("");
   });
@@ -100,19 +117,36 @@ function buildPdfDocument(data, jsPDF) {
       doc.text(line, margin, y);
       y += 5;
     });
-    ensureSpace(5);
-    doc.text(
-      `Status: ${statusLabel(p.status)}${p.horario ? ` · ${p.horario}` : ""}`,
-      margin,
-      y
-    );
-    y += 5;
-    if (p.status === "nao_entregue" && p.motivo) {
-      wrapLines(doc, `Motivo: ${p.motivo}`, contentWidth).forEach((line) => {
-        ensureSpace(5);
-        doc.text(line, margin, y);
+    const pacotes = Array.isArray(p.pacotes) ? p.pacotes : [];
+    if (pacotes.length > 0) {
+      pacotes.forEach((pk, j) => {
+        ensureSpace(8);
+        const nome = (pk.nome || "").trim() || `Pacote ${j + 1}`;
+        doc.text(`• ${nome}: ${pacoteStatusLabel(pk.status)}`, margin + 2, y);
         y += 5;
+        if (pk.status === "nao_entregue" && pk.motivoNaoEntrega) {
+          wrapLines(doc, `Motivo: ${pk.motivoNaoEntrega}`, contentWidth - 4).forEach((line) => {
+            ensureSpace(5);
+            doc.text(line, margin + 4, y);
+            y += 5;
+          });
+        }
       });
+    } else {
+      ensureSpace(5);
+      doc.text(
+        `Status: ${statusLabel(p.status)}${p.horario ? ` · ${p.horario}` : ""}`,
+        margin,
+        y
+      );
+      y += 5;
+      if (p.status === "nao_entregue" && p.motivo) {
+        wrapLines(doc, `Motivo: ${p.motivo}`, contentWidth).forEach((line) => {
+          ensureSpace(5);
+          doc.text(line, margin, y);
+          y += 5;
+        });
+      }
     }
     y += 4;
   });

@@ -1,10 +1,5 @@
 import { readOfflineCache, writeOfflineCache, OFFLINE_KEYS } from "./offlineStorage.js";
-
-function getParadaStatus(p) {
-  if (p?.status) return p.status;
-  if (p?.entregue) return "entregue";
-  return "pendente";
-}
+import { getParadaStatus, migrateParadas } from "./pacotesService.js";
 
 export function countNavProgress(paradas = []) {
   const pendentesCount = paradas.filter((p) => getParadaStatus(p) === "pendente").length;
@@ -23,7 +18,7 @@ export function countNavProgress(paradas = []) {
  * }} session
  */
 export function writeNavigationSession(session) {
-  const paradas = session.paradas || [];
+  const paradas = migrateParadas(session.paradas || []);
   const { pendentesCount, paradaAtualIdx } = countNavProgress(paradas);
   const payload = {
     active: !!session.active && pendentesCount > 0,
@@ -46,10 +41,12 @@ export function writeNavigationSession(session) {
 export function readNavigationSession() {
   const raw = readOfflineCache(OFFLINE_KEYS.navegacao);
   if (!raw?.paradas?.length) return null;
-  const { pendentesCount, paradaAtualIdx } = countNavProgress(raw.paradas);
+  const paradas = migrateParadas(raw.paradas);
+  const { pendentesCount, paradaAtualIdx } = countNavProgress(paradas);
   if (pendentesCount === 0) return null;
   return {
     ...raw,
+    paradas,
     pendentesCount,
     paradaAtualIdx,
     totalParadas: raw.paradas.length,

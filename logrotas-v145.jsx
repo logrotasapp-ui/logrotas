@@ -68,6 +68,20 @@ import {
   writeNavigationSession,
   clearNavigationSession,
 } from "./src/services/navigationSessionService.js";
+import {
+  getParadaStatus,
+  migrateParada,
+  migrateParadas,
+  pacoteDisplayName,
+  resumoPacotesLabel,
+  totalPacotesEmParadas,
+  countPacotesStats,
+  adicionarPacoteNaParada,
+  criarParadaNova,
+  marcarPacoteNaParada,
+  sanitizeParadaForFirestore,
+  logPacotes,
+} from "./src/services/pacotesService.js";
 import { OFFLINE_KEYS, AUTH_KEYS, readOfflineCache, writeOfflineCache, clearAllLogRotasStorage, activateProTrial, readProPlanActive, readProTrialDaysLeft, readPerfilLocalFallback, writePerfilLocalCache } from "./src/services/offlineStorage.js";
 import { subscribeAuth, signInWithEmail, signUpWithEmail, signInWithGoogle, signOutUser, deleteCurrentUser, getAuthErrorMessage } from "./src/services/authService.js";
 import { saveUserProfile, loadUserProfile, ensureGoogleUserProfile, cadastroToFirestorePayload, firestoreToPerfil, perfilToFirestorePayload } from "./src/services/userProfileService.js";
@@ -103,7 +117,7 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="V255";
+const APP_VERSION="V256";
 const BETA_HIDE_PLANOS=true;
 
 const OfflineRestoredBanner=({show})=>show?(
@@ -1312,15 +1326,9 @@ const OTIMIZAR_AZUL="#3B82F6";
 const OTIMIZAR_AZUL_MID="#2563EB";
 const MOTIVOS_NAO_ENTREGUE=["Cliente ausente","Endereço não encontrado","Cliente recusou","Outro"];
 
-function getParadaStatus(p){
-  if(p?.status)return p.status;
-  if(p?.entregue)return "entregue";
-  return "pendente";
-}
-
 function paradaBolinhaCor(p,i,paradaAtualIdx,modoNavegacao){
   const st=getParadaStatus(p);
-  if(st==="entregue")return C.green;
+  if(st==="concluida"||st==="entregue")return C.green;
   if(st==="nao_entregue")return C.red;
   if(modoNavegacao&&i===paradaAtualIdx&&st==="pendente")return OTIMIZAR_AZUL;
   if(p.confianca==="warn"&&st==="pendente")return "#F59E0B";
@@ -1329,7 +1337,7 @@ function paradaBolinhaCor(p,i,paradaAtualIdx,modoNavegacao){
 
 function paradaCardBg(p){
   const st=getParadaStatus(p);
-  if(st==="entregue")return "#F0FDF4";
+  if(st==="concluida"||st==="entregue")return "#F0FDF4";
   if(st==="nao_entregue")return "#FFF5F5";
   if(p.confianca==="warn")return "#FFFBEB";
   return C.subtle;
@@ -1338,10 +1346,46 @@ function paradaCardBg(p){
 function paradaCardBorder(p,i,paradaAtualIdx,modoNavegacao){
   const st=getParadaStatus(p);
   if(modoNavegacao&&i===paradaAtualIdx&&st==="pendente")return OTIMIZAR_AZUL;
-  if(st==="entregue")return `${C.green}44`;
+  if(st==="concluida"||st==="entregue")return `${C.green}44`;
   if(st==="nao_entregue")return `${C.red}44`;
   if(p.confianca==="warn")return "#FDE68A";
   return C.border;
+}
+
+function PacotesParadaRows({parada,paradaIdx,onEntregue,onNaoEntregue,compact=false}){
+  const m=migrateParada(parada);
+  return(
+    <div style={{display:"flex",flexDirection:"column",gap:compact?6:8,marginTop:compact?6:10}}>
+      {(m.pacotes||[]).map((pk,i)=>(
+        <div key={pk.id} style={{
+          padding:compact?"8px 10px":"10px 12px",
+          background:"#fff",
+          border:`1px solid ${C.border}`,
+          borderRadius:9,
+        }}>
+          <div style={{color:C.text,fontWeight:700,fontSize:compact?12:13,marginBottom:pk.status==="pendente"?6:4}}>
+            📦 {pacoteDisplayName(pk,i)}
+          </div>
+          {pk.status==="entregue"&&<div style={{color:C.green,fontSize:11,fontWeight:700}}>✅ Entregue</div>}
+          {pk.status==="nao_entregue"&&(
+            <div style={{color:C.red,fontSize:11,fontWeight:700}}>❌ {pk.motivoNaoEntrega||"Não entregue"}</div>
+          )}
+          {pk.status==="pendente"&&(
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}}>
+              <button type="button" onClick={()=>onEntregue(paradaIdx,pk.id)}
+                style={{padding:"8px 6px",background:"#DCFCE7",border:"2px solid #22C55E",borderRadius:10,cursor:"pointer",color:"#15803D",fontWeight:800,fontSize:12}}>
+                ✅ Entregue
+              </button>
+              <button type="button" onClick={()=>onNaoEntregue(paradaIdx,pk.id)}
+                style={{padding:"8px 6px",background:"#FEE2E2",border:"2px solid #DC2626",borderRadius:10,cursor:"pointer",color:"#B91C1C",fontWeight:800,fontSize:12}}>
+                ❌ Não
+              </button>
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
 }
 
 function formatNowBR(){
@@ -1441,15 +1485,23 @@ const HistoricoEntregasScreen=({
                       {(r.paradas||[]).map((p,i)=>(
                         <div key={i} style={{padding:"10px 0",borderBottom:i<(r.paradas?.length||0)-1?`1px solid ${C.border}`:"none"}}>
                           <div style={{color:C.text,fontSize:13,fontWeight:600}}>{i+1}. {p.endereco}</div>
+                          {Array.isArray(p.pacotes)&&p.pacotes.length>0?(
+                            p.pacotes.map((pk,j)=>(
+                              <div key={pk.id||j} style={{fontSize:12,color:pk.status==="entregue"?"#15803D":"#DC2626",fontWeight:700,marginTop:4}}>
+                                • {(pk.nome||"").trim()||`Pacote ${j+1}`}: {pk.status==="entregue"?"✅ Entregue":`❌ Não entregue${pk.motivoNaoEntrega?` — ${pk.motivoNaoEntrega}`:""}`}
+                              </div>
+                            ))
+                          ):(
                           <div style={{
-                            color:p.status==="entregue"?"#15803D":"#DC2626",
+                            color:p.status==="entregue"||p.status==="concluida"?"#15803D":"#DC2626",
                             fontSize:13,
                             fontWeight:700,
                             marginTop:4,
                           }}>
-                            {p.status==="entregue"?"✅ Entregue":`❌ Não entregue${p.motivo?` — ${p.motivo}`:""}`}
+                            {p.status==="entregue"||p.status==="concluida"?"✅ Entregue":`❌ Não entregue${p.motivo?` — ${p.motivo}`:""}`}
                             {p.horario?<span style={{fontWeight:600,color:C.muted}}>{` · ${p.horario}`}</span>:""}
                           </div>
+                          )}
                         </div>
                       ))}
                     </div>
@@ -1536,6 +1588,10 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
   const[pdfFilenameCache,setPdfFilenameCache]=useState("");
   const[gerandoPdf,setGerandoPdf]=useState(false);
   const[showHistoricoEntregas,setShowHistoricoEntregas]=useState(false);
+  const[novoDestinatario,setNovoDestinatario]=useState("");
+  const[pacotesExtrasNomes,setPacotesExtrasNomes]=useState([]);
+  const[listaExpandidaIds,setListaExpandidaIds]=useState(()=>new Set());
+  const[motivoPacoteTarget,setMotivoPacoteTarget]=useState(null);
 
   const isPro=plan==="pro";
   const LIMITE=isPro?Infinity:10;
@@ -1553,7 +1609,7 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
     const cached=readOfflineCache(OFFLINE_KEYS.otimizar);
     const nav=readNavigationSession();
     if(nav?.paradas?.length){
-      setParadas(nav.paradas);
+      setParadas(migrateParadas(nav.paradas));
       if(nav.resultado)setResultado(nav.resultado);
       if(nav.posicaoMotorista)setPosicaoMotorista(nav.posicaoMotorista);
       if(nav.viewNav)setViewNav(nav.viewNav);
@@ -1564,7 +1620,7 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
       setOfflineRestored(true);
       setTimeout(()=>setOfflineRestored(false),3500);
     }else if(cached?.paradas?.length){
-      setParadas(cached.paradas);
+      setParadas(migrateParadas(cached.paradas));
       setOfflineRestored(true);
       setTimeout(()=>setOfflineRestored(false),3500);
     }
@@ -1582,17 +1638,17 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
 
   useEffect(()=>{
     if(!offlineHydrated)return;
-    writeOfflineCache(OFFLINE_KEYS.otimizar,{paradas});
+    writeOfflineCache(OFFLINE_KEYS.otimizar,{paradas:migrateParadas(paradas)});
   },[offlineHydrated,paradas]);
 
-  const entreguesCount=paradas.filter(p=>getParadaStatus(p)==="entregue").length;
-  const naoEntreguesCount=paradas.filter(p=>getParadaStatus(p)==="nao_entregue").length;
+  const pkgStats=useMemo(()=>countPacotesStats(paradas),[paradas]);
+  const entreguesCount=pkgStats.entregues;
+  const naoEntreguesCount=pkgStats.naoEntregues;
   const pendentesCount=paradas.filter(p=>getParadaStatus(p)==="pendente").length;
   const todasEntregues=paradas.length>0&&pendentesCount===0;
   const paradaAtualIdx=useMemo(()=>paradas.findIndex(p=>getParadaStatus(p)==="pendente"),[paradas]);
   const paradaAtual=paradaAtualIdx>=0?paradas[paradaAtualIdx]:null;
-  // V233 — total real de pacotes (paradas agrupadas somam mais de 1)
-  const totalPacotes=paradas.reduce((a,p)=>a+(Number(p.pacotes)||1),0);
+  const totalPacotes=totalPacotesEmParadas(paradas);
 
   // V233 — toast discreto de agrupamento some sozinho
   useEffect(()=>{
@@ -1673,27 +1729,28 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
   useEffect(()=>{carregarHistorico();},[carregarHistorico]);
 
   const finalizarRota=useCallback(async(listaParadas)=>{
-    const lista=listaParadas||paradas;
+    const lista=migrateParadas(listaParadas||paradas);
     const ts=formatNowBR();
     const resultadoSnapshot=resultado?{...resultado}:null;
+    const statsPkg=countPacotesStats(lista);
     const stats={
       total:lista.length,
-      entregues:lista.filter(p=>getParadaStatus(p)==="entregue").length,
-      naoEntregues:lista.filter(p=>getParadaStatus(p)==="nao_entregue").length,
-      motivos:lista.filter(p=>getParadaStatus(p)==="nao_entregue").map(p=>({
-        id:p.id,
-        endereco:p.endereco,
-        motivo:p.motivo||"—",
-      })),
+      entregues:statsPkg.entregues,
+      naoEntregues:statsPkg.naoEntregues,
+      motivos:lista.flatMap(p=>
+        (migrateParada(p).pacotes||[])
+          .filter(pk=>pk.status==="nao_entregue")
+          .map(pk=>({
+            id:p.id,
+            endereco:p.endereco,
+            pacote:pacoteDisplayName(pk,(migrateParada(p).pacotes||[]).indexOf(pk)),
+            motivo:pk.motivoNaoEntrega||"—",
+          }))
+      ),
       data:ts.data,
       hora:ts.horario,
       motorista:perfil?.nome||"",
-      paradas:lista.map(p=>({
-        endereco:p.endereco||"",
-        status:getParadaStatus(p),
-        motivo:p.motivo||null,
-        horario:p.horario||"",
-      })),
+      paradas:lista.map(p=>sanitizeParadaForFirestore(p)),
     };
 
     setModoNavegacao(false);
@@ -1719,14 +1776,7 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
         date:ts.data,
         hora:ts.horario,
         motorista:perfil?.nome||"",
-        paradas:lista.map(p=>({
-          endereco:p.endereco||"",
-          status:getParadaStatus(p),
-          motivo:p.motivo||null,
-          horario:p.horario||"",
-          data:p.data||ts.data,
-          coords:Array.isArray(p.coords)&&p.coords.length>=2?p.coords:null,
-        })),
+        paradas:lista.map(p=>sanitizeParadaForFirestore(p)),
         resultado:resultadoSnapshot,
       });
       setRotaSalvaId(saved.id);
@@ -1746,18 +1796,60 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
     if(pendentesCount===0)finalizarRota(paradas);
   },[modoNavegacao,pendentesCount,paradas,showResumo,finalizarRota]);
 
-  const confirmarParada=(status,motivo=null)=>{
-    if(paradaAtualIdx<0)return;
+  const aplicarMarcarPacote=(paradaIdx,pacoteId,status,motivoNaoEntrega="")=>{
     const ts=formatNowBR();
-    setParadas(p=>p.map((x,i)=>i===paradaAtualIdx?{
-      ...x,
-      status,
-      motivo:status==="nao_entregue"?motivo:null,
-      horario:ts.horario,
-      data:ts.data,
-      entregue:status==="entregue",
-    }:x));
+    const next=paradas.map((x,i)=>{
+      if(i!==paradaIdx)return migrateParada(x);
+      return marcarPacoteNaParada(x,pacoteId,status,motivoNaoEntrega,ts);
+    });
+    logPacotes("marcar status",{paradaIdx,pacoteId,status});
+    if(getParadaStatus(next[paradaIdx])==="concluida"){
+      logPacotes("concluir parada",{paradaIdx,endereco:next[paradaIdx]?.endereco});
+    }
+    setParadas(next);
     setShowMotivo(false);
+    setMotivoPacoteTarget(null);
+  };
+
+  const handleNavEntregue=()=>{
+    if(paradaAtualIdx<0)return;
+    const p=migrateParada(paradas[paradaAtualIdx]);
+    if(p.pacotes.length<=1){
+      const pk=p.pacotes[0];
+      if(pk?.status==="pendente")aplicarMarcarPacote(paradaAtualIdx,pk.id,"entregue");
+      return;
+    }
+    setListaExpandidaIds(s=>new Set(s).add(p.id));
+    setViewNav("lista");
+  };
+
+  const handleNavNaoEntregue=()=>{
+    if(paradaAtualIdx<0)return;
+    const p=migrateParada(paradas[paradaAtualIdx]);
+    if(p.pacotes.length<=1){
+      const pk=p.pacotes[0];
+      if(pk?.status==="pendente"){
+        setMotivoPacoteTarget({paradaIdx:paradaAtualIdx,pacoteId:pk.id});
+        setShowMotivo(true);
+      }
+      return;
+    }
+    setListaExpandidaIds(s=>new Set(s).add(p.id));
+    setViewNav("lista");
+  };
+
+  const handlePacoteNaoEntregue=(paradaIdx,pacoteId)=>{
+    setMotivoPacoteTarget({paradaIdx,pacoteId});
+    setShowMotivo(true);
+  };
+
+  const toggleListaExpand=(id)=>{
+    setListaExpandidaIds(prev=>{
+      const next=new Set(prev);
+      if(next.has(id))next.delete(id);
+      else next.add(id);
+      return next;
+    });
   };
 
   const iniciarNavegacao=()=>{
@@ -1803,7 +1895,7 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
       setParadas(prev=>{
         const idx=paradaAtualIdx>=0?paradaAtualIdx+1:prev.length;
         const next=[...prev];
-        next.splice(idx,0,{...novaParada,id:novaParada.id||Date.now(),status:"pendente"});
+        next.splice(idx,0,{...novaParada,id:novaParada.id||Date.now()});
         return next;
       });
       setShowAddNavMenu(false);
@@ -1811,7 +1903,7 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
     }
 
     if(modo==="final"){
-      setParadas(prev=>[...prev,{...novaParada,id:novaParada.id||Date.now(),status:"pendente"}]);
+      setParadas(prev=>[...prev,criarParadaNova({...novaParada,id:novaParada.id||Date.now(),endereco:novaParada.endereco,coords:novaParada.coords,nomes:[""]})]);
       setShowAddNavMenu(false);
       return;
     }
@@ -1916,7 +2008,7 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
         proximityLngLat:posicaoMotorista?.length>=2?posicaoMotorista:resolveStopGeocodeBias(paradas.map(p=>p.coords)),
       });
       if(!out.ok){setErroNavAdd(out.error);return;}
-      const nova={id:Date.now(),endereco:out.endereco,coords:out.coords,status:"pendente"};
+      const nova=criarParadaNova({id:Date.now(),endereco:out.endereco,coords:out.coords,nomes:[""]});
       setNovoEnderecoNav("");
       // V233 — duplicado de parada PENDENTE: oferece adicionar pacote em vez de criar parada
       const dupIdx=findDuplicateStopIndex(paradas,nova);
@@ -1939,9 +2031,12 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
     if(!item)return;
     const alvo=paradas[item.idx];
     if(!alvo)return;
-    const novoTotal=(Number(alvo.pacotes)||1)+1;
-    setParadas(p=>p.map((x,i)=>i===item.idx?{...x,pacotes:novoTotal}:x));
-    setAvisoAgrupado(`📦 ${novoTotal} pacotes agrupados em ${alvo.endereco}`);
+    const nome=migrateParada(item.parada).pacotes?.[0]?.nome||"";
+    const atualizado=adicionarPacoteNaParada(alvo,nome);
+    const total=migrateParada(atualizado).pacotes.length;
+    logPacotes("importar duplicado",{idx:item.idx,nome,total});
+    setParadas(p=>p.map((x,i)=>i===item.idx?atualizado:x));
+    setAvisoAgrupado(`📦 ${total} pacotes agrupados em ${alvo.endereco}`);
   };
   const cancelarPacoteNaParada=()=>setDupQueue(q=>q.slice(1));
 
@@ -1991,29 +2086,38 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
       const addsExistentes=new Map();
       const enderecosAgrupados=new Set();
       for(const g of geocoded){
+        const mig=migrateParada(g);
+        const nome=mig.pacotes?.[0]?.nome||"";
         const idxExist=findDuplicateStopIndex(paradas,g);
         if(idxExist>=0){
-          addsExistentes.set(idxExist,(addsExistentes.get(idxExist)||0)+1);
+          const lista=addsExistentes.get(idxExist)||[];
+          lista.push(nome);
+          addsExistentes.set(idxExist,lista);
           enderecosAgrupados.add(paradas[idxExist].endereco);
           continue;
         }
         const idxNovo=findDuplicateStopIndex(unicos,g);
         if(idxNovo>=0){
-          unicos[idxNovo]={...unicos[idxNovo],pacotes:(Number(unicos[idxNovo].pacotes)||1)+1};
+          unicos[idxNovo]=adicionarPacoteNaParada(unicos[idxNovo],nome);
           enderecosAgrupados.add(unicos[idxNovo].endereco);
           continue;
         }
-        unicos.push(g);
+        unicos.push(mig);
       }
       setParadas(p=>{
-        const atualizadas=p.map((x,i)=>addsExistentes.has(i)?{...x,pacotes:(Number(x.pacotes)||1)+addsExistentes.get(i)}:x);
+        let atualizadas=migrateParadas(p).map((x,i)=>{
+          if(!addsExistentes.has(i))return x;
+          let par=x;
+          for(const nome of addsExistentes.get(i))par=adicionarPacoteNaParada(par,nome);
+          return par;
+        });
         return[...atualizadas,...unicos];
       });
+      logPacotes("importar",{novos:geocoded.length,agrupados:enderecosAgrupados.size});
       if(enderecosAgrupados.size===1){
         const end=[...enderecosAgrupados][0];
-        const extra=[...addsExistentes.values()].reduce((a,b)=>a+b,0);
-        const base=unicos.find(u=>u.endereco===end);
-        const total=base?(Number(base.pacotes)||1):(Number(paradas[[...addsExistentes.keys()][0]]?.pacotes)||1)+extra;
+        const idxAlvo=paradas.findIndex(p=>p.endereco===end);
+        const total=idxAlvo>=0?migrateParada(paradas[idxAlvo]).pacotes.length+([...addsExistentes.values()].flat().length):migrateParada(unicos.find(u=>u.endereco===end)||{}).pacotes?.length||1;
         setAvisoAgrupado(`📦 ${total} pacotes agrupados em ${end}`);
       }else if(enderecosAgrupados.size>1){
         setAvisoAgrupado(`📦 Pacotes agrupados em ${enderecosAgrupados.size} endereços repetidos`);
@@ -2040,18 +2144,25 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
         setErroManual(out.error);
         return;
       }
-      const nova={id:Date.now(),endereco:out.endereco,coords:out.coords};
-      // V233 — duplicado = agrupar pacotes na mesma parada (não cria parada nova)
+      const nomes=[novoDestinatario,...pacotesExtrasNomes];
+      const nova=criarParadaNova({id:Date.now(),endereco:out.endereco,coords:out.coords,nomes});
       const dupIdx=findDuplicateStopIndex(paradas,nova);
       if(dupIdx>=0){
-        const novoTotal=(Number(paradas[dupIdx].pacotes)||1)+1;
-        setParadas(p=>p.map((x,i)=>i===dupIdx?{...x,pacotes:novoTotal}:x));
-        setAvisoAgrupado(`📦 ${novoTotal} pacotes agrupados em ${paradas[dupIdx].endereco}`);
+        let par=paradas[dupIdx];
+        for(const nome of nomes)par=adicionarPacoteNaParada(par,nome);
+        const total=migrateParada(par).pacotes.length;
+        logPacotes("manual duplicado",{idx:dupIdx,total});
+        setParadas(p=>p.map((x,i)=>i===dupIdx?par:x));
+        setAvisoAgrupado(`📦 ${total} pacotes agrupados em ${paradas[dupIdx].endereco}`);
         setNovoEndereco("");
+        setNovoDestinatario("");
+        setPacotesExtrasNomes([]);
         return;
       }
       setParadas(p=>[...p,nova]);
       setNovoEndereco("");
+      setNovoDestinatario("");
+      setPacotesExtrasNomes([]);
       setResultado(null);
       setAposConclusao(false);
     }catch{
@@ -2185,6 +2296,33 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
             disabled={atingiuLimite||adicionandoManual}
           />
         </div>
+        <input
+          type="text"
+          value={novoDestinatario}
+          onChange={e=>setNovoDestinatario(e.target.value)}
+          placeholder="Nome do destinatário (opcional)"
+          autoComplete="off"
+          disabled={atingiuLimite||adicionandoManual}
+          style={{width:"100%",background:C.subtle,border:`1.5px solid ${C.border}`,borderRadius:10,color:C.text,padding:"10px 12px",fontSize:14,outline:"none",boxSizing:"border-box"}}
+        />
+        {pacotesExtrasNomes.map((nome,idx)=>(
+          <input
+            key={idx}
+            type="text"
+            value={nome}
+            onChange={e=>setPacotesExtrasNomes(arr=>arr.map((v,i)=>i===idx?e.target.value:v))}
+            placeholder={`Nome do destinatário — pacote ${idx+2} (opcional)`}
+            autoComplete="off"
+            disabled={atingiuLimite||adicionandoManual}
+            style={{width:"100%",background:C.subtle,border:`1.5px solid ${C.border}`,borderRadius:10,color:C.text,padding:"10px 12px",fontSize:14,outline:"none",boxSizing:"border-box"}}
+          />
+        ))}
+        {!atingiuLimite&&(
+          <button type="button" onClick={()=>setPacotesExtrasNomes(arr=>[...arr,""])} disabled={adicionandoManual}
+            style={{width:"100%",padding:"10px 12px",background:"#fff",border:`1.5px dashed ${OTIMIZAR_AZUL}`,borderRadius:10,cursor:"pointer",color:OTIMIZAR_AZUL,fontWeight:700,fontSize:13}}>
+            + Adicionar outro pacote neste endereço
+          </button>
+        )}
         <button onClick={adicionarManual} disabled={atingiuLimite||adicionandoManual}
           style={{width:"100%",background:atingiuLimite||adicionandoManual?"#94A3B8":OTIMIZAR_AZUL,border:"none",borderRadius:12,padding:"12px 20px",cursor:atingiuLimite||adicionandoManual?"not-allowed":"pointer",color:"#fff",fontWeight:800,fontSize:15,display:"flex",alignItems:"center",justifyContent:"center",gap:7,minHeight:48,boxShadow:atingiuLimite||adicionandoManual?"none":`0 4px 14px ${OTIMIZAR_AZUL}44`}}>
           <PlusIcon size={18}/> {adicionandoManual?"…":"Adicionar"}
@@ -2357,11 +2495,12 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
                   <div style={{color:getParadaStatus(p)!=="pendente"?"#64748B":C.text,fontSize:13,textDecoration:getParadaStatus(p)!=="pendente"?"line-through":"none",lineHeight:1.4}}>
                     {p.endereco}
                   </div>
+                  {getParadaStatus(p)==="concluida"&&<div style={{color:C.green,fontSize:11,marginTop:4}}>✅ Concluída · {p.horario||""}</div>}
                   {getParadaStatus(p)==="entregue"&&<div style={{color:C.green,fontSize:11,marginTop:4}}>✅ Entregue · {p.horario||""}</div>}
                   {getParadaStatus(p)==="nao_entregue"&&<div style={{color:C.red,fontSize:11,marginTop:4}}>❌ {p.motivo||"Não entregue"}</div>}
                   {getParadaStatus(p)==="pendente"&&(
                     <span style={{display:"inline-block",marginTop:4,color:OTIMIZAR_AZUL,fontSize:11,fontWeight:700}}>
-                      📦 {(Number(p.pacotes)||1)===1?"1 pacote":`${Number(p.pacotes)||1} pacotes`}
+                      📦 {resumoPacotesLabel(p)}
                     </span>
                   )}
                 </div>
@@ -2533,8 +2672,8 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
             <div style={{marginBottom:16}}>
               <div style={{color:C.navy,fontWeight:700,fontSize:13,marginBottom:8}}>Motivos</div>
               {resumoFinal.motivos.map(p=>(
-                <div key={p.id} style={{fontSize:12,color:C.text2,marginBottom:6,padding:"8px 10px",background:"#FFF5F5",borderRadius:8}}>
-                  {p.endereco} — <b>{p.motivo}</b>
+                <div key={`${p.id}-${p.pacote||""}`} style={{fontSize:12,color:C.text2,marginBottom:6,padding:"8px 10px",background:"#FFF5F5",borderRadius:8}}>
+                  {p.endereco}{p.pacote?` — ${p.pacote}`:""} — <b>{p.motivo}</b>
                 </div>
               ))}
             </div>
@@ -2560,6 +2699,10 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
                   originCoords={posicaoMotorista}
                   height="100%"
                   onDriverLocationUpdate={setPosicaoMotorista}
+                  onMarkPacote={(paradaIdx,pacoteId,status)=>{
+                    if(status==="nao_entregue")handlePacoteNaoEntregue(paradaIdx,pacoteId);
+                    else aplicarMarcarPacote(paradaIdx,pacoteId,status);
+                  }}
                 />
                 <button type="button" onClick={()=>setShowConfirmExitNav(true)} aria-label="Pausar navegação"
                   style={{position:"absolute",top:12,right:12,zIndex:20,width:40,height:40,borderRadius:"50%",background:"#fff",border:"none",boxShadow:"0 2px 10px rgba(0,0,0,0.22)",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>
@@ -2576,8 +2719,13 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
                   <span style={{color:C.muted,fontSize:11,fontWeight:700}}>Próxima parada</span>
                   <span style={{color:OTIMIZAR_AZUL,fontSize:12,fontWeight:800}}>{paradaAtualIdx+1} de {paradas.length}</span>
                 </div>
-                <div style={{color:C.text,fontSize:14,fontWeight:600,lineHeight:1.4,marginBottom:12}}>{paradaAtual.endereco}</div>
-                <div style={{display:"grid",gridTemplateColumns:"3fr 2fr",gap:8}}>
+                <div style={{color:C.text,fontSize:14,fontWeight:600,lineHeight:1.4,marginBottom:8}}>{paradaAtual.endereco}</div>
+                {migrateParada(paradaAtual).pacotes.length>1&&(
+                  <div style={{color:OTIMIZAR_AZUL,fontSize:11,fontWeight:700,marginBottom:12,padding:"6px 10px",background:"#EEF4FF",borderRadius:8}}>
+                    📦 {resumoPacotesLabel(paradaAtual)}
+                  </div>
+                )}
+                <div style={{display:"grid",gridTemplateColumns:"3fr 2fr",gap:8,marginBottom:0}}>
                   <button type="button" onClick={()=>openGoogleMapsNavigationToStop(paradaAtual)}
                     style={{padding:"12px 10px",background:OTIMIZAR_AZUL,border:"none",borderRadius:12,cursor:"pointer",color:"#fff",fontWeight:800,fontSize:14,display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
                     🗺️ Navegar
@@ -2595,9 +2743,14 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
                 style={{position:"absolute",top:12,right:12,zIndex:20,width:40,height:40,borderRadius:"50%",background:"#fff",border:"none",boxShadow:"0 2px 10px rgba(0,0,0,0.22)",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>
                 <XIcon size={18} color={C.muted}/>
               </button>
-              {paradas.map((p,i)=>(
-                <div key={p.id} style={{
-                  padding:"12px",marginBottom:8,borderRadius:11,
+              {paradas.map((p,i)=>{
+                const expandida=listaExpandidaIds.has(p.id);
+                const st=getParadaStatus(p);
+                return(
+                <div key={p.id} role="button" tabIndex={0} onClick={()=>toggleListaExpand(p.id)}
+                  onKeyDown={e=>{if(e.key==="Enter"||e.key===" ")toggleListaExpand(p.id);}}
+                  style={{
+                  padding:"12px",marginBottom:8,borderRadius:11,cursor:"pointer",
                   background:paradaCardBg(p),
                   border:`1.5px solid ${paradaCardBorder(p,i,paradaAtualIdx,true)}`,
                 }}>
@@ -2605,21 +2758,44 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
                     <span style={{width:24,height:24,borderRadius:"50%",background:paradaBolinhaCor(p,i,paradaAtualIdx,true),color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:800,flexShrink:0}}>{i+1}</span>
                     <div style={{flex:1}}>
                       <div style={{color:C.text,fontSize:13,lineHeight:1.4}}>{p.endereco}</div>
-                      {getParadaStatus(p)==="entregue"&&<div style={{color:C.green,fontSize:11,marginTop:4}}>✅ Entregue · {p.horario}</div>}
-                      {getParadaStatus(p)==="nao_entregue"&&<div style={{color:C.red,fontSize:11,marginTop:4}}>❌ {p.motivo}</div>}
-                      {i===paradaAtualIdx&&getParadaStatus(p)==="pendente"&&<div style={{color:OTIMIZAR_AZUL,fontSize:11,fontWeight:700,marginTop:4}}>→ Parada atual</div>}
+                      <div style={{color:OTIMIZAR_AZUL,fontSize:11,fontWeight:700,marginTop:4}}>📦 {resumoPacotesLabel(p)}</div>
+                      {st==="concluida"&&<div style={{color:C.green,fontSize:11,marginTop:4}}>✅ Concluída · {p.horario}</div>}
+                      {st==="entregue"&&<div style={{color:C.green,fontSize:11,marginTop:4}}>✅ Entregue · {p.horario}</div>}
+                      {st==="nao_entregue"&&<div style={{color:C.red,fontSize:11,marginTop:4}}>❌ {p.motivo}</div>}
+                      {i===paradaAtualIdx&&st==="pendente"&&<div style={{color:OTIMIZAR_AZUL,fontSize:11,fontWeight:700,marginTop:4}}>→ Parada atual</div>}
                     </div>
+                    <span style={{color:C.muted,fontSize:14,fontWeight:700}}>{expandida?"▾":"▸"}</span>
                   </div>
+                  {expandida&&st==="pendente"&&(
+                    <div onClick={e=>e.stopPropagation()}>
+                      <PacotesParadaRows
+                        parada={p}
+                        paradaIdx={i}
+                        onEntregue={aplicarMarcarPacote}
+                        onNaoEntregue={handlePacoteNaoEntregue}
+                        compact
+                      />
+                    </div>
+                  )}
+                  {expandida&&st!=="pendente"&&(
+                    <div style={{marginTop:8}} onClick={e=>e.stopPropagation()}>
+                      {(migrateParada(p).pacotes||[]).map((pk,j)=>(
+                        <div key={pk.id} style={{fontSize:11,color:C.text2,marginBottom:4}}>
+                          📦 {pacoteDisplayName(pk,j)} — {pk.status==="entregue"?"✅ Entregue":pk.status==="nao_entregue"?`❌ ${pk.motivoNaoEntrega||"Não entregue"}`:"Pendente"}
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
-              ))}
+              );})}
             </div>
           )}
           <div style={{padding:"12px 16px",display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,paddingBottom:"max(12px, env(safe-area-inset-bottom))",borderTop:`1px solid ${C.border}`,background:"#fff",flexShrink:0}}>
-            <button type="button" onClick={()=>confirmarParada("entregue")}
+            <button type="button" onClick={handleNavEntregue}
               style={{padding:"14px 6px",background:"#DCFCE7",border:"2px solid #22C55E",borderRadius:14,cursor:"pointer",color:"#15803D",fontWeight:800,fontSize:13}}>
               ✅ Entregue
             </button>
-            <button type="button" onClick={()=>setShowMotivo(true)}
+            <button type="button" onClick={handleNavNaoEntregue}
               style={{padding:"14px 6px",background:"#FEE2E2",border:"2px solid #DC2626",borderRadius:14,cursor:"pointer",color:"#B91C1C",fontWeight:800,fontSize:13}}>
               ❌ Não entregue
             </button>
@@ -2669,12 +2845,16 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
           <div style={{background:C.surface,borderRadius:18,width:"100%",maxWidth:420,padding:20}}>
             <div style={{color:C.navy,fontWeight:800,fontSize:16,marginBottom:14}}>Motivo da não entrega</div>
             {MOTIVOS_NAO_ENTREGUE.map(m=>(
-              <button key={m} type="button" onClick={()=>confirmarParada("nao_entregue",m)}
+              <button key={m} type="button" onClick={()=>{
+                if(motivoPacoteTarget){
+                  aplicarMarcarPacote(motivoPacoteTarget.paradaIdx,motivoPacoteTarget.pacoteId,"nao_entregue",m);
+                }
+              }}
                 style={{width:"100%",textAlign:"left",padding:"12px 14px",marginBottom:8,background:C.subtle,border:`1px solid ${C.border}`,borderRadius:10,cursor:"pointer",color:C.text,fontWeight:600,fontSize:14}}>
                 {m}
               </button>
             ))}
-            <button type="button" onClick={()=>setShowMotivo(false)} style={{width:"100%",padding:10,marginTop:4,background:"transparent",border:"none",cursor:"pointer",color:C.muted}}>Cancelar</button>
+            <button type="button" onClick={()=>{setShowMotivo(false);setMotivoPacoteTarget(null);}} style={{width:"100%",padding:10,marginTop:4,background:"transparent",border:"none",cursor:"pointer",color:C.muted}}>Cancelar</button>
           </div>
         </div>
       )}
