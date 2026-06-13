@@ -6,6 +6,7 @@ import {
   signOut,
   onAuthStateChanged,
   deleteUser,
+  sendPasswordResetEmail as firebaseSendPasswordResetEmail,
 } from "firebase/auth";
 import { auth } from "../firebase.js";
 
@@ -34,6 +35,20 @@ export async function signOutUser() {
 export async function deleteCurrentUser() {
   const user = auth.currentUser;
   if (user) await deleteUser(user);
+}
+
+export async function sendPasswordResetEmail(email) {
+  return firebaseSendPasswordResetEmail(auth, String(email || "").trim());
+}
+
+export function getPasswordResetErrorMessage(code) {
+  const messages = {
+    "auth/invalid-email": "E-mail inválido. Verifique e tente novamente.",
+    "auth/user-not-found": "Não encontramos uma conta com este e-mail.",
+    "auth/too-many-requests": "Muitas tentativas. Aguarde alguns minutos e tente novamente.",
+    "auth/network-request-failed": "Sem conexão. Verifique sua internet.",
+  };
+  return messages[code] || getAuthErrorMessage(code);
 }
 
 export function getAuthErrorMessage(code) {

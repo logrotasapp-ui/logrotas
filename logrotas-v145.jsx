@@ -85,7 +85,7 @@ import {
   countPacotes,
 } from "./src/services/pacotesService.js";
 import { OFFLINE_KEYS, AUTH_KEYS, readOfflineCache, writeOfflineCache, clearAllLogRotasStorage, activateProTrial, readProPlanActive, readProTrialDaysLeft, readPerfilLocalFallback, writePerfilLocalCache } from "./src/services/offlineStorage.js";
-import { subscribeAuth, signInWithEmail, signUpWithEmail, signInWithGoogle, signOutUser, deleteCurrentUser, getAuthErrorMessage } from "./src/services/authService.js";
+import { subscribeAuth, signInWithEmail, signUpWithEmail, signInWithGoogle, signOutUser, deleteCurrentUser, getAuthErrorMessage, sendPasswordResetEmail, getPasswordResetErrorMessage } from "./src/services/authService.js";
 import { saveUserProfile, loadUserProfile, ensureGoogleUserProfile, cadastroToFirestorePayload, firestoreToPerfil, perfilToFirestorePayload } from "./src/services/userProfileService.js";
 import { validateBetaCode, consumeBetaCode, normalizeBetaCode } from "./src/services/betaCodeService.js";
 import {
@@ -119,7 +119,7 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="V260";
+const APP_VERSION="V261";
 const BETA_HIDE_PLANOS=true;
 
 const OfflineRestoredBanner=({show})=>show?(
@@ -687,6 +687,10 @@ const LoginScreen=({onRegister})=>{
   const[loading,setLoading]=useState(false);
   const[erro,setErro]=useState("");
   const[showRecuperar,setShowRecuperar]=useState(false);
+  const[recuperarEmail,setRecuperarEmail]=useState("");
+  const[recuperarLoading,setRecuperarLoading]=useState(false);
+  const[recuperarErro,setRecuperarErro]=useState("");
+  const[recuperarOk,setRecuperarOk]=useState(false);
   const[showApple,setShowApple]=useState(false);
 
   useEffect(()=>{
@@ -733,6 +737,43 @@ const LoginScreen=({onRegister})=>{
       }
     }finally{
       setLoading(false);
+    }
+  };
+
+  const abrirRecuperar=()=>{
+    setRecuperarErro("");
+    setRecuperarOk(false);
+    setRecuperarEmail(email.trim());
+    setShowRecuperar(true);
+  };
+
+  const fecharRecuperar=()=>{
+    setShowRecuperar(false);
+    setRecuperarErro("");
+    setRecuperarOk(false);
+    setRecuperarLoading(false);
+  };
+
+  const enviarResetSenha=async()=>{
+    const alvo=(recuperarEmail||email).trim();
+    if(!alvo){
+      setRecuperarErro("Digite seu e-mail para receber o link de redefinição.");
+      return;
+    }
+    if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(alvo)){
+      setRecuperarErro("E-mail inválido. Verifique e tente novamente.");
+      return;
+    }
+    setRecuperarLoading(true);
+    setRecuperarErro("");
+    setRecuperarOk(false);
+    try{
+      await sendPasswordResetEmail(alvo);
+      setRecuperarOk(true);
+    }catch(e){
+      setRecuperarErro(getPasswordResetErrorMessage(e?.code));
+    }finally{
+      setRecuperarLoading(false);
     }
   };
 
@@ -814,7 +855,7 @@ const LoginScreen=({onRegister})=>{
         </label>
 
         <div style={{textAlign:"right",marginBottom:22}}>
-          <span onClick={()=>setShowRecuperar(true)} style={{color:C.orange,fontSize:12,fontWeight:600,cursor:"pointer"}}>Esqueci minha senha</span>
+          <span onClick={abrirRecuperar} style={{color:C.orange,fontSize:12,fontWeight:600,cursor:"pointer"}}>Esqueci minha senha</span>
         </div>
 
         {/* Modal recuperar senha */}
@@ -824,38 +865,62 @@ const LoginScreen=({onRegister})=>{
               <div style={{textAlign:"center",marginBottom:20}}>
                 <div style={{fontSize:36,marginBottom:8}}>🔐</div>
                 <div style={{color:"#0F1E2E",fontWeight:800,fontSize:17,fontFamily:"'Sora',sans-serif",marginBottom:6}}>Recuperar senha</div>
-                <div style={{color:"#94A3B8",fontSize:14,lineHeight:1.5}}>Escolha como prefere recuperar o acesso à sua conta</div>
-              </div>
-
-              <div style={{display:"flex",flexDirection:"column",gap:10,marginBottom:16}}>
-                {/* WhatsApp */}
-                {/* TODO: substituir pelo número real do suporte LogRotas */}
-                <a href="https://wa.me/+5500000000000?text=Olá!%20Preciso%20recuperar%20minha%20senha%20do%20LogRotas.%20Meu%20e-mail%20é%3A%20"
-                  target="_blank" rel="noreferrer"
-                  onClick={()=>setShowRecuperar(false)}
-                  style={{display:"flex",alignItems:"center",gap:14,background:"#F0FDF4",border:"1.5px solid #BBF7D0",borderRadius:14,padding:"14px 16px",cursor:"pointer",textDecoration:"none"}}>
-                  <div style={{width:42,height:42,borderRadius:"50%",background:"#22C55E",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="white"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/><path d="M12 0C5.373 0 0 5.373 0 12c0 2.089.537 4.049 1.475 5.757L.057 23.928c-.046.228.13.445.362.445a.42.42 0 00.102-.013l6.345-1.646A11.94 11.94 0 0012 24c6.627 0 12-5.373 12-12S18.627 0 12 0zm0 21.75a9.712 9.712 0 01-4.943-1.349l-.354-.209-3.664.95.982-3.561-.231-.371A9.712 9.712 0 012.25 12C2.25 6.615 6.615 2.25 12 2.25S21.75 6.615 21.75 12 17.385 21.75 12 21.75z"/></svg>
-                  </div>
-                  <div>
-                    <div style={{color:"#15803D",fontWeight:700,fontSize:14}}>Recuperar pelo WhatsApp</div>
-                    <div style={{color:"#94A3B8",fontSize:12,marginTop:2}}>Fale com o suporte agora mesmo</div>
-                  </div>
-                </a>
-
-                {/* E-mail */}
-                <div style={{display:"flex",alignItems:"center",gap:14,background:"#EFF6FF",border:"1.5px solid #BFDBFE",borderRadius:14,padding:"14px 16px"}}>
-                  <div style={{width:42,height:42,borderRadius:"50%",background:"#3B82F6",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
-                    <MailIcon size={18} color="#fff"/>
-                  </div>
-                  <div>
-                    <div style={{color:"#1D4ED8",fontWeight:700,fontSize:14}}>Recuperar por e-mail</div>
-                    <div style={{color:"#94A3B8",fontSize:12,marginTop:2,lineHeight:1.4}}>Disponível em breve — será enviado um link para redefinir sua senha</div>
-                  </div>
+                <div style={{color:"#94A3B8",fontSize:14,lineHeight:1.5}}>
+                  {recuperarOk
+                    ? "Verifique sua caixa de entrada e o spam."
+                    : "Enviaremos um link para redefinir sua senha"}
                 </div>
               </div>
 
-              <button onClick={()=>setShowRecuperar(false)}
+              {recuperarOk?(
+                <div style={{background:"#F0FDF4",border:"1.5px solid #BBF7D0",borderRadius:14,padding:"14px 16px",marginBottom:16,color:"#15803D",fontSize:14,fontWeight:600,lineHeight:1.5,textAlign:"center"}}>
+                  Enviamos um link de redefinição para seu e-mail
+                </div>
+              ):(
+                <>
+                  {!email.trim()&&(
+                    <div style={{marginBottom:14}}>
+                      <div style={{color:"#64748B",fontSize:10,fontWeight:700,letterSpacing:1,textTransform:"uppercase",marginBottom:7}}>E-mail</div>
+                      <div style={{background:"#F8FAFC",border:"1.5px solid #BFDBFE",borderRadius:14,display:"flex",alignItems:"center"}}>
+                        <MailIcon size={15} color="#3B82F6" style={{marginLeft:14,flexShrink:0}}/>
+                        <input
+                          value={recuperarEmail}
+                          onChange={e=>{setRecuperarEmail(e.target.value);setRecuperarErro("");}}
+                          type="email"
+                          placeholder="seu@email.com"
+                          style={{flex:1,background:"transparent",border:"none",outline:"none",padding:"13px 14px",fontSize:14,color:"#1E293B",fontFamily:"'DM Sans',sans-serif"}}
+                        />
+                      </div>
+                    </div>
+                  )}
+                  {email.trim()&&(
+                    <div style={{display:"flex",alignItems:"center",gap:14,background:"#EFF6FF",border:"1.5px solid #BFDBFE",borderRadius:14,padding:"14px 16px",marginBottom:14}}>
+                      <div style={{width:42,height:42,borderRadius:"50%",background:"#3B82F6",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                        <MailIcon size={18} color="#fff"/>
+                      </div>
+                      <div style={{minWidth:0}}>
+                        <div style={{color:"#1D4ED8",fontWeight:700,fontSize:14}}>Recuperar por e-mail</div>
+                        <div style={{color:"#64748B",fontSize:12,marginTop:2,wordBreak:"break-all"}}>{email.trim()}</div>
+                      </div>
+                    </div>
+                  )}
+                  {recuperarErro&&(
+                    <div style={{background:C.redLight,border:`1px solid ${C.red}33`,borderRadius:10,padding:"10px 13px",marginBottom:14,color:C.red,fontSize:13,fontWeight:600}}>
+                      {recuperarErro}
+                    </div>
+                  )}
+                  <button
+                    type="button"
+                    onClick={enviarResetSenha}
+                    disabled={recuperarLoading}
+                    style={{width:"100%",padding:"14px 16px",marginBottom:12,background:recuperarLoading?"#93C5FD":"#3B82F6",border:"none",borderRadius:14,cursor:recuperarLoading?"wait":"pointer",color:"#fff",fontWeight:700,fontSize:14,display:"flex",alignItems:"center",justifyContent:"center",gap:10}}>
+                    <MailIcon size={16} color="#fff"/>
+                    {recuperarLoading?"Enviando...":"Recuperar por e-mail"}
+                  </button>
+                </>
+              )}
+
+              <button type="button" onClick={fecharRecuperar}
                 style={{width:"100%",padding:"13px",background:"#F8FAFC",border:"1.5px solid #E2E8F0",borderRadius:12,cursor:"pointer",color:"#64748B",fontWeight:600,fontSize:14}}>
                 Cancelar
               </button>
