@@ -7,6 +7,7 @@ const ENV_VAR_NAMES = {
   ors: "VITE_ORS_KEY",
   googleVision: "VITE_GOOGLE_VISION_API_KEY",
   googleMaps: "VITE_GOOGLE_MAPS_KEY",
+  anthropic: "VITE_ANTHROPIC_API_KEY",
 };
 
 /**
@@ -35,12 +36,14 @@ export const API_KEYS = {
   ors: readEnv(ENV_VAR_NAMES.ors),
   googleVision: readEnv(ENV_VAR_NAMES.googleVision),
   googleMaps: readEnv(ENV_VAR_NAMES.googleMaps),
+  anthropic: readEnv(ENV_VAR_NAMES.anthropic),
 };
 
 export const API_ENDPOINTS = {
   orsGeocode: "https://api.openrouteservice.org/geocode/autocomplete",
   orsDirections: "https://api.openrouteservice.org/v2/directions/driving-hgv",
   googleVisionAnnotate: "https://vision.googleapis.com/v1/images:annotate",
+  anthropicMessages: "https://api.anthropic.com/v1/messages",
 };
 
 export const ORS_HEADERS = {

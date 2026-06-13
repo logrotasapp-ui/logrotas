@@ -8,6 +8,8 @@ import {
   parseDeliveryEntriesFromLabelText,
   normalizeAddressesForRouting,
   cleanAddressLine,
+  assessVisionOcrConfidence,
+  parseClaudeDeliveryEntriesResponse,
 } from "./romaneioParser.js";
 import { createPacote, deriveParadaFromPacotes } from "./pacotesService.js";
 
@@ -16,6 +18,8 @@ export {
   normalizeAddressesForRouting,
   parseDeliveryAddressesFromLabelText,
   parseDeliveryEntriesFromLabelText,
+  assessVisionOcrConfidence,
+  parseClaudeDeliveryEntriesResponse,
 };
 
 export function parseRomaneioTextToDestinations(rawText) {

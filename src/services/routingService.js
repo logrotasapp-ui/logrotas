@@ -34,6 +34,8 @@ import {
   parseDeliveryAddressesFromLabelText,
   parseDeliveryEntriesFromLabelText,
   cleanAddressLine,
+  assessVisionOcrConfidence,
+  parseClaudeDeliveryEntriesResponse,
 } from "./romaneioRouting.js";
 
 export {
@@ -47,6 +49,14 @@ export {
 } from "./romaneioRouting.js";
 
 export { VISION_ADDRESS_EXTRACTION_INSTRUCTION } from "./romaneioParser.js";
+
+const CLAUDE_OCR_MODEL = "claude-haiku-4-5";
+
+function logOcr(msg, data) {
+  if (typeof console !== "undefined") {
+    console.log(`[OCR] ${msg}`, data !== undefined ? data : "");
+  }
+}
 
 // V235 — entrada numérica tolerante (vírgula ou ponto) nos campos das calculadoras
 import { parseNumeroBR } from "./formatUtils.js";
@@ -741,12 +751,101 @@ function extractVisionOcrText(data) {
 }
 
 /**
+ * V260 — fallback Pro: Claude Haiku interpreta texto OCR bruto do Vision.
+ * @param {string} rawText
+ * @param {{ signal?: { aborted?: boolean } }} [options]
+ * @returns {Promise<Array<{ nome: string, endereco: string }>|null>}
+ */
+async function extractDeliveryEntriesViaClaude(rawText, options = {}) {
+  const { signal } = options;
+  const key = API_KEYS.anthropic;
+  if (!key || !String(rawText || "").trim()) return null;
+  if (signal?.aborted) return null;
+
+  const prompt = `Você recebe texto OCR bruto de etiquetas de entrega brasileiras.
+Extraia cada etiqueta/destinatário como um objeto JSON com exatamente as chaves "nome" e "endereco".
+- "nome": nome do destinatário (string vazia se não houver)
+- "endereco": endereço completo de entrega (rua, número, bairro, cidade, estado, CEP quando possível)
+Ignore códigos de rastreio, remetente, peso, dimensões e outros dados que não sejam destinatário/endereço.
+Responda APENAS com um array JSON válido, sem markdown, sem texto extra, sem comentários.
+Exemplo: [{"nome":"João Silva","endereco":"Rua das Flores, 120, Centro, São Paulo - SP, 01310-100"}]
+
+Texto OCR:
+${String(rawText).trim()}`;
+
+  try {
+    const res = await fetch(API_ENDPOINTS.anthropicMessages, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": key,
+        "anthropic-version": "2023-06-01",
+        "anthropic-dangerous-direct-browser-access": "true",
+      },
+      body: JSON.stringify({
+        model: CLAUDE_OCR_MODEL,
+        max_tokens: 2048,
+        messages: [{ role: "user", content: prompt }],
+      }),
+    });
+
+    if (signal?.aborted) return null;
+
+    if (!res.ok) {
+      const errBody = await res.text().catch(() => "");
+      throw new Error(`Claude HTTP ${res.status}${errBody ? `: ${errBody.slice(0, 120)}` : ""}`);
+    }
+
+    const data = await res.json();
+    const textBlock = (data.content || []).find((c) => c.type === "text");
+    const responseText = textBlock?.text || "";
+    const entries = parseClaudeDeliveryEntriesResponse(responseText);
+    return entries.length ? entries : null;
+  } catch (err) {
+    logOcr("Claude fallback falhou", err?.message || "erro desconhecido");
+    return null;
+  }
+}
+
+/**
+ * V260 — tenta Claude quando Vision tem baixa confiança (somente Pro).
+ */
+async function maybeClaudeOcrFallback(rawText, visionEntries, options = {}) {
+  const { isPro, signal, onProgress } = options;
+  const visionSnapshot = Array.isArray(visionEntries) ? [...visionEntries] : [];
+  const confidence = assessVisionOcrConfidence(rawText, visionSnapshot);
+
+  if (!isPro || !API_KEYS.anthropic || !confidence.low) {
+    return { entries: visionSnapshot, method: "vision", confidence };
+  }
+
+  logOcr("Vision confianca baixa -> fallback Claude", {
+    score: confidence.score,
+    reasons: confidence.reasons,
+  });
+
+  onProgress?.(82, "Interpretando com IA…");
+
+  const claudeEntries = await extractDeliveryEntriesViaClaude(rawText, { signal });
+  if (signal?.aborted) {
+    return { entries: visionSnapshot, method: "vision", confidence };
+  }
+
+  if (claudeEntries?.length) {
+    logOcr("Claude extraiu:", claudeEntries);
+    return { entries: claudeEntries, method: "vision+claude", confidence };
+  }
+
+  return { entries: visionSnapshot, method: "vision", confidence };
+}
+
+/**
  * Envia imagem do romaneio ao Google Cloud Vision e extrai endereços via OCR.
  * @param {Blob|File} file
  * @param {{ onProgress?: (pct: number, status: string) => void, signal?: { aborted?: boolean } }} [options]
  */
 export async function extractRomaneioAddressesFromImageVision(file, options = {}) {
-  const { onProgress, signal } = options;
+  const { onProgress, signal, isPro = false } = options;
   const report = (pct, status) => {
     if (!signal?.aborted) onProgress?.(pct, status);
   };
@@ -816,7 +915,14 @@ export async function extractRomaneioAddressesFromImageVision(file, options = {}
 
     report(75, "Interpretando endereços…");
     const texto = extractVisionOcrText(res.data);
-    const entries = parseDeliveryEntriesFromLabelText(texto);
+    const visionEntries = parseDeliveryEntriesFromLabelText(texto);
+    const fallback = await maybeClaudeOcrFallback(texto, visionEntries, {
+      isPro,
+      signal,
+      onProgress: report,
+    });
+    const entries = fallback.entries;
+    const ocrMethod = fallback.method;
     const addresses = entries.map((e) => e.endereco);
     const paradas = buildParadasFromEntries(entries);
 
@@ -850,7 +956,7 @@ export async function extractRomaneioAddressesFromImageVision(file, options = {}
       addresses,
       paradas,
       failedCount: 0,
-      method: "vision",
+      method: ocrMethod,
     };
   } catch (err) {
     if (signal?.aborted) {
@@ -887,7 +993,7 @@ async function resolveRomaneioImageFile(file) {
 }
 
 export async function extractRomaneioAddressesFromImage(file, options = {}) {
-  const { onProgress, signal } = options;
+  const { onProgress, signal, isPro = false } = options;
 
   if (!file) {
     return { ok: false, error: "Nenhum arquivo selecionado.", addresses: [] };
@@ -909,6 +1015,7 @@ export async function extractRomaneioAddressesFromImage(file, options = {}) {
   return extractRomaneioAddressesFromImageVision(imageFile, {
     onProgress,
     signal,
+    isPro,
   });
 }
 

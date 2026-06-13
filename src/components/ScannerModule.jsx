@@ -27,6 +27,7 @@ const btnBase = {
 export default function ScannerModule({
   disabled = false,
   maxToAdd = 10,
+  isPro = false,
   onSuccess,
   onError,
   onProcessingChange,
@@ -134,6 +135,7 @@ export default function ScannerModule({
         out = await Promise.race([
           extractRomaneioAddressesFromImage(blob, {
             signal,
+            isPro,
             onProgress: (pct, status) => {
               setProgress(pct);
               setStatusText(status);
@@ -186,7 +188,7 @@ export default function ScannerModule({
         failedCount: out.failedCount || 0,
       });
     },
-    [disabled, processing, maxToAdd, onSuccess, onError, onImportStart, onImportEnd, setBusy, resetToMenu]
+    [disabled, processing, maxToAdd, isPro, onSuccess, onError, onImportStart, onImportEnd, setBusy, resetToMenu]
   );
 
   const handleCancelProcessing = () => {

@@ -119,7 +119,7 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="V258";
+const APP_VERSION="V260";
 const BETA_HIDE_PLANOS=true;
 
 const OfflineRestoredBanner=({show})=>show?(
@@ -1326,7 +1326,7 @@ const CalcSelector=({onFrete,onViagem,onOtimizar,onClose})=>(
 // ── OTIMIZAR ENTREGAS (V166 — origem GPS do motorista na otimização) ───────────
 const OTIMIZAR_AZUL="#3B82F6";
 const OTIMIZAR_AZUL_MID="#2563EB";
-const MOTIVOS_NAO_ENTREGUE=["Cliente ausente","Endereço não encontrado","Cliente recusou","Outro"];
+const MOTIVOS_NAO_ENTREGUE=["Cliente ausente","Cliente recusou","Endereço não encontrado","Outro"];
 
 function paradaBolinhaCor(p,i,paradaAtualIdx,modoNavegacao){
   const st=getParadaStatus(p);
@@ -1872,6 +1872,9 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
       logPacotes("marcar status falhou",{paradaId,pacoteId,status});
       return;
     }
+    if(status==="nao_entregue"){
+      logPacotes("marcar nao entregue",{paradaId,pacoteId,motivo:motivoNaoEntrega,origem});
+    }
     const atualizada=next.find(x=>String(x.id)===idStr);
     if(atualizada&&getParadaStatus(atualizada)==="concluida"){
       logPacotes("concluir parada",{paradaId,endereco:atualizada.endereco});
@@ -2331,6 +2334,7 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
       <ScannerModule
         disabled={atingiuLimite||processandoFoto}
         maxToAdd={Number.isFinite(LIMITE)?LIMITE-paradas.length:999}
+        isPro={isPro}
         onSuccess={handleScannerSuccess}
         onError={setErroFoto}
         onProcessingChange={setProcessandoFoto}
@@ -2928,8 +2932,8 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
         </div>
       )}
 
-      {showMotivo&&(
-        <div style={{position:"fixed",inset:0,zIndex:pacotesTelaParadaId!=null?800:750,background:"#1E3A8A66",display:"flex",alignItems:"flex-end",justifyContent:"center",padding:16}}>
+      {showMotivo&&createPortal(
+        <div style={{position:"fixed",inset:0,zIndex:810,background:"#1E3A8A66",display:"flex",alignItems:"flex-end",justifyContent:"center",padding:16}}>
           <div style={{background:C.surface,borderRadius:18,width:"100%",maxWidth:420,padding:20}}>
             <div style={{color:C.navy,fontWeight:800,fontSize:16,marginBottom:14}}>Motivo da não entrega</div>
             {MOTIVOS_NAO_ENTREGUE.map(m=>(
@@ -2944,7 +2948,8 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
             ))}
             <button type="button" onClick={()=>{setShowMotivo(false);setMotivoPacoteTarget(null);}} style={{width:"100%",padding:10,marginTop:4,background:"transparent",border:"none",cursor:"pointer",color:C.muted}}>Cancelar</button>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {pacotesTelaParadaViva&&pacotesTelaParadaId!=null&&createPortal(
@@ -2967,6 +2972,7 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
             <ScannerModule
               disabled={adicionandoNav||reotimizando}
               maxToAdd={1}
+              isPro={isPro}
               onSuccess={handleNavScannerSuccess}
               onError={setErroNavAdd}
               onProcessingChange={setAdicionandoNav}

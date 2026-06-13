@@ -289,3 +289,103 @@ export function parseDeliveryEntriesFromLabelText(rawText) {
 
   return entries.slice(0, 50);
 }
+
+/** V260 — avalia confiança do OCR Vision para decidir fallback Claude. */
+export function assessVisionOcrConfidence(rawText, entries) {
+  const text = String(rawText || "").trim();
+  const list = Array.isArray(entries) ? entries : [];
+  const reasons = [];
+  let penalty = 0;
+
+  if (!text) {
+    return { low: true, score: 0, reasons: ["sem texto"] };
+  }
+
+  const textLower = text.toLowerCase();
+  if (/^brasil$/i.test(text) || (textLower.includes("brasil") && text.length < 35)) {
+    penalty += 45;
+    reasons.push("só Brasil");
+  }
+
+  if (list.length === 0) {
+    penalty += 50;
+    reasons.push("nenhuma etiqueta");
+  }
+
+  if (text.length < 45) {
+    penalty += 20;
+    reasons.push("texto vago");
+  }
+
+  for (const entry of list) {
+    const addr = cleanAddressLine(entry?.endereco || "");
+    if (!addr || addr.length < 12) {
+      penalty += 20;
+      reasons.push("endereço incompleto");
+      continue;
+    }
+    if (/^brasil$/i.test(addr)) {
+      penalty += 35;
+      reasons.push("endereço só Brasil");
+    }
+    if (!STREET_HINT.test(addr) && !UF_TOKEN.test(addr)) {
+      penalty += 15;
+      reasons.push("sem rua ou UF");
+    }
+    if (!/\d/.test(addr)) {
+      penalty += 10;
+      reasons.push("sem número");
+    }
+    if (addr.split(/[,;]/).filter((p) => p.trim()).length < 2 && addr.length < 28) {
+      penalty += 12;
+      reasons.push("endereço curto");
+    }
+    if (!looksLikeAddress(addr)) {
+      penalty += 25;
+      reasons.push("endereço inválido");
+    }
+  }
+
+  const score = Math.max(0, 100 - penalty);
+  const low =
+    score < 55 ||
+    list.length === 0 ||
+    list.every((e) => !cleanAddressLine(e?.endereco || "") || cleanAddressLine(e.endereco).length < 12);
+
+  return { low, score, reasons: [...new Set(reasons)] };
+}
+
+/** V260 — interpreta resposta JSON do Claude Haiku ({ nome, endereco }[]). */
+export function parseClaudeDeliveryEntriesResponse(responseText) {
+  if (!responseText) return [];
+
+  let s = String(responseText).trim();
+  s = s.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
+
+  let parsed;
+  try {
+    parsed = JSON.parse(s);
+  } catch {
+    const match = s.match(/\[[\s\S]*\]/);
+    if (!match) return [];
+    try {
+      parsed = JSON.parse(match[0]);
+    } catch {
+      return [];
+    }
+  }
+
+  if (!Array.isArray(parsed)) return [];
+
+  const entries = [];
+  for (const item of parsed) {
+    if (!item || typeof item !== "object") continue;
+    const endereco = cleanAddressLine(item.endereco || "");
+    if (!endereco || endereco.length < 10 || !looksLikeAddress(endereco)) continue;
+    let nome = cleanAddressLine(item.nome || "").replace(/\d{5,}/g, "").trim();
+    if (nome && looksLikeAddress(nome)) nome = "";
+    entries.push({ nome: nome || "", endereco });
+  }
+
+  return entries.slice(0, 50);
+}
