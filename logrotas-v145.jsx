@@ -59,6 +59,7 @@ import {
   registrarConclusaoCalculadora,
   dispensarAvaliacao,
   enviarAvaliacao,
+  reenviarAvaliacoesPendentes,
 } from "./src/services/avaliacaoService.js";
 import { logChecklist } from "./src/services/checklistLogSanitizer.js";
 import {
@@ -128,7 +129,7 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="V273";
+const APP_VERSION="V274";
 const BETA_HIDE_PLANOS=true;
 
 const OfflineRestoredBanner=({show})=>show?(
@@ -1318,7 +1319,7 @@ const RegisterFlow=({onDone,onBack})=>{
 };
 
 // ── AVALIAÇÃO DO APP (estrelas) ───────────────────────────────────────────────
-const AvaliacaoAppModal=({open,origem,perfil,uid,onDispensar,onEnviado})=>{
+const AvaliacaoAppModal=({open,origem,perfil,uid,onDispensar,onEnviado,onFalhaEnvio})=>{
   const[nota,setNota]=useState(0);
   const[hover,setHover]=useState(0);
   const[comentario,setComentario]=useState("");
@@ -1348,8 +1349,10 @@ const AvaliacaoAppModal=({open,origem,perfil,uid,onDispensar,onEnviado})=>{
     try{
       await enviarAvaliacao(uid,{nota,comentario,calculadora:origem,perfil});
       onEnviado?.();
-    }catch{
+    }catch(err){
+      console.error("[Avaliacao] Erro no envio pelo modal:",err);
       setErro("Não foi possível enviar. Tente novamente.");
+      onFalhaEnvio?.(origem);
     }finally{
       setEnviando(false);
     }
@@ -6457,7 +6460,8 @@ export default function App(){
   const[gerandoAvulsoPdf,setGerandoAvulsoPdf]=useState(false);
   const[toastAvulso,setToastAvulso]=useState("");
   const[showAvaliacaoModal,setShowAvaliacaoModal]=useState(null);
-  const avaliacaoSessaoRef=useRef({mostrada:false});
+  const avaliacaoInteragidaSessaoRef=useRef(false);
+  const avaliacaoModalExibidoSessaoRef=useRef(false);
   const avaliacaoPendenteRef=useRef(null);
   const[authReady,setAuthReady]=useState(false);
   const[firebaseUser,setFirebaseUser]=useState(null);
@@ -6637,10 +6641,19 @@ export default function App(){
     refreshUltimosAvulsos();
   },[refreshUltimosAvulsos]);
 
+  useEffect(()=>{
+    const uid=firebaseUser?.uid;
+    if(!uid)return;
+    reenviarAvaliacoesPendentes(uid).catch(err=>{
+      console.error("[Avaliacao] Falha ao reenviar pendentes no login:",err);
+    });
+  },[firebaseUser?.uid]);
+
   const tentarExibirAvaliacaoPendente=useCallback(()=>{
-    if(avaliacaoSessaoRef.current.mostrada||!avaliacaoPendenteRef.current)return;
+    if(avaliacaoModalExibidoSessaoRef.current)return;
+    if(!avaliacaoPendenteRef.current)return;
     setShowAvaliacaoModal({origem:avaliacaoPendenteRef.current});
-    avaliacaoSessaoRef.current.mostrada=true;
+    avaliacaoModalExibidoSessaoRef.current=true;
     avaliacaoPendenteRef.current=null;
   },[]);
 
@@ -6648,9 +6661,11 @@ export default function App(){
     const uid=firebaseUser?.uid;
     if(!uid)return;
     try{
-      const {shouldShow}=await registrarConclusaoCalculadora(uid,origem,avaliacaoSessaoRef.current.mostrada);
+      const {shouldShow}=await registrarConclusaoCalculadora(uid,origem,avaliacaoInteragidaSessaoRef.current);
       if(shouldShow)avaliacaoPendenteRef.current=origem;
-    }catch{/* ignore */}
+    }catch(err){
+      console.error("[Avaliacao] Falha ao registrar conclusão:",err);
+    }
   },[firebaseUser?.uid]);
 
   const handleCalcModalClose=useCallback((extra)=>{
@@ -6662,14 +6677,23 @@ export default function App(){
 
   const handleAvaliacaoDispensar=useCallback(async()=>{
     const uid=firebaseUser?.uid;
+    avaliacaoInteragidaSessaoRef.current=true;
     setShowAvaliacaoModal(null);
     if(uid){
-      try{await dispensarAvaliacao(uid);}catch{/* ignore */}
+      try{await dispensarAvaliacao(uid);}catch(err){
+        console.error("[Avaliacao] Falha ao dispensar:",err);
+      }
     }
   },[firebaseUser?.uid]);
 
   const handleAvaliacaoEnviada=useCallback(()=>{
+    avaliacaoInteragidaSessaoRef.current=true;
     setShowAvaliacaoModal(null);
+  },[]);
+
+  const handleAvaliacaoFalhaEnvio=useCallback((origem)=>{
+    avaliacaoModalExibidoSessaoRef.current=false;
+    if(origem)avaliacaoPendenteRef.current=origem;
   },[]);
 
   const handleNovoChecklistAvulso=useCallback(async()=>{
@@ -7150,6 +7174,7 @@ export default function App(){
         uid={firebaseUser?.uid}
         onDispensar={handleAvaliacaoDispensar}
         onEnviado={handleAvaliacaoEnviada}
+        onFalhaEnvio={handleAvaliacaoFalhaEnvio}
       />
 
       {/* V233 — barra inteira clicável (volta ao mapa); botão mantido por affordance */}

@@ -50,6 +50,21 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
+    // ── Avaliações do app (feedback por estrelas) ─────────────────────────
+    match /avaliacoes/{avaliacaoId} {
+      allow create: if request.auth != null
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.nota is int
+        && request.resource.data.nota >= 1
+        && request.resource.data.nota <= 5
+        && request.resource.data.comentario is string
+        && request.resource.data.calculadora is string
+        && request.resource.data.nome is string
+        && request.resource.data.email is string;
+      allow read: if isAdmin();
+      allow update, delete: if false;
+    }
+
     // Demais caminhos: negado implicitamente (sem match = sem acesso)
   }
 }
