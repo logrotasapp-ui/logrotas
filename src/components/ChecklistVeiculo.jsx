@@ -19,6 +19,10 @@ import {
   resolveTipoVeiculo,
   normalizeColetaData,
   normalizeEntregaData,
+  coletaChecklistTravada,
+  entregaChecklistTravada,
+  filtrarDivergenciasEntregaReais,
+  divergenciaEntregaReal,
 } from "../services/checklistService.js";
 import {
   stampAndCompressImage,
@@ -159,7 +163,27 @@ function proximoEstadoAcessorio(atual) {
   return CHECKLIST_ESTADOS_ACESSORIO[(idx + 1) % CHECKLIST_ESTADOS_ACESSORIO.length];
 }
 
-function Field({ label, value, onChange, placeholder, autoComplete }) {
+function AvisoEtapaTravada() {
+  return (
+    <div
+      style={{
+        background: "#F8FAFC",
+        border: `1px solid ${C.border}`,
+        borderRadius: 12,
+        padding: "10px 14px",
+        color: C.muted,
+        fontSize: 13,
+        fontWeight: 600,
+        textAlign: "center",
+        marginBottom: 4,
+      }}
+    >
+      🔒 Etapa finalizada — somente leitura
+    </div>
+  );
+}
+
+function Field({ label, value, onChange, placeholder, autoComplete, readOnly = false }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
       {label && (
@@ -168,14 +192,15 @@ function Field({ label, value, onChange, placeholder, autoComplete }) {
       <input
         type="text"
         value={value}
-        onChange={(e) => onChange(e.target.value)}
+        readOnly={readOnly}
+        onChange={readOnly ? undefined : (e) => onChange(e.target.value)}
         placeholder={placeholder}
         autoComplete={autoComplete}
         style={{
-          background: C.subtle,
+          background: readOnly ? "#F8FAFC" : C.subtle,
           border: `1.5px solid ${C.border}`,
           borderRadius: 10,
-          color: C.text,
+          color: readOnly ? C.muted : C.text,
           padding: "10px 12px",
           fontSize: 14,
           outline: "none",
@@ -185,11 +210,12 @@ function Field({ label, value, onChange, placeholder, autoComplete }) {
   );
 }
 
-function BtnSelecao({ label, ativo, onClick, cor = C.navy, gridCell = false }) {
+function BtnSelecao({ label, ativo, onClick, cor = C.navy, gridCell = false, disabled = false }) {
   return (
     <button
       type="button"
-      onClick={onClick}
+      onClick={disabled ? undefined : onClick}
+      disabled={disabled}
       style={{
         flex: gridCell ? undefined : 1,
         width: gridCell ? "100%" : undefined,
@@ -198,7 +224,7 @@ function BtnSelecao({ label, ativo, onClick, cor = C.navy, gridCell = false }) {
         border: `2px solid ${ativo ? cor : C.border}`,
         borderRadius: 11,
         padding: gridCell ? "10px 8px" : "9px 8px",
-        cursor: "pointer",
+        cursor: disabled ? "default" : "pointer",
         color: ativo ? cor : C.text,
         fontWeight: 700,
         fontSize: gridCell ? 13 : 12,
@@ -206,6 +232,7 @@ function BtnSelecao({ label, ativo, onClick, cor = C.navy, gridCell = false }) {
         whiteSpace: gridCell ? "normal" : "nowrap",
         textAlign: "center",
         transition: "all .15s",
+        opacity: disabled ? 0.65 : 1,
       }}
     >
       {label}
@@ -697,11 +724,12 @@ function BlocoAssinatura({
   prestadorPerfilCompleto = false,
   prestadorLabel = "",
   telefoneExtra = null,
+  somenteLeitura = false,
 }) {
   const assinSafe = { ...assinaturaVazia(), ...(assin && typeof assin === "object" ? assin : {}) };
   const temAssinaturaSalva =
     !!assinSafe.imagemUrl?.trim() && !String(assinSafe.imagemUrl).startsWith("data:");
-  const mostrarPad = !temAssinaturaSalva || substituindo;
+  const mostrarPad = !somenteLeitura && (!temAssinaturaSalva || substituindo);
 
   const handleCampo = (campo, valor) => {
     try {
@@ -756,12 +784,14 @@ function BlocoAssinatura({
               value={assinSafe.nome ?? ""}
               onChange={(v) => handleCampo("nome", v)}
               placeholder="Nome de quem assina"
+              readOnly={somenteLeitura}
             />
             <Field
               label="Documento (CPF/RG/CNH)"
               value={assinSafe.documento ?? ""}
               onChange={(v) => handleCampo("documento", v)}
               placeholder="000.000.000-00"
+              readOnly={somenteLeitura}
             />
             {telefoneExtra && (
               <Field
@@ -769,6 +799,7 @@ function BlocoAssinatura({
                 value={telefoneExtra.value ?? ""}
                 onChange={(v) => telefoneExtra.onChange?.(v)}
                 placeholder="(11) 99999-9999"
+                readOnly={somenteLeitura}
               />
             )}
           </div>
@@ -784,6 +815,7 @@ function BlocoAssinatura({
             }}
           >
             <AssinaturaPreviewImg imagemUrl={assinSafe.imagemUrl} bloco={bloco} />
+            {!somenteLeitura && (
             <button
               type="button"
               onClick={handleSubstituir}
@@ -802,6 +834,7 @@ function BlocoAssinatura({
             >
               Substituir assinatura
             </button>
+            )}
             <div style={{ color: C.muted, fontSize: 11, marginTop: 8 }}>
               Salva em {assinSafe.dataHora || "—"}
               {assinSafe.lat != null && assinSafe.lng != null
@@ -1032,11 +1065,15 @@ function EtapaPdfEntrega({
   );
 }
 
-function PhotoSlot({ slot, foto, onCapture, onView, uploading, onRemove }) {
+function PhotoSlot({ slot, foto, onCapture, onView, uploading, onRemove, somenteLeitura = false }) {
   const displayUrl = foto?.previewUrl || foto?.url;
   const temFoto = !!displayUrl;
   const handleAreaClick = () => {
     if (uploading) return;
+    if (somenteLeitura) {
+      if (temFoto) onView?.(foto, slot.label);
+      return;
+    }
     if (temFoto) onView?.(foto, slot.label);
     else onCapture();
   };
@@ -1084,8 +1121,14 @@ function PhotoSlot({ slot, foto, onCapture, onView, uploading, onRemove }) {
           )
         ) : (
           <div style={{ padding: 20, textAlign: "center" }}>
-            <CameraIcon size={28} color={C.muted} style={{ margin: "0 auto 8px" }} />
-            <div style={{ color: C.text2, fontWeight: 700, fontSize: 13 }}>Toque para fotografar</div>
+            {somenteLeitura ? (
+              <div style={{ color: C.muted, fontWeight: 600, fontSize: 13 }}>Sem foto</div>
+            ) : (
+              <>
+                <CameraIcon size={28} color={C.muted} style={{ margin: "0 auto 8px" }} />
+                <div style={{ color: C.text2, fontWeight: 700, fontSize: 13 }}>Toque para fotografar</div>
+              </>
+            )}
           </div>
         )}
         {temFoto && !uploading && (
@@ -1125,7 +1168,7 @@ function PhotoSlot({ slot, foto, onCapture, onView, uploading, onRemove }) {
             <div style={{ color: C.muted, fontSize: 10, marginTop: 2 }}>Opcional · múltiplas fotos</div>
           )}
         </div>
-        {temFoto && (
+        {temFoto && !somenteLeitura && (
           <button
             type="button"
             onClick={onCapture}
@@ -1147,7 +1190,7 @@ function PhotoSlot({ slot, foto, onCapture, onView, uploading, onRemove }) {
             <RefreshCwIcon size={12} /> {slot.multipla ? "Nova" : "Re-tirar"}
           </button>
         )}
-        {slot.multipla && temFoto && onRemove && (
+        {slot.multipla && temFoto && onRemove && !somenteLeitura && (
           <button
             type="button"
             onClick={onRemove}
@@ -1218,7 +1261,9 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
   const prestadorPerfilOk = perfilPrestadorCompleto(perfil);
   const coletaOk = checklist?.status === "aguardando_entrega" || checklist?.status === "concluido" || validacao.completa;
   const entregaHabilitada = checklist?.status === "aguardando_entrega" || checklist?.status === "concluido";
-  const entregaConcluida = checklist?.status === "concluido";
+  const travarEtapasColeta = coletaChecklistTravada(checklist);
+  const entregaConcluida = entregaChecklistTravada(checklist);
+  const travarEntrega = entregaConcluida;
   const pdfParams = { checklist, frete, perfil };
 
   useEffect(() => {
@@ -1511,6 +1556,13 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
       setPdfFilenameCache(filename);
       setPdfModalTipo("coleta");
       setShowPdfShare(true);
+      if (!atual?.coleta?.pdfGeradoEm) {
+        const coletaComPdf = {
+          ...normalizeColetaData(atual.coleta, atual),
+          pdfGeradoEm: new Date().toISOString(),
+        };
+        await salvar({ coleta: coletaComPdf });
+      }
     } catch (err) {
       logChecklist("error", "[Checklist] Gerar PDF falhou:", err);
       setErro("Não foi possível gerar o PDF. Verifique sua conexão e tente novamente.");
@@ -2315,16 +2367,24 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
   };
 
   const toggleDivergenciaItem = (item, estadoColeta) => {
+    if (travarEntrega) return;
     const atual = checklistRef.current || checklist;
     const conf = atual.entrega?.conferencia || { conforme: false, divergencias: [], observacao: "" };
     const divergencias = [...(conf.divergencias || [])];
     const idx = divergencias.findIndex((d) => d.item === item);
     if (idx < 0) {
-      divergencias.push({ item, estadoColeta, estadoEntrega: CHECKLIST_ESTADOS_ACESSORIO[0] });
+      const primeiroDiferente = CHECKLIST_ESTADOS_ACESSORIO.find((e) => e !== estadoColeta);
+      if (!primeiroDiferente) return;
+      divergencias.push({ item, estadoColeta, estadoEntrega: primeiroDiferente });
     } else {
       const estadoAtual = divergencias[idx].estadoEntrega;
       const nextIdx = (CHECKLIST_ESTADOS_ACESSORIO.indexOf(estadoAtual) + 1) % CHECKLIST_ESTADOS_ACESSORIO.length;
-      divergencias[idx] = { ...divergencias[idx], estadoEntrega: CHECKLIST_ESTADOS_ACESSORIO[nextIdx] };
+      const nextEstado = CHECKLIST_ESTADOS_ACESSORIO[nextIdx];
+      if (nextEstado === estadoColeta) {
+        divergencias.splice(idx, 1);
+      } else {
+        divergencias[idx] = { ...divergencias[idx], estadoEntrega: nextEstado };
+      }
     }
     setChecklist((c) => {
       const next = {
@@ -2340,6 +2400,7 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
   };
 
   const removerDivergenciaItem = (item) => {
+    if (travarEntrega) return;
     const atual = checklistRef.current || checklist;
     const conf = atual.entrega?.conferencia || {};
     const divergencias = (conf.divergencias || []).filter((d) => d.item !== item);
@@ -2425,7 +2486,7 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
       setErro('Indique se o veículo está conforme ou há divergência.');
       return;
     }
-    if (conf?.conforme === false && !(conf.divergencias || []).length) {
+    if (conf?.conforme === false && !filtrarDivergenciasEntregaReais(conf.divergencias).length) {
       setErro("Marque ao menos um item divergente na conferência.");
       return;
     }
@@ -2594,12 +2655,13 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
 
         {etapa === 1 && (
           <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            {travarEtapasColeta && <AvisoEtapaTravada />}
             <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 16, padding: "20px 22px" }}>
               <div style={{ color: C.navy, fontWeight: 800, fontSize: 15, fontFamily: "'Sora',sans-serif", marginBottom: 14 }}>👤 Cliente</div>
               <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                <Field label="Nome" value={checklist.cliente?.nome || ""} onChange={(v) => updateCliente("nome", v)} placeholder="Nome do cliente" />
-                <Field label="Telefone" value={checklist.cliente?.telefone || ""} onChange={(v) => updateCliente("telefone", v)} placeholder="(11) 99999-9999" />
-                <Field label="Documento (CPF/RG/CNH)" value={checklist.cliente?.documento || ""} onChange={(v) => updateCliente("documento", v)} placeholder="Ex: 000.000.000-00 ou RG" />
+                <Field label="Nome" value={checklist.cliente?.nome || ""} onChange={(v) => updateCliente("nome", v)} placeholder="Nome do cliente" readOnly={travarEtapasColeta} />
+                <Field label="Telefone" value={checklist.cliente?.telefone || ""} onChange={(v) => updateCliente("telefone", v)} placeholder="(11) 99999-9999" readOnly={travarEtapasColeta} />
+                <Field label="Documento (CPF/RG/CNH)" value={checklist.cliente?.documento || ""} onChange={(v) => updateCliente("documento", v)} placeholder="Ex: 000.000.000-00 ou RG" readOnly={travarEtapasColeta} />
               </div>
             </div>
             <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 16, padding: "20px 22px" }}>
@@ -2611,18 +2673,20 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
                   label="🚗 Carro"
                   ativo={resolveTipoVeiculo(checklist.veiculo) === "carro"}
                   onClick={() => setTipoVeiculo("carro")}
+                  disabled={travarEtapasColeta}
                 />
                 <BtnSelecao
                   label="🏍️ Moto"
                   ativo={resolveTipoVeiculo(checklist.veiculo) === "moto"}
                   onClick={() => setTipoVeiculo("moto")}
+                  disabled={travarEtapasColeta}
                 />
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                <Field label="Placa" value={checklist.veiculo?.placa || ""} onChange={(v) => updateVeiculo("placa", v)} placeholder="ABC-1D23" />
-                <Field label="Cor" value={checklist.veiculo?.cor || ""} onChange={(v) => updateVeiculo("cor", v)} autoComplete="off" />
-                <Field label="Marca" value={checklist.veiculo?.marca || ""} onChange={(v) => updateVeiculo("marca", v)} autoComplete="off" />
-                <Field label="Modelo" value={checklist.veiculo?.modelo || ""} onChange={(v) => updateVeiculo("modelo", v)} autoComplete="off" />
+                <Field label="Placa" value={checklist.veiculo?.placa || ""} onChange={(v) => updateVeiculo("placa", v)} placeholder="ABC-1D23" readOnly={travarEtapasColeta} />
+                <Field label="Cor" value={checklist.veiculo?.cor || ""} onChange={(v) => updateVeiculo("cor", v)} autoComplete="off" readOnly={travarEtapasColeta} />
+                <Field label="Marca" value={checklist.veiculo?.marca || ""} onChange={(v) => updateVeiculo("marca", v)} autoComplete="off" readOnly={travarEtapasColeta} />
+                <Field label="Modelo" value={checklist.veiculo?.modelo || ""} onChange={(v) => updateVeiculo("modelo", v)} autoComplete="off" readOnly={travarEtapasColeta} />
               </div>
             </div>
             <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 16, padding: "20px 22px" }}>
@@ -2636,6 +2700,7 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
                     ativo={checklist.servico?.tipo === t.id}
                     onClick={() => updateServico("tipo", t.id)}
                     gridCell
+                    disabled={travarEtapasColeta}
                   />
                 ))}
               </div>
@@ -2648,6 +2713,7 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
                     ativo={checklist.servico?.motivo === m.id}
                     onClick={() => updateServico("motivo", m.id)}
                     gridCell
+                    disabled={travarEtapasColeta}
                   />
                 ))}
               </div>
@@ -2655,14 +2721,14 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
             <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 16, padding: "20px 22px" }}>
               <div style={{ color: C.navy, fontWeight: 800, fontSize: 15, fontFamily: "'Sora',sans-serif", marginBottom: 14 }}>📍 Origem e destino</div>
               <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                <Field label="Origem (coleta)" value={checklist.origem?.endereco || ""} onChange={(v) => updateEndereco("origem", v)} placeholder="Endereço de coleta" />
-                <Field label="Destino (entrega)" value={checklist.destino?.endereco || ""} onChange={(v) => updateEndereco("destino", v)} placeholder="Endereço de entrega" />
+                <Field label="Origem (coleta)" value={checklist.origem?.endereco || ""} onChange={(v) => updateEndereco("origem", v)} placeholder="Endereço de coleta" readOnly={travarEtapasColeta} />
+                <Field label="Destino (entrega)" value={checklist.destino?.endereco || ""} onChange={(v) => updateEndereco("destino", v)} placeholder="Endereço de entrega" readOnly={travarEtapasColeta} />
               </div>
             </div>
             <button
               type="button"
               onClick={() => void avancarEtapa1()}
-              disabled={salvando}
+              disabled={salvando || travarEtapasColeta}
               style={{
                 width: "100%",
                 padding: "14px 0",
@@ -2685,6 +2751,7 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
 
         {etapa === 2 && (
           <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            {travarEtapasColeta && <AvisoEtapaTravada />}
             <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 16, padding: "16px 18px" }}>
               <div style={{ color: C.navy, fontWeight: 800, fontSize: 15, fontFamily: "'Sora',sans-serif", marginBottom: 14 }}>❓ Perguntas de vistoria</div>
               {(checklist.coleta?.perguntas || []).map((p, i, arr) => (
@@ -2693,8 +2760,8 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
                     {i + 1}. {p.texto}
                   </div>
                   <div style={{ display: "flex", gap: 8 }}>
-                    <BtnSelecao label="✅ Sim" ativo={p.resposta === "sim"} onClick={() => updatePergunta(i, "sim")} cor={C.green} />
-                    <BtnSelecao label="❌ Não" ativo={p.resposta === "nao"} onClick={() => updatePergunta(i, "nao")} cor={C.red} />
+                    <BtnSelecao label="✅ Sim" ativo={p.resposta === "sim"} onClick={() => updatePergunta(i, "sim")} cor={C.green} disabled={travarEtapasColeta} />
+                    <BtnSelecao label="❌ Não" ativo={p.resposta === "nao"} onClick={() => updatePergunta(i, "nao")} cor={C.red} disabled={travarEtapasColeta} />
                   </div>
                 </div>
               ))}
@@ -2710,14 +2777,16 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
                     <button
                       key={a.item}
                       type="button"
-                      onClick={() => updateAcessorio(i)}
+                      onClick={() => !travarEtapasColeta && updateAcessorio(i)}
+                      disabled={travarEtapasColeta}
                       style={{
-                        background: cores.bg,
-                        border: `2px solid ${cores.border}`,
+                        background: travarEtapasColeta ? "#F8FAFC" : cores.bg,
+                        border: `2px solid ${travarEtapasColeta ? C.border : cores.border}`,
                         borderRadius: 11,
                         padding: "10px 8px",
-                        cursor: "pointer",
+                        cursor: travarEtapasColeta ? "default" : "pointer",
                         textAlign: "left",
+                        opacity: travarEtapasColeta ? 0.85 : 1,
                       }}
                     >
                       <div style={{ color: C.text, fontWeight: 700, fontSize: 12, lineHeight: 1.3 }}>{a.item}</div>
@@ -2750,6 +2819,7 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
                         ativo={checklist.coleta?.pneus?.[campo] === est}
                         onClick={() => updatePneu(campo, est)}
                         cor={PNEU_CORES[est]}
+                        disabled={travarEtapasColeta}
                       />
                     ))}
                   </div>
@@ -2765,6 +2835,7 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
                     label={nivel === "vazio" ? "Vazio" : nivel}
                     ativo={checklist.coleta?.combustivel === nivel}
                     onClick={() => updateCombustivel(nivel)}
+                    disabled={travarEtapasColeta}
                   />
                 ))}
               </div>
@@ -2773,7 +2844,8 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
               <div style={{ color: C.navy, fontWeight: 800, fontSize: 15, fontFamily: "'Sora',sans-serif", marginBottom: 14 }}>📝 Observações de avarias</div>
               <textarea
                 value={checklist.coleta?.observacoes || ""}
-                onChange={(e) => updateObservacoes(e.target.value)}
+                onChange={travarEtapasColeta ? undefined : (e) => updateObservacoes(e.target.value)}
+                readOnly={travarEtapasColeta}
                 placeholder="Descreva avarias, riscos, amassados…"
                 rows={4}
                 style={{
@@ -2794,7 +2866,7 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
             <button
               type="button"
               onClick={avancarEtapa2}
-              disabled={salvando}
+              disabled={salvando || travarEtapasColeta}
               style={{
                 width: "100%",
                 padding: "14px 0",
@@ -2804,9 +2876,9 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
                 color: "#fff",
                 fontWeight: 800,
                 fontSize: 15,
-                cursor: salvando ? "wait" : "pointer",
+                cursor: salvando || travarEtapasColeta ? "default" : "pointer",
                 fontFamily: "'Sora',sans-serif",
-                opacity: salvando ? 0.7 : 1,
+                opacity: salvando || travarEtapasColeta ? 0.7 : 1,
               }}
             >
               {salvando ? "Salvando…" : "Salvar vistoria →"}
@@ -2816,6 +2888,7 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
 
         {etapa === 3 && (
           <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            {travarEtapasColeta && <AvisoEtapaTravada />}
             <div style={{ color: C.text2, fontSize: 13, lineHeight: 1.5 }}>
               📸 Tire as fotos guiadas da vistoria. Cada imagem recebe carimbo com data/hora e GPS antes do envio.
             </div>
@@ -2828,6 +2901,7 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
                   uploading={uploadingSlot === slot.id}
                   onCapture={() => abrirCaptura(slot.id)}
                   onView={abrirVisualizadorFoto}
+                  somenteLeitura={travarEtapasColeta}
                 />
               ))}
             </div>
@@ -2845,9 +2919,11 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
                   onCapture={() => abrirCaptura("avarias")}
                   onView={abrirVisualizadorFoto}
                   onRemove={() => removerFotoAvaria(globalIdx)}
+                  somenteLeitura={travarEtapasColeta}
                 />
               );
             })}
+            {!travarEtapasColeta && (
             <button
               type="button"
               onClick={() => abrirCaptura("avarias")}
@@ -2866,10 +2942,11 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
             >
               + Adicionar foto de avaria
             </button>
+            )}
             <button
               type="button"
               onClick={avancarEtapa3}
-              disabled={salvando || !!uploadingSlot}
+              disabled={salvando || !!uploadingSlot || travarEtapasColeta}
               style={{
                 width: "100%",
                 padding: "14px 0",
@@ -2891,6 +2968,7 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
 
         {etapa === 4 && (
           <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            {travarEtapasColeta && <AvisoEtapaTravada />}
             <AvisoIncompleto validacao={validacao} tentouFinalizarColeta={tentouFinalizarColeta} />
             {[
               { bloco: "responsavel", titulo: "✍️ Responsável no local", padRef: responsavelPadRef },
@@ -2921,13 +2999,14 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
                         }
                       : null
                   }
+                  somenteLeitura={travarEtapasColeta}
                 />
               );
             })}
             <button
               type="button"
               onClick={avancarEtapa4}
-              disabled={salvando}
+              disabled={salvando || travarEtapasColeta}
               style={{
                 width: "100%",
                 padding: "14px 0",
@@ -2977,6 +3056,7 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
 
         {etapa === 6 && entregaHabilitada && (
           <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            {travarEntrega && <AvisoEtapaTravada />}
             <AvisoIncompleto
               validacao={validacaoEntrega}
               tentouFinalizarColeta={tentouFinalizarEntrega}
@@ -2998,6 +3078,7 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
                   uploading={uploadingEntregaSlot === slot.id}
                   onCapture={() => abrirCaptura(slot.id, "entrega")}
                   onView={abrirVisualizadorFoto}
+                  somenteLeitura={travarEntrega}
                 />
               ))}
             </div>
@@ -3015,9 +3096,11 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
                   onCapture={() => abrirCaptura("avarias", "entrega")}
                   onView={abrirVisualizadorFoto}
                   onRemove={() => removerFotoAvaria(globalIdx, "entrega")}
+                  somenteLeitura={travarEntrega}
                 />
               );
             })}
+            {!travarEntrega && (
             <button
               type="button"
               onClick={() => abrirCaptura("avarias", "entrega")}
@@ -3036,6 +3119,7 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
             >
               + Adicionar foto de avaria
             </button>
+            )}
 
             <div style={{ color: C.navy, fontWeight: 800, fontSize: 15, fontFamily: "'Sora',sans-serif", marginTop: 8 }}>
               👤 Quem recebe o veículo
@@ -3045,11 +3129,13 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
                 label="Mesma pessoa da coleta"
                 ativo={checklist.entrega?.recebedor?.mesmaPessoaColeta === true}
                 onClick={usarMesmaPessoaColeta}
+                disabled={travarEntrega}
               />
               <BtnSelecao
                 label="Outra pessoa"
                 ativo={checklist.entrega?.recebedor?.mesmaPessoaColeta === false}
                 onClick={usarOutraPessoa}
+                disabled={travarEntrega}
               />
             </div>
             {checklist.entrega?.recebedor?.mesmaPessoaColeta === true ? (
@@ -3075,12 +3161,14 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
                   value={checklist.entrega?.recebedor?.nome || ""}
                   onChange={(v) => updateRecebedor("nome", v)}
                   placeholder="Nome de quem recebe"
+                  readOnly={travarEntrega}
                 />
                 <Field
                   label="Documento (CPF/RG/CNH)"
                   value={checklist.entrega?.recebedor?.documento || ""}
                   onChange={(v) => updateRecebedor("documento", v)}
                   placeholder="000.000.000-00"
+                  readOnly={travarEntrega}
                 />
               </>
             ) : (
@@ -3095,6 +3183,7 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
             <button
               type="button"
               onClick={marcarConforme}
+              disabled={travarEntrega}
               style={{
                 width: "100%",
                 padding: "14px 0",
@@ -3104,15 +3193,17 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
                 color: "#fff",
                 fontWeight: 800,
                 fontSize: 15,
-                cursor: "pointer",
+                cursor: travarEntrega ? "default" : "pointer",
                 fontFamily: "'Sora',sans-serif",
+                opacity: travarEntrega ? 0.7 : 1,
               }}
             >
               ✅ Veículo conforme a coleta
             </button>
             <button
               type="button"
-              onClick={() => setModalConfirmarDivergencia(true)}
+              onClick={() => !travarEntrega && setModalConfirmarDivergencia(true)}
+              disabled={travarEntrega}
               style={{
                 width: "100%",
                 padding: "13px 0",
@@ -3122,7 +3213,8 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
                 color: checklist.entrega?.conferencia?.conforme === false ? C.orange : C.text2,
                 fontWeight: 700,
                 fontSize: 14,
-                cursor: "pointer",
+                cursor: travarEntrega ? "default" : "pointer",
+                opacity: travarEntrega ? 0.7 : 1,
               }}
             >
               ⚠️ Há divergência
@@ -3147,8 +3239,12 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
                     (item) => ({ item, estado: null })
                   )).map(
                   (a) => {
-                    const divergente = (checklist.entrega?.conferencia?.divergencias || []).find((d) => d.item === a.item);
-                    const cores = divergente ? ACESSORIO_CORES[divergente.estadoEntrega] || ACESSORIO_CORES.bom : null;
+                    const divEntry = (checklist.entrega?.conferencia?.divergencias || []).find((d) => d.item === a.item);
+                    const temDivergencia = divEntry && divergenciaEntregaReal({ ...divEntry, estadoColeta: a.estado });
+                    const labelColeta = ACESSORIO_CORES[a.estado]?.label || a.estado || "—";
+                    const labelEntrega = divEntry
+                      ? ACESSORIO_CORES[divEntry.estadoEntrega]?.label || divEntry.estadoEntrega
+                      : null;
                     return (
                       <div
                         key={a.item}
@@ -3161,6 +3257,7 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
                         <button
                           type="button"
                           onClick={() => toggleDivergenciaItem(a.item, a.estado)}
+                          disabled={travarEntrega}
                           style={{
                             flex: 1,
                             display: "flex",
@@ -3168,20 +3265,21 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
                             alignItems: "center",
                             padding: "10px 12px",
                             borderRadius: 10,
-                            border: `2px solid ${divergente ? cores.border : C.border}`,
-                            background: divergente ? cores.bg : "#fff",
-                            cursor: "pointer",
+                            border: temDivergencia ? `2px solid ${C.orange}` : `1px solid ${C.border}`,
+                            background: temDivergencia ? C.orangeLight : "#F8FAFC",
+                            cursor: travarEntrega ? "default" : "pointer",
                             textAlign: "left",
+                            opacity: travarEntrega ? 0.85 : 1,
                           }}
                         >
-                          <span style={{ color: C.text, fontWeight: 700, fontSize: 13 }}>{a.item}</span>
-                          <span style={{ color: divergente ? cores.text : C.muted, fontSize: 12, fontWeight: 700 }}>
-                            {divergente
-                              ? `Coleta: ${ACESSORIO_CORES[a.estado]?.label || a.estado || "—"} → ${cores.label}`
-                              : `Coleta: ${ACESSORIO_CORES[a.estado]?.label || a.estado || "—"}`}
+                          <span style={{ color: temDivergencia ? C.text : C.muted, fontWeight: temDivergencia ? 700 : 600, fontSize: 13 }}>{a.item}</span>
+                          <span style={{ color: temDivergencia ? C.orange : C.muted, fontSize: 12, fontWeight: 700 }}>
+                            {temDivergencia
+                              ? `Coleta: ${labelColeta} → ${labelEntrega}`
+                              : `Coleta: ${labelColeta}`}
                           </span>
                         </button>
-                        {divergente && (
+                        {temDivergencia && !travarEntrega && (
                           <button
                             type="button"
                             onClick={() => removerDivergenciaItem(a.item)}
@@ -3208,7 +3306,9 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
                   value={checklist.entrega?.conferencia?.observacao || ""}
                   onChange={updateObservacaoDivergencia}
                   placeholder="Descreva as divergências encontradas"
+                  readOnly={travarEntrega}
                 />
+                {!travarEntrega && (
                 <button
                   type="button"
                   onClick={() => void voltarParaConforme()}
@@ -3227,6 +3327,7 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
                 >
                   ↩ Voltar para Conforme
                 </button>
+                )}
               </div>
             )}
 
@@ -3254,6 +3355,7 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
                   modoPrestador={isPrestador}
                   prestadorPerfilCompleto={isPrestador && prestadorPerfilOk}
                   prestadorLabel={isPrestador && prestadorPerfilOk ? `${perfil.nome} · ${perfil.documento}` : ""}
+                  somenteLeitura={travarEntrega}
                 />
               );
             })}
@@ -3261,7 +3363,7 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
             <button
               type="button"
               onClick={finalizarEntrega}
-              disabled={entregaConcluida || salvando || !!uploadingEntregaSlot}
+              disabled={entregaConcluida || salvando || !!uploadingEntregaSlot || travarEntrega}
               style={{
                 width: "100%",
                 padding: "14px 0",

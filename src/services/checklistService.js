@@ -144,6 +144,7 @@ function buildColetaVazia(tipoVeiculo = "carro") {
       prestador: assinaturaVazia(),
     },
     finalizadaEm: null,
+    pdfGeradoEm: null,
   };
 }
 
@@ -220,7 +221,35 @@ export function normalizeColetaData(coleta, checklistRoot = {}) {
       prestador: { ...assinaturaVazia(), ...base.assinaturas?.prestador },
     },
     finalizadaEm: base.finalizadaEm ?? null,
+    pdfGeradoEm: base.pdfGeradoEm ?? null,
   };
+}
+
+/** Divergência real = estado na entrega diferente do estado na coleta. */
+export function divergenciaEntregaReal(d) {
+  if (!d || !d.estadoEntrega) return false;
+  return d.estadoEntrega !== (d.estadoColeta ?? null);
+}
+
+export function filtrarDivergenciasEntregaReais(divergencias = []) {
+  return (divergencias || []).filter(divergenciaEntregaReal);
+}
+
+/** Coleta concluída (PDF gerado ou etapas 1–4 finalizadas). */
+export function coletaChecklistTravada(checklist) {
+  if (!checklist) return false;
+  return (
+    checklist.status === "aguardando_entrega" ||
+    checklist.status === "concluido" ||
+    !!checklist.coleta?.finalizadaEm ||
+    !!checklist.coleta?.pdfGeradoEm
+  );
+}
+
+/** Entrega concluída — checklist inteiro somente leitura. */
+export function entregaChecklistTravada(checklist) {
+  if (!checklist) return false;
+  return checklist.status === "concluido" || !!checklist.entrega?.finalizadaEm;
 }
 
 /** Mescla entrega salva com defaults; ignora stub legado { enderecoConfirmado }. */
@@ -379,7 +408,9 @@ export function entregaCompleta(checklist, perfil = null) {
     faltando.push("Conferência na entrega");
   }
   if (conf?.conforme === false) {
-    if (!conf.divergencias?.length) faltando.push("Marque ao menos um item divergente");
+    if (!filtrarDivergenciasEntregaReais(conf.divergencias).length) {
+      faltando.push("Marque ao menos um item divergente");
+    }
   }
 
   const assin = entrega?.assinaturas || {};
