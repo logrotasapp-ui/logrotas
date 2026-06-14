@@ -1181,26 +1181,55 @@ function PhotoSlot({
           cursor: processing ? "wait" : "pointer",
           padding: 0,
           position: "relative",
-          minHeight: 120,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
+          minHeight: temFoto ? undefined : 120,
+          height: temFoto ? 140 : undefined,
+          overflow: "hidden",
+          display: "block",
         }}
       >
         {processing && !temFoto ? (
-          <div style={{ color: C.navy, fontWeight: 700, fontSize: 13, padding: 20 }}>⏳ Processando…</div>
+          <div
+            style={{
+              color: C.navy,
+              fontWeight: 700,
+              fontSize: 13,
+              padding: 20,
+              minHeight: 120,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            ⏳ Processando…
+          </div>
         ) : temFoto ? (
           foto?.previewUrl ? (
             <img
               src={foto.previewUrl}
               alt={slot.label}
-              style={{ width: "100%", maxHeight: 200, height: "auto", objectFit: "contain", display: "block" }}
+              style={{
+                position: "absolute",
+                inset: 0,
+                width: "100%",
+                height: "100%",
+                objectFit: "cover",
+                objectPosition: "center",
+                display: "block",
+              }}
             />
           ) : (
             <FotoPreviewImg
               urlOrPath={foto.url}
               alt={slot.label}
-              style={{ width: "100%", maxHeight: 200, height: "auto", objectFit: "contain", display: "block" }}
+              style={{
+                position: "absolute",
+                inset: 0,
+                width: "100%",
+                height: "100%",
+                objectFit: "cover",
+                objectPosition: "center",
+                display: "block",
+              }}
             />
           )
         ) : (

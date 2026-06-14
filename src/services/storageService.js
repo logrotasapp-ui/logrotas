@@ -22,44 +22,6 @@ function loadImageFromBlob(blob) {
   });
 }
 
-/**
- * Carrega bitmap respeitando orientação EXIF (retrato/paisagem da câmera).
- */
-async function loadOrientedSource(input) {
-  if (typeof createImageBitmap === "function") {
-    try {
-      const bitmap = await createImageBitmap(input, { imageOrientation: "from-image" });
-      return {
-        draw: (ctx, dw, dh) => ctx.drawImage(bitmap, 0, 0, dw, dh),
-        width: bitmap.width,
-        height: bitmap.height,
-        cleanup: () => bitmap.close?.(),
-      };
-    } catch {
-      /* fallback abaixo */
-    }
-  }
-  const img = await loadImageFromBlob(input);
-  return {
-    draw: (ctx, dw, dh) => ctx.drawImage(img, 0, 0, dw, dh),
-    width: img.naturalWidth || img.width,
-    height: img.naturalHeight || img.height,
-    cleanup: () => {},
-  };
-}
-
-function scaledDimensions(srcW, srcH, maxDim = MAX_DIM) {
-  let width = srcW;
-  let height = srcH;
-  const maxSide = Math.max(width, height);
-  if (maxSide > maxDim) {
-    const scale = maxDim / maxSide;
-    width = Math.round(width * scale);
-    height = Math.round(height * scale);
-  }
-  return { width, height };
-}
-
 function blobFromCanvas(canvas, quality = JPEG_QUALITY) {
   return new Promise((resolve, reject) => {
     canvas.toBlob(
@@ -72,21 +34,24 @@ function blobFromCanvas(canvas, quality = JPEG_QUALITY) {
 
 /**
  * Redimensiona para máx 1600px no lado maior e exporta JPEG (~0.7) via canvas.
- * Aceita File ou Blob (captura da câmera/galeria).
+ * Aceita File ou Blob (captura da câmera/galeria). Sem rotação EXIF — prévia usa orientação do navegador.
  */
 export async function compressImageToJpegBlob(input) {
-  const source = await loadOrientedSource(input);
-  try {
-    const { width, height } = scaledDimensions(source.width, source.height);
-    const canvas = document.createElement("canvas");
-    canvas.width = width;
-    canvas.height = height;
-    const ctx = canvas.getContext("2d");
-    source.draw(ctx, width, height);
-    return blobFromCanvas(canvas);
-  } finally {
-    source.cleanup();
+  const img = await loadImageFromBlob(input);
+  let width = img.naturalWidth || img.width;
+  let height = img.naturalHeight || img.height;
+  const maxSide = Math.max(width, height);
+  if (maxSide > MAX_DIM) {
+    const scale = MAX_DIM / maxSide;
+    width = Math.round(width * scale);
+    height = Math.round(height * scale);
   }
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d");
+  ctx.drawImage(img, 0, 0, width, height);
+  return blobFromCanvas(canvas);
 }
 
 /**
@@ -94,24 +59,20 @@ export async function compressImageToJpegBlob(input) {
  */
 export async function stampAndCompressImage(blob, stampText) {
   const compressed = await compressImageToJpegBlob(blob);
-  const source = await loadOrientedSource(compressed);
-  try {
-    const stampH = Math.max(32, Math.round(source.height * 0.06));
-    const canvas = document.createElement("canvas");
-    canvas.width = source.width;
-    canvas.height = source.height;
-    const ctx = canvas.getContext("2d");
-    source.draw(ctx, source.width, source.height);
-    ctx.fillStyle = "rgba(0,0,0,0.58)";
-    ctx.fillRect(0, canvas.height - stampH, canvas.width, stampH);
-    ctx.fillStyle = "#fff";
-    ctx.font = `600 ${Math.max(11, Math.round(canvas.width * 0.028))}px "DM Sans",sans-serif`;
-    ctx.textBaseline = "middle";
-    ctx.fillText(stampText, 10, canvas.height - stampH / 2, canvas.width - 20);
-    return blobFromCanvas(canvas);
-  } finally {
-    source.cleanup();
-  }
+  const img = await loadImageFromBlob(compressed);
+  const stampH = Math.max(32, Math.round(img.height * 0.06));
+  const canvas = document.createElement("canvas");
+  canvas.width = img.width;
+  canvas.height = img.height;
+  const ctx = canvas.getContext("2d");
+  ctx.drawImage(img, 0, 0);
+  ctx.fillStyle = "rgba(0,0,0,0.58)";
+  ctx.fillRect(0, canvas.height - stampH, canvas.width, stampH);
+  ctx.fillStyle = "#fff";
+  ctx.font = `600 ${Math.max(11, Math.round(canvas.width * 0.028))}px "DM Sans",sans-serif`;
+  ctx.textBaseline = "middle";
+  ctx.fillText(stampText, 10, canvas.height - stampH / 2, canvas.width - 20);
+  return blobFromCanvas(canvas);
 }
 
 export function formatStampDataHora(date = new Date()) {

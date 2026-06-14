@@ -93,8 +93,74 @@ function blobToDataUrl(blob) {
   });
 }
 
+function loadImageElementFromBlob(blob) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(blob);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      resolve(img);
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("Não foi possível carregar a imagem."));
+    };
+    img.src = url;
+  });
+}
+
+/** Aplica orientação EXIF e retorna data URL + dimensões reais para embutir no PDF sem distorção. */
+async function preparePdfImage(blob) {
+  const canvas = document.createElement("canvas");
+  const ctx = canvas.getContext("2d");
+  let width = 0;
+  let height = 0;
+
+  if (typeof createImageBitmap === "function") {
+    try {
+      const bitmap = await createImageBitmap(blob, { imageOrientation: "from-image" });
+      width = bitmap.width;
+      height = bitmap.height;
+      canvas.width = width;
+      canvas.height = height;
+      ctx.drawImage(bitmap, 0, 0);
+      bitmap.close?.();
+    } catch {
+      /* fallback */
+    }
+  }
+
+  if (!width) {
+    const img = await loadImageElementFromBlob(blob);
+    width = img.naturalWidth || img.width;
+    height = img.naturalHeight || img.height;
+    canvas.width = width;
+    canvas.height = height;
+    ctx.drawImage(img, 0, 0);
+  }
+
+  return {
+    dataUrl: canvas.toDataURL("image/jpeg", 0.92),
+    width,
+    height,
+  };
+}
+
+/** Encaixa imagem na célula do PDF mantendo proporção (cover — sem esticar). */
+function coverFitInBox(iw, ih, boxX, boxY, boxW, boxH) {
+  const scale = Math.max(boxW / iw, boxH / ih);
+  const w = iw * scale;
+  const h = ih * scale;
+  return {
+    x: boxX + (boxW - w) / 2,
+    y: boxY + (boxH - h) / 2,
+    w,
+    h,
+  };
+}
+
 /**
- * Firebase Storage SDK (getBlob) -> FileReader -> dataURL (timeout 10s por imagem)
+ * Firebase Storage SDK (getBlob) -> orientação EXIF -> dataURL + dimensões (timeout 10s por imagem)
  */
 async function fetchImageDataUrl(urlOrPath, context = "") {
   if (!urlOrPath) {
@@ -129,7 +195,7 @@ async function fetchImageDataUrl(urlOrPath, context = "") {
       blob = await blobViaGetBlob(urlOrPath, context);
       logChecklist("log", "[Checklist PDF] Imagem OK via getBlob path:", context);
     }
-    return await blobToDataUrl(blob);
+    return await preparePdfImage(blob);
   } catch (err) {
     logChecklist(
       "error",
@@ -291,11 +357,12 @@ function renderFotosGrid(doc, {
     if (col === 0) rowStartY = yRef.y;
 
     const slotLabel = slotLabelForFoto(foto, fotoSlots);
-    const dataUrl = imageCache[`${keyPrefix}:${foto.tipo}:${foto.url}`];
+    const imgEntry = imageCache[`${keyPrefix}:${foto.tipo}:${foto.url}`];
 
-    if (dataUrl) {
+    if (imgEntry?.dataUrl) {
       try {
-        doc.addImage(dataUrl, imageFormat(dataUrl), x, rowStartY, cellW, imgH);
+        const fit = coverFitInBox(imgEntry.width, imgEntry.height, x, rowStartY, cellW, imgH);
+        doc.addImage(imgEntry.dataUrl, "JPEG", fit.x, fit.y, fit.w, fit.h);
       } catch (err) {
         logChecklist("error", "[Checklist PDF] addImage falhou:", slotLabel, err);
         drawPlaceholder(doc, x, rowStartY, cellW, imgH, "Sem foto");
@@ -380,7 +447,8 @@ function renderAssinaturasBlock(doc, {
     doc.text(titulo, margin, yRef.y);
     yRef.y += 6;
 
-    const sigUrl = imageCache[`${keyPrefix}:${key}`];
+    const sigEntry = imageCache[`${keyPrefix}:${key}`];
+    const sigUrl = sigEntry?.dataUrl ?? sigEntry;
     ensureSpace(28);
     if (sigUrl) {
       try {
