@@ -7,7 +7,7 @@ import {
   CHECKLIST_FOTO_SLOTS,
   CHECKLIST_ENTREGA_FOTO_SLOTS,
   resolveTipoVeiculo,
-  filtrarDivergenciasEntregaReais,
+  derivarDivergenciasEntrega,
 } from "./checklistService.js";
 
 const IMAGE_FETCH_TIMEOUT_MS = 10000;
@@ -599,7 +599,7 @@ export async function generateChecklistColetaPdf({
       line("Veiculo conforme a coleta");
     } else if (conf?.conforme === false) {
       line("Houve divergencia na entrega:", true);
-      filtrarDivergenciasEntregaReais(conf.divergencias).forEach((d) => {
+      derivarDivergenciasEntrega(coleta?.acessorios, conf).forEach((d) => {
         line(
           `- ${stripEmojis(d.item)}: coleta ${labelAcessorio(d.estadoColeta)} -> entrega ${labelAcessorio(d.estadoEntrega)}`
         );

@@ -63,6 +63,13 @@ export function acessoriosPadraoParaTipo(tipoVeiculo) {
 }
 
 export const CHECKLIST_ESTADOS_ACESSORIO = ["bom", "ausente", "quebrado", "na"];
+
+/** Ciclo compartilhado Vistoria + Entrega: Bom → Ausente → Quebrado → N/A → Bom */
+export function proximoEstadoAcessorio(atual) {
+  if (!atual) return CHECKLIST_ESTADOS_ACESSORIO[0];
+  const idx = CHECKLIST_ESTADOS_ACESSORIO.indexOf(atual);
+  return CHECKLIST_ESTADOS_ACESSORIO[(idx + 1) % CHECKLIST_ESTADOS_ACESSORIO.length];
+}
 export const CHECKLIST_ESTADOS_PNEU = ["bom", "regular", "ruim"];
 export const CHECKLIST_NIVEIS_COMBUSTIVEL = ["vazio", "1/4", "1/2", "3/4", "cheio"];
 
@@ -235,6 +242,54 @@ export function filtrarDivergenciasEntregaReais(divergencias = []) {
   return (divergencias || []).filter(divergenciaEntregaReal);
 }
 
+/** Deriva divergências a partir de coleta.acessorios + conferencia.estadosEntrega. */
+export function derivarDivergenciasEntrega(coletaAcessorios, conferencia) {
+  const conf = conferencia && typeof conferencia === "object" ? conferencia : {};
+  const map = new Map((conf.estadosEntrega || []).map((e) => [e.item, e.estado]));
+  return (coletaAcessorios || [])
+    .map((a) => ({
+      item: a.item,
+      estadoColeta: a.estado,
+      estadoEntrega: map.has(a.item) ? map.get(a.item) : a.estado,
+    }))
+    .filter(divergenciaEntregaReal);
+}
+
+export function getEstadoEntregaItem(conferencia, item, estadoColeta) {
+  const found = (conferencia?.estadosEntrega || []).find((e) => e.item === item);
+  return found?.estado ?? estadoColeta ?? null;
+}
+
+function conferenciaFromRaw(raw) {
+  if (!raw || typeof raw !== "object") return null;
+  let estadosEntrega = Array.isArray(raw.estadosEntrega) ? [...raw.estadosEntrega] : [];
+  if (!estadosEntrega.length && Array.isArray(raw.divergencias)) {
+    estadosEntrega = raw.divergencias
+      .filter((d) => d?.item)
+      .map((d) => ({ item: d.item, estado: d.estadoEntrega ?? null }));
+  }
+  return {
+    conforme: raw.conforme ?? null,
+    observacao: raw.observacao || "",
+    estadosEntrega,
+  };
+}
+
+/** Inicializa estadosEntrega = estadoColeta para itens ainda sem entrada. */
+export function inicializarEstadosEntrega(coletaAcessorios, conferencia) {
+  const conf = conferenciaFromRaw(conferencia) || {
+    conforme: null,
+    observacao: "",
+    estadosEntrega: [],
+  };
+  const map = new Map((conf.estadosEntrega || []).map((e) => [e.item, e.estado]));
+  const estadosEntrega = (coletaAcessorios || []).map((a) => ({
+    item: a.item,
+    estado: map.has(a.item) ? map.get(a.item) : a.estado ?? null,
+  }));
+  return { ...conf, estadosEntrega };
+}
+
 /** Coleta concluída (PDF gerado ou etapas 1–4 finalizadas). */
 export function coletaChecklistTravada(checklist) {
   if (!checklist) return false;
@@ -272,7 +327,7 @@ export function normalizeEntregaData(entrega) {
       mesmaPessoaColeta: null,
       ...(base.recebedor || {}),
     },
-    conferencia: base.conferencia ?? null,
+    conferencia: conferenciaFromRaw(base.conferencia),
     assinaturas: {
       recebedor: { ...assinaturaVazia(), ...base.assinaturas?.recebedor },
       prestador: { ...assinaturaVazia(), ...base.assinaturas?.prestador },
@@ -408,7 +463,8 @@ export function entregaCompleta(checklist, perfil = null) {
     faltando.push("Conferência na entrega");
   }
   if (conf?.conforme === false) {
-    if (!filtrarDivergenciasEntregaReais(conf.divergencias).length) {
+    const acessorios = normalizeColetaData(checklist.coleta, checklist).acessorios || [];
+    if (!derivarDivergenciasEntrega(acessorios, conf).length) {
       faltando.push("Marque ao menos um item divergente");
     }
   }

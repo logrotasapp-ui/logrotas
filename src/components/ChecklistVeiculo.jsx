@@ -21,8 +21,10 @@ import {
   normalizeEntregaData,
   coletaChecklistTravada,
   entregaChecklistTravada,
-  filtrarDivergenciasEntregaReais,
-  divergenciaEntregaReal,
+  derivarDivergenciasEntrega,
+  getEstadoEntregaItem,
+  inicializarEstadosEntrega,
+  proximoEstadoAcessorio,
 } from "../services/checklistService.js";
 import {
   stampAndCompressImage,
@@ -155,12 +157,6 @@ function atualizarFotosLista(fotosAtuais, slotAtivo, foto, previewUrlRef = null)
     fotos.push(foto);
   }
   return fotos;
-}
-
-function proximoEstadoAcessorio(atual) {
-  if (!atual) return CHECKLIST_ESTADOS_ACESSORIO[0];
-  const idx = CHECKLIST_ESTADOS_ACESSORIO.indexOf(atual);
-  return CHECKLIST_ESTADOS_ACESSORIO[(idx + 1) % CHECKLIST_ESTADOS_ACESSORIO.length];
 }
 
 function AvisoEtapaTravada() {
@@ -1410,14 +1406,18 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
   useEffect(() => {
     if (etapa !== 6) return;
     const atual = checklistRef.current || checklist;
-    const conf = atual?.entrega?.conferencia;
-    if (conf && (conf.conforme === true || conf.conforme === false)) return;
-    const entrega = {
-      ...normalizeEntregaData(atual.entrega),
-      conferencia: { conforme: true, divergencias: [], observacao: "" },
-    };
+    const coleta = normalizeColetaData(atual.coleta, atual);
+    const entrega = normalizeEntregaData(atual.entrega);
+    const confInicial = inicializarEstadosEntrega(coleta.acessorios, entrega.conferencia);
+    const conforme =
+      confInicial.conforme === true || confInicial.conforme === false ? confInicial.conforme : true;
+    const nextConf = { ...confInicial, conforme, observacao: confInicial.observacao || "" };
+    const prevJson = JSON.stringify(entrega.conferencia || null);
+    const nextJson = JSON.stringify(nextConf);
+    if (prevJson === nextJson) return;
+    const nextEntrega = { ...entrega, conferencia: nextConf };
     setChecklist((c) => {
-      const next = { ...c, entrega };
+      const next = { ...c, entrega: nextEntrega };
       checklistRef.current = next;
       return next;
     });
@@ -2318,9 +2318,17 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
 
   const marcarConforme = async () => {
     const atual = checklistRef.current || checklist;
+    const coleta = normalizeColetaData(atual.coleta, atual);
     const entrega = {
       ...normalizeEntregaData(atual.entrega),
-      conferencia: { conforme: true, divergencias: [], observacao: "" },
+      conferencia: {
+        conforme: true,
+        observacao: "",
+        estadosEntrega: (coleta.acessorios || []).map((a) => ({
+          item: a.item,
+          estado: a.estado,
+        })),
+      },
     };
     setMostrarDivergencias(false);
     setChecklist((c) => {
@@ -2334,12 +2342,15 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
   const confirmarDivergencia = async () => {
     setModalConfirmarDivergencia(false);
     const atual = checklistRef.current || checklist;
+    const coleta = normalizeColetaData(atual.coleta, atual);
+    const entregaNorm = normalizeEntregaData(atual.entrega);
+    const conf = inicializarEstadosEntrega(coleta.acessorios, entregaNorm.conferencia);
     const entrega = {
-      ...normalizeEntregaData(atual.entrega),
+      ...entregaNorm,
       conferencia: {
+        ...conf,
         conforme: false,
-        divergencias: atual.entrega?.conferencia?.divergencias || [],
-        observacao: atual.entrega?.conferencia?.observacao || "",
+        observacao: conf.observacao || "",
       },
     };
     setMostrarDivergencias(true);
@@ -2353,9 +2364,17 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
 
   const voltarParaConforme = async () => {
     const atual = checklistRef.current || checklist;
+    const coleta = normalizeColetaData(atual.coleta, atual);
     const entrega = {
       ...normalizeEntregaData(atual.entrega),
-      conferencia: { conforme: true, divergencias: [], observacao: "" },
+      conferencia: {
+        conforme: true,
+        observacao: "",
+        estadosEntrega: (coleta.acessorios || []).map((a) => ({
+          item: a.item,
+          estado: a.estado,
+        })),
+      },
     };
     setMostrarDivergencias(false);
     setChecklist((c) => {
@@ -2366,60 +2385,73 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
     await salvar({ entrega });
   };
 
-  const toggleDivergenciaItem = (item, estadoColeta) => {
+  const ciclarEstadoEntregaItem = (item) => {
     if (travarEntrega) return;
     const atual = checklistRef.current || checklist;
-    const conf = atual.entrega?.conferencia || { conforme: false, divergencias: [], observacao: "" };
-    const divergencias = [...(conf.divergencias || [])];
-    const idx = divergencias.findIndex((d) => d.item === item);
-    if (idx < 0) {
-      const primeiroDiferente = CHECKLIST_ESTADOS_ACESSORIO.find((e) => e !== estadoColeta);
-      if (!primeiroDiferente) return;
-      divergencias.push({ item, estadoColeta, estadoEntrega: primeiroDiferente });
+    const coleta = normalizeColetaData(atual.coleta, atual);
+    const aColeta = coleta.acessorios?.find((x) => x.item === item);
+    const estadoColeta = aColeta?.estado ?? null;
+    const entrega = normalizeEntregaData(atual.entrega);
+    const conf = entrega.conferencia || { conforme: false, observacao: "", estadosEntrega: [] };
+    const estadosEntrega = [...(conf.estadosEntrega || [])];
+    const idx = estadosEntrega.findIndex((e) => e.item === item);
+    const atualEntrega =
+      idx >= 0 ? estadosEntrega[idx].estado : getEstadoEntregaItem(conf, item, estadoColeta);
+    const nextEstado = proximoEstadoAcessorio(atualEntrega);
+    if (idx >= 0) {
+      estadosEntrega[idx] = { item, estado: nextEstado };
     } else {
-      const estadoAtual = divergencias[idx].estadoEntrega;
-      const nextIdx = (CHECKLIST_ESTADOS_ACESSORIO.indexOf(estadoAtual) + 1) % CHECKLIST_ESTADOS_ACESSORIO.length;
-      const nextEstado = CHECKLIST_ESTADOS_ACESSORIO[nextIdx];
-      if (nextEstado === estadoColeta) {
-        divergencias.splice(idx, 1);
-      } else {
-        divergencias[idx] = { ...divergencias[idx], estadoEntrega: nextEstado };
-      }
+      estadosEntrega.push({ item, estado: nextEstado });
     }
-    setChecklist((c) => {
-      const next = {
-        ...c,
-        entrega: {
-          ...c.entrega,
-          conferencia: { ...conf, conforme: false, divergencias },
+    const next = {
+      ...atual,
+      entrega: {
+        ...entrega,
+        conferencia: {
+          ...conf,
+          conforme: false,
+          estadosEntrega,
         },
-      };
-      checklistRef.current = next;
-      return next;
-    });
+      },
+    };
+    checklistRef.current = next;
+    setChecklist(next);
   };
 
-  const removerDivergenciaItem = (item) => {
+  const resetarEstadoEntregaItem = (item, evt) => {
+    evt?.stopPropagation();
     if (travarEntrega) return;
     const atual = checklistRef.current || checklist;
-    const conf = atual.entrega?.conferencia || {};
-    const divergencias = (conf.divergencias || []).filter((d) => d.item !== item);
-    setChecklist((c) => {
-      const next = {
-        ...c,
-        entrega: {
-          ...c.entrega,
-          conferencia: { ...conf, conforme: false, divergencias },
+    const coleta = normalizeColetaData(atual.coleta, atual);
+    const aColeta = coleta.acessorios?.find((x) => x.item === item);
+    const estadoColeta = aColeta?.estado ?? null;
+    const entrega = normalizeEntregaData(atual.entrega);
+    const conf = entrega.conferencia || { conforme: false, observacao: "", estadosEntrega: [] };
+    const estadosEntrega = [...(conf.estadosEntrega || [])];
+    const idx = estadosEntrega.findIndex((e) => e.item === item);
+    if (idx >= 0) {
+      estadosEntrega[idx] = { item, estado: estadoColeta };
+    } else {
+      estadosEntrega.push({ item, estado: estadoColeta });
+    }
+    const next = {
+      ...atual,
+      entrega: {
+        ...entrega,
+        conferencia: {
+          ...conf,
+          conforme: false,
+          estadosEntrega,
         },
-      };
-      checklistRef.current = next;
-      return next;
-    });
+      },
+    };
+    checklistRef.current = next;
+    setChecklist(next);
   };
 
   const updateObservacaoDivergencia = (valor) => {
     const atual = checklistRef.current || checklist;
-    const conf = atual.entrega?.conferencia || { conforme: false, divergencias: [] };
+    const conf = atual.entrega?.conferencia || { conforme: false, estadosEntrega: [], observacao: "" };
     setChecklist((c) => {
       const next = {
         ...c,
@@ -2486,9 +2518,12 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
       setErro('Indique se o veículo está conforme ou há divergência.');
       return;
     }
-    if (conf?.conforme === false && !filtrarDivergenciasEntregaReais(conf.divergencias).length) {
-      setErro("Marque ao menos um item divergente na conferência.");
-      return;
+    if (conf?.conforme === false) {
+      const acessorios = normalizeColetaData(atual.coleta, atual).acessorios || [];
+      if (!derivarDivergenciasEntrega(acessorios, conf).length) {
+        setErro("Marque ao menos um item divergente na conferência.");
+        return;
+      }
     }
 
     const val = entregaCompleta({ ...atual, entrega: entregaNorm }, perfil);
@@ -3232,19 +3267,19 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
                 }}
               >
                 <div style={{ color: C.text2, fontSize: 13, lineHeight: 1.5 }}>
-                  Toque nos itens divergentes para marcar o estado na entrega:
+                  Toque nos itens para marcar o estado na entrega (mesmo ciclo da vistoria):
                 </div>
                 {(checklist.coleta?.acessorios ||
                   (resolveTipoVeiculo(checklist.veiculo) === "moto" ? CHECKLIST_ACESSORIOS_MOTO : CHECKLIST_ACESSORIOS_PADRAO).map(
                     (item) => ({ item, estado: null })
                   )).map(
                   (a) => {
-                    const divEntry = (checklist.entrega?.conferencia?.divergencias || []).find((d) => d.item === a.item);
-                    const temDivergencia = divEntry && divergenciaEntregaReal({ ...divEntry, estadoColeta: a.estado });
+                    const conf = checklist.entrega?.conferencia;
+                    const estadoEntrega = getEstadoEntregaItem(conf, a.item, a.estado);
+                    const temDivergencia = estadoEntrega !== a.estado;
                     const labelColeta = ACESSORIO_CORES[a.estado]?.label || a.estado || "—";
-                    const labelEntrega = divEntry
-                      ? ACESSORIO_CORES[divEntry.estadoEntrega]?.label || divEntry.estadoEntrega
-                      : null;
+                    const labelEntrega =
+                      ACESSORIO_CORES[estadoEntrega]?.label || estadoEntrega || "—";
                     return (
                       <div
                         key={a.item}
@@ -3254,10 +3289,16 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
                           alignItems: "stretch",
                         }}
                       >
-                        <button
-                          type="button"
-                          onClick={() => toggleDivergenciaItem(a.item, a.estado)}
-                          disabled={travarEntrega}
+                        <div
+                          role="button"
+                          tabIndex={travarEntrega ? -1 : 0}
+                          onClick={() => ciclarEstadoEntregaItem(a.item)}
+                          onKeyDown={(e) => {
+                            if (!travarEntrega && (e.key === "Enter" || e.key === " ")) {
+                              e.preventDefault();
+                              ciclarEstadoEntregaItem(a.item);
+                            }
+                          }}
                           style={{
                             flex: 1,
                             display: "flex",
@@ -3278,11 +3319,11 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
                               ? `Coleta: ${labelColeta} → ${labelEntrega}`
                               : `Coleta: ${labelColeta}`}
                           </span>
-                        </button>
+                        </div>
                         {temDivergencia && !travarEntrega && (
                           <button
                             type="button"
-                            onClick={() => removerDivergenciaItem(a.item)}
+                            onClick={(e) => resetarEstadoEntregaItem(a.item, e)}
                             style={{
                               background: C.redLight,
                               border: `1px solid ${C.red}33`,
