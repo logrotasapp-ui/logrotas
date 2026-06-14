@@ -146,9 +146,9 @@ async function preparePdfImage(blob) {
   };
 }
 
-/** Encaixa imagem na célula do PDF mantendo proporção (cover — sem esticar). */
-function coverFitInBox(iw, ih, boxX, boxY, boxW, boxH) {
-  const scale = Math.max(boxW / iw, boxH / ih);
+/** Encaixa imagem na célula do PDF mantendo proporção (contain — sem esticar nem vazar). */
+function containFitInBox(iw, ih, boxX, boxY, boxW, boxH) {
+  const scale = Math.min(boxW / iw, boxH / ih);
   const w = iw * scale;
   const h = ih * scale;
   return {
@@ -157,6 +157,51 @@ function coverFitInBox(iw, ih, boxX, boxY, boxW, boxH) {
     w,
     h,
   };
+}
+
+function fotoCellMeta(doc, foto, fotoSlots, cellW) {
+  const slotLabel = slotLabelForFoto(foto, fotoSlots);
+  const stamp = `${foto.dataHora || "-"} - ${formatCoords(foto.lat, foto.lng)}`;
+  const stampLines = wrapLines(doc, stamp, cellW);
+  return { slotLabel, stampLines };
+}
+
+function drawFotoCell(doc, {
+  meta,
+  imgEntry,
+  x,
+  rowStartY,
+  cellW,
+  imgH,
+}) {
+  doc.setFillColor(248, 250, 252);
+  doc.setDrawColor(220, 220, 220);
+  doc.rect(x, rowStartY, cellW, imgH, "FD");
+
+  if (imgEntry?.dataUrl) {
+    try {
+      const fit = containFitInBox(imgEntry.width, imgEntry.height, x, rowStartY, cellW, imgH);
+      doc.addImage(imgEntry.dataUrl, "JPEG", fit.x, fit.y, fit.w, fit.h);
+    } catch (err) {
+      logChecklist("error", "[Checklist PDF] addImage falhou:", meta.slotLabel, err);
+      drawPlaceholder(doc, x, rowStartY, cellW, imgH, "Sem foto");
+    }
+  } else {
+    drawPlaceholder(doc, x, rowStartY, cellW, imgH, "Sem foto");
+  }
+
+  const labelY = rowStartY + imgH + 4;
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(8);
+  doc.text(stripEmojis(meta.slotLabel), x, labelY);
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(7);
+  meta.stampLines.forEach((ln, i) => {
+    doc.text(ln, x, labelY + 4 + i * 3.5);
+  });
+
+  return labelY + 4 + meta.stampLines.length * 3.5;
 }
 
 /**
@@ -330,8 +375,10 @@ function renderFotosGrid(doc, {
 
   const cellW = (contentWidth - 4) / 2;
   const imgH = 42;
+  const colGap = 4;
+  const rowGap = 8;
   const titleBlockH = 14;
-  const firstRowH = imgH + 16;
+  const firstRowH = imgH + 20;
 
   if (fotosGrid.length > 0 && yRef.y + titleBlockH + firstRowH > 285) {
     doc.addPage();
@@ -348,46 +395,47 @@ function renderFotosGrid(doc, {
   doc.setTextColor(0, 0, 0);
   yRef.y += 10;
 
-  let col = 0;
-  let rowStartY = yRef.y;
+  for (let i = 0; i < fotosGrid.length; i += 2) {
+    const left = fotosGrid[i];
+    const right = fotosGrid[i + 1];
+    const leftMeta = fotoCellMeta(doc, left, fotoSlots, cellW);
+    const rightMeta = right ? fotoCellMeta(doc, right, fotoSlots, cellW) : null;
 
-  for (const foto of fotosGrid) {
-    ensureSpace(imgH + 14);
-    const x = margin + col * (cellW + 4);
-    if (col === 0) rowStartY = yRef.y;
+    const leftBottom = imgH + 8 + leftMeta.stampLines.length * 3.5;
+    const rightBottom = rightMeta ? imgH + 8 + rightMeta.stampLines.length * 3.5 : 0;
+    const rowH = Math.max(leftBottom, rightBottom) + rowGap;
 
-    const slotLabel = slotLabelForFoto(foto, fotoSlots);
-    const imgEntry = imageCache[`${keyPrefix}:${foto.tipo}:${foto.url}`];
-
-    if (imgEntry?.dataUrl) {
-      try {
-        const fit = coverFitInBox(imgEntry.width, imgEntry.height, x, rowStartY, cellW, imgH);
-        doc.addImage(imgEntry.dataUrl, "JPEG", fit.x, fit.y, fit.w, fit.h);
-      } catch (err) {
-        logChecklist("error", "[Checklist PDF] addImage falhou:", slotLabel, err);
-        drawPlaceholder(doc, x, rowStartY, cellW, imgH, "Sem foto");
-      }
-    } else {
-      drawPlaceholder(doc, x, rowStartY, cellW, imgH, "Sem foto");
+    if (yRef.y + rowH > 285) {
+      doc.addPage();
+      yRef.y = 16;
     }
 
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(8);
-    doc.text(stripEmojis(slotLabel), x, rowStartY + imgH + 4);
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(7);
-    const stamp = `${foto.dataHora || "-"} - ${formatCoords(foto.lat, foto.lng)}`;
-    wrapLines(doc, stamp, cellW).forEach((ln, i) => {
-      doc.text(ln, x, rowStartY + imgH + 8 + i * 3.5);
+    const rowStartY = yRef.y;
+    const leftEntry = imageCache[`${keyPrefix}:${left.tipo}:${left.url}`];
+    drawFotoCell(doc, {
+      meta: leftMeta,
+      imgEntry: leftEntry,
+      x: margin,
+      rowStartY,
+      cellW,
+      imgH,
     });
 
-    col += 1;
-    if (col >= 2) {
-      col = 0;
-      yRef.y = rowStartY + imgH + 16;
+    if (right && rightMeta) {
+      const rightEntry = imageCache[`${keyPrefix}:${right.tipo}:${right.url}`];
+      drawFotoCell(doc, {
+        meta: rightMeta,
+        imgEntry: rightEntry,
+        x: margin + cellW + colGap,
+        rowStartY,
+        cellW,
+        imgH,
+      });
     }
+
+    yRef.y = rowStartY + rowH;
   }
-  if (col === 1) yRef.y = rowStartY + imgH + 16;
+
   if (fotosGrid.length === 0) {
     doc.setFont("helvetica", "normal");
     doc.setFontSize(10);

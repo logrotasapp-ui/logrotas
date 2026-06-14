@@ -119,7 +119,7 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="V269";
+const APP_VERSION="V270";
 const BETA_HIDE_PLANOS=true;
 
 const OfflineRestoredBanner=({show})=>show?(
@@ -6469,23 +6469,6 @@ export default function App(){
       logChecklist("error","[Checklist] Falha ao abrir/criar checklist:",err);
     }
   },[firebaseUser?.uid]);
-
-  useEffect(()=>{
-    let startY=0;
-    const onTouchStart=(e)=>{startY=e.touches?.[0]?.clientY??0;};
-    const onTouchMove=(e)=>{
-      const scrollEl=document.scrollingElement||document.documentElement;
-      if(scrollEl.scrollTop<=0&&e.touches?.[0]?.clientY>startY+4){
-        e.preventDefault();
-      }
-    };
-    document.addEventListener("touchstart",onTouchStart,{passive:true});
-    document.addEventListener("touchmove",onTouchMove,{passive:false});
-    return()=>{
-      document.removeEventListener("touchstart",onTouchStart);
-      document.removeEventListener("touchmove",onTouchMove);
-    };
-  },[]);
 
   const handleNovoChecklistAvulso=useCallback(async()=>{
     const uid=firebaseUser?.uid;
