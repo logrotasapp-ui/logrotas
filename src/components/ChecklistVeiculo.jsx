@@ -179,7 +179,7 @@ function AvisoEtapaTravada() {
   );
 }
 
-function Field({ label, value, onChange, placeholder, autoComplete, readOnly = false }) {
+function Field({ label, value, onChange, placeholder, autoComplete, readOnly = false, inputMode, pattern }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
       {label && (
@@ -192,6 +192,8 @@ function Field({ label, value, onChange, placeholder, autoComplete, readOnly = f
         onChange={readOnly ? undefined : (e) => onChange(e.target.value)}
         placeholder={placeholder}
         autoComplete={autoComplete}
+        inputMode={inputMode}
+        pattern={pattern}
         style={{
           background: readOnly ? "#F8FAFC" : C.subtle,
           border: `1.5px solid ${C.border}`,
@@ -788,6 +790,8 @@ function BlocoAssinatura({
               onChange={(v) => handleCampo("documento", v)}
               placeholder="000.000.000-00"
               readOnly={somenteLeitura}
+              inputMode="numeric"
+              pattern="[0-9]*"
             />
             {telefoneExtra && (
               <Field
@@ -796,6 +800,8 @@ function BlocoAssinatura({
                 onChange={(v) => telefoneExtra.onChange?.(v)}
                 placeholder="(11) 99999-9999"
                 readOnly={somenteLeitura}
+                inputMode="numeric"
+                pattern="[0-9]*"
               />
             )}
           </div>
@@ -2695,8 +2701,8 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
               <div style={{ color: C.navy, fontWeight: 800, fontSize: 15, fontFamily: "'Sora',sans-serif", marginBottom: 14 }}>👤 Cliente</div>
               <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
                 <Field label="Nome" value={checklist.cliente?.nome || ""} onChange={(v) => updateCliente("nome", v)} placeholder="Nome do cliente" readOnly={travarEtapasColeta} />
-                <Field label="Telefone" value={checklist.cliente?.telefone || ""} onChange={(v) => updateCliente("telefone", v)} placeholder="(11) 99999-9999" readOnly={travarEtapasColeta} />
-                <Field label="Documento (CPF/RG/CNH)" value={checklist.cliente?.documento || ""} onChange={(v) => updateCliente("documento", v)} placeholder="Ex: 000.000.000-00 ou RG" readOnly={travarEtapasColeta} />
+                <Field label="Telefone" value={checklist.cliente?.telefone || ""} onChange={(v) => updateCliente("telefone", v)} placeholder="(11) 99999-9999" readOnly={travarEtapasColeta} inputMode="numeric" pattern="[0-9]*" />
+                <Field label="Documento (CPF/RG/CNH)" value={checklist.cliente?.documento || ""} onChange={(v) => updateCliente("documento", v)} placeholder="Ex: 000.000.000-00 ou RG" readOnly={travarEtapasColeta} inputMode="numeric" pattern="[0-9]*" />
               </div>
             </div>
             <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 16, padding: "20px 22px" }}>
@@ -3204,6 +3210,8 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
                   onChange={(v) => updateRecebedor("documento", v)}
                   placeholder="000.000.000-00"
                   readOnly={travarEntrega}
+                  inputMode="numeric"
+                  pattern="[0-9]*"
                 />
               </>
             ) : (
