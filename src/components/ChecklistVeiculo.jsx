@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef, useEffect, Component } from "react";
 import { createPortal } from "react-dom";
-import { ArrowLeftIcon, XIcon, CameraIcon, RefreshCwIcon } from "lucide-react";
+import { ArrowLeftIcon, XIcon, CameraIcon, RefreshCwIcon, CheckCircle2Icon } from "lucide-react";
 import {
   atualizarChecklist,
   coletaCompleta,
@@ -149,7 +149,9 @@ function stripBase64AssinaturasEntrega(entrega) {
 function atualizarFotosLista(fotosAtuais, slotAtivo, foto, previewUrlRef = null) {
   let fotos = [...(fotosAtuais || [])];
   if (slotAtivo === "avarias") {
-    const idx = previewUrlRef ? fotos.findIndex((f) => f.previewUrl === previewUrlRef) : -1;
+    const idx = previewUrlRef
+      ? fotos.findIndex((f) => f.previewUrl === previewUrlRef || f.localId === previewUrlRef)
+      : -1;
     if (idx >= 0) fotos[idx] = foto;
     else fotos.push(foto);
   } else {
@@ -157,6 +159,74 @@ function atualizarFotosLista(fotosAtuais, slotAtivo, foto, previewUrlRef = null)
     fotos.push(foto);
   }
   return fotos;
+}
+
+function atualizarFotoPorLocalId(fotosAtuais, localId, patch) {
+  return (fotosAtuais || []).map((f) => (f.localId === localId ? { ...f, ...patch } : f));
+}
+
+/** Remove campos só de UI antes de gravar no Firestore. */
+function sanitizeFotosForFirestore(fotos) {
+  return (fotos || []).map((f) => {
+    const { previewUrl, uploadStatus, localId, ...rest } = f;
+    return rest;
+  });
+}
+
+/** Mantém pré-visualizações locais após salvar enquanto o upload ainda não terminou. */
+function preserveLocalFotoPreviews(localFotos, savedFotos) {
+  const saved = [...(savedFotos || [])];
+  const usados = new Set();
+  const merged = saved.map((sf) => {
+    const local = (localFotos || []).find((lf) => {
+      if (!lf.previewUrl || lf.url || usados.has(lf.localId)) return false;
+      if (lf.tipo !== sf.tipo) return false;
+      if (sf.url) return false;
+      if (lf.tipo === "avarias") {
+        return lf.dataHora === sf.dataHora && lf.lat === sf.lat && lf.lng === sf.lng;
+      }
+      return true;
+    });
+    if (!local) return sf;
+    usados.add(local.localId);
+    return {
+      ...sf,
+      previewUrl: local.previewUrl,
+      uploadStatus: local.uploadStatus,
+      localId: local.localId,
+    };
+  });
+  const extras = (localFotos || []).filter(
+    (lf) => lf.previewUrl && !lf.url && lf.localId && !usados.has(lf.localId)
+  );
+  return [...merged, ...extras];
+}
+
+function fotoUploadPendente(foto) {
+  return !!foto && (foto.uploadStatus === "uploading" || (!!foto.previewUrl && !foto.url));
+}
+
+function fotosUploadPendentes(checklist) {
+  const coleta = checklist?.coleta?.fotos || [];
+  const entrega = checklist?.entrega?.fotos || [];
+  return [...coleta, ...entrega].filter(fotoUploadPendente);
+}
+
+function fotosUploadFalharam(checklist) {
+  const coleta = checklist?.coleta?.fotos || [];
+  const entrega = checklist?.entrega?.fotos || [];
+  return [...coleta, ...entrega].filter((f) => f.uploadStatus === "failed");
+}
+
+async function aguardarUploadsFotos(checklistRef, timeoutMs = 90000) {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    const atual = checklistRef.current;
+    if (fotosUploadFalharam(atual).length) return false;
+    if (!fotosUploadPendentes(atual).length) return true;
+    await new Promise((r) => setTimeout(r, 400));
+  }
+  return !fotosUploadPendentes(checklistRef.current).length;
 }
 
 function AvisoEtapaTravada() {
@@ -1067,11 +1137,23 @@ function EtapaPdfEntrega({
   );
 }
 
-function PhotoSlot({ slot, foto, onCapture, onView, uploading, onRemove, somenteLeitura = false }) {
+function PhotoSlot({
+  slot,
+  foto,
+  processing = false,
+  onCapture,
+  onView,
+  onRetry,
+  onRemove,
+  somenteLeitura = false,
+}) {
   const displayUrl = foto?.previewUrl || foto?.url;
   const temFoto = !!displayUrl;
+  const uploading = foto?.uploadStatus === "uploading";
+  const failed = foto?.uploadStatus === "failed";
+  const synced = temFoto && !!foto?.url && !uploading && !failed;
   const handleAreaClick = () => {
-    if (uploading) return;
+    if (processing) return;
     if (somenteLeitura) {
       if (temFoto) onView?.(foto, slot.label);
       return;
@@ -1091,12 +1173,12 @@ function PhotoSlot({ slot, foto, onCapture, onView, uploading, onRemove, somente
       <button
         type="button"
         onClick={handleAreaClick}
-        disabled={uploading}
+        disabled={processing}
         style={{
           width: "100%",
           border: "none",
           background: temFoto ? "#000" : C.subtle,
-          cursor: uploading ? "wait" : "pointer",
+          cursor: processing ? "wait" : "pointer",
           padding: 0,
           position: "relative",
           minHeight: 120,
@@ -1105,20 +1187,20 @@ function PhotoSlot({ slot, foto, onCapture, onView, uploading, onRemove, somente
           justifyContent: "center",
         }}
       >
-        {uploading ? (
-          <div style={{ color: C.navy, fontWeight: 700, fontSize: 13, padding: 20 }}>⏳ Enviando…</div>
+        {processing && !temFoto ? (
+          <div style={{ color: C.navy, fontWeight: 700, fontSize: 13, padding: 20 }}>⏳ Processando…</div>
         ) : temFoto ? (
           foto?.previewUrl ? (
             <img
               src={foto.previewUrl}
               alt={slot.label}
-              style={{ width: "100%", height: 140, objectFit: "cover", display: "block" }}
+              style={{ width: "100%", maxHeight: 200, height: "auto", objectFit: "contain", display: "block" }}
             />
           ) : (
             <FotoPreviewImg
               urlOrPath={foto.url}
               alt={slot.label}
-              style={{ width: "100%", height: 140, objectFit: "cover", display: "block" }}
+              style={{ width: "100%", maxHeight: 200, height: "auto", objectFit: "contain", display: "block" }}
             />
           )
         ) : (
@@ -1133,7 +1215,89 @@ function PhotoSlot({ slot, foto, onCapture, onView, uploading, onRemove, somente
             )}
           </div>
         )}
-        {temFoto && !uploading && (
+        {uploading && temFoto && (
+          <div
+            style={{
+              position: "absolute",
+              top: 8,
+              right: 8,
+              background: "rgba(30,58,138,0.92)",
+              color: "#fff",
+              fontSize: 10,
+              fontWeight: 700,
+              padding: "4px 8px",
+              borderRadius: 8,
+              display: "flex",
+              alignItems: "center",
+              gap: 4,
+            }}
+          >
+            <RefreshCwIcon size={11} style={{ animation: "lr-btn-spin 1s linear infinite" }} />
+            Enviando…
+          </div>
+        )}
+        {synced && (
+          <div
+            style={{
+              position: "absolute",
+              top: 8,
+              right: 8,
+              background: "rgba(22,163,74,0.92)",
+              color: "#fff",
+              fontSize: 10,
+              fontWeight: 700,
+              padding: "4px 8px",
+              borderRadius: 8,
+              display: "flex",
+              alignItems: "center",
+              gap: 4,
+            }}
+          >
+            <CheckCircle2Icon size={11} />
+            Enviada
+          </div>
+        )}
+        {failed && (
+          <div
+            style={{
+              position: "absolute",
+              inset: 0,
+              background: "rgba(0,0,0,0.45)",
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 8,
+              padding: 12,
+            }}
+          >
+            <div style={{ color: "#fff", fontWeight: 700, fontSize: 12, textAlign: "center" }}>
+              Falha no envio
+            </div>
+            {!somenteLeitura && onRetry && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onRetry(foto);
+                }}
+                style={{
+                  background: "#fff",
+                  border: "none",
+                  borderRadius: 8,
+                  padding: "6px 12px",
+                  color: C.navy,
+                  fontWeight: 700,
+                  fontSize: 11,
+                  cursor: "pointer",
+                }}
+              >
+                Tentar novamente
+              </button>
+            )}
+          </div>
+        )}
+        {temFoto && (
           <div
             style={{
               position: "absolute",
@@ -1147,7 +1311,7 @@ function PhotoSlot({ slot, foto, onCapture, onView, uploading, onRemove, somente
               textAlign: "left",
             }}
           >
-            {foto.dataHora || (uploading ? "Enviando…" : "")}
+            {foto.dataHora || ""}
             {foto.lat != null && foto.lng != null ? ` · ${foto.lat.toFixed(4)}, ${foto.lng.toFixed(4)}` : ""}
           </div>
         )}
@@ -1170,11 +1334,11 @@ function PhotoSlot({ slot, foto, onCapture, onView, uploading, onRemove, somente
             <div style={{ color: C.muted, fontSize: 10, marginTop: 2 }}>Opcional · múltiplas fotos</div>
           )}
         </div>
-        {temFoto && !somenteLeitura && (
+        {temFoto && !somenteLeitura && !uploading && (
           <button
             type="button"
             onClick={onCapture}
-            disabled={uploading}
+            disabled={processing}
             style={{
               background: C.navyLight,
               border: `1px solid ${C.navy}33`,
@@ -1221,7 +1385,7 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState("");
   const [tentouFinalizarColeta, setTentouFinalizarColeta] = useState(false);
-  const [uploadingSlot, setUploadingSlot] = useState(null);
+  const [processingSlot, setProcessingSlot] = useState(null);
   const [slotAtivo, setSlotAtivo] = useState(null);
   const [gerandoPdf, setGerandoPdf] = useState(false);
   const [gerandoPdfEntrega, setGerandoPdfEntrega] = useState(false);
@@ -1231,7 +1395,7 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
   const [pdfFilenameCache, setPdfFilenameCache] = useState("");
   const [pdfModalTipo, setPdfModalTipo] = useState("coleta");
   const [tentouFinalizarEntrega, setTentouFinalizarEntrega] = useState(false);
-  const [uploadingEntregaSlot, setUploadingEntregaSlot] = useState(null);
+  const [processingEntregaSlot, setProcessingEntregaSlot] = useState(null);
   const [fotoContexto, setFotoContexto] = useState("coleta");
   const [mostrarDivergencias, setMostrarDivergencias] = useState(false);
   const [modalConfirmarDivergencia, setModalConfirmarDivergencia] = useState(false);
@@ -1255,6 +1419,7 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
   const checklistRef = useRef(checklist);
   const etapaRef = useRef(etapa);
   const migrationRanRef = useRef(null);
+  const pendingUploadsRef = useRef(new Map());
   checklistRef.current = checklist;
   etapaRef.current = etapa;
 
@@ -1469,10 +1634,14 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
       });
       const base = checklistRef.current || checklist;
       if (payload.coleta) {
-        payload.coleta = stripBase64AssinaturasColeta(normalizeColetaData(payload.coleta, base));
+        const normalized = normalizeColetaData(payload.coleta, base);
+        if (normalized.fotos) normalized.fotos = sanitizeFotosForFirestore(normalized.fotos);
+        payload.coleta = stripBase64AssinaturasColeta(normalized);
       }
       if (payload.entrega) {
-        payload.entrega = stripBase64AssinaturasEntrega(normalizeEntregaData(payload.entrega));
+        const normalized = normalizeEntregaData(payload.entrega);
+        if (normalized.fotos) normalized.fotos = sanitizeFotosForFirestore(normalized.fotos);
+        payload.entrega = stripBase64AssinaturasEntrega(normalized);
       }
       setSalvando(true);
       setErro("");
@@ -1484,6 +1653,19 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
         });
         if (merged.coleta) merged.coleta = normalizeColetaData(merged.coleta, merged);
         if (merged.entrega) merged.entrega = normalizeEntregaData(merged.entrega);
+        const localBase = checklistRef.current || checklist;
+        if (merged.coleta?.fotos) {
+          merged.coleta = {
+            ...merged.coleta,
+            fotos: preserveLocalFotoPreviews(localBase.coleta?.fotos, merged.coleta.fotos),
+          };
+        }
+        if (merged.entrega?.fotos) {
+          merged.entrega = {
+            ...merged.entrega,
+            fotos: preserveLocalFotoPreviews(localBase.entrega?.fotos, merged.entrega.fotos),
+          };
+        }
         if (!merged?.id) {
           logChecklist("warn", "[Checklist] Retorno antecipado: merged sem id após gravar", {
             checklistId,
@@ -1518,7 +1700,7 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
   );
 
   const handleGerarPdf = async () => {
-    const atual = checklistRef.current || checklist;
+    let atual = checklistRef.current || checklist;
     const okColeta =
       atual?.status === "aguardando_entrega" ||
       atual?.status === "concluido" ||
@@ -1544,6 +1726,25 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
       setErro(msg);
       setToastMsg(msg);
       return;
+    }
+    if (fotosUploadFalharam(atual).length) {
+      const msg = "Algumas fotos falharam no envio. Toque em Tentar novamente antes de gerar o PDF.";
+      setErro(msg);
+      setToastMsg(msg);
+      return;
+    }
+    if (fotosUploadPendentes(atual).length) {
+      setToastMsg("Aguardando envio das fotos…");
+      const pronto = await aguardarUploadsFotos(checklistRef);
+      if (!pronto) {
+        const msg = fotosUploadFalharam(checklistRef.current).length
+          ? "Algumas fotos falharam no envio. Tente novamente antes de gerar o PDF."
+          : "Ainda há fotos sendo enviadas. Aguarde e tente de novo.";
+        setErro(msg);
+        setToastMsg(msg);
+        return;
+      }
+      atual = checklistRef.current || checklist;
     }
     if (pdfBlobCache && pdfModalTipo === "coleta") {
       logChecklist("log", "[Checklist] Gerar PDF: reutilizando cache");
@@ -1579,7 +1780,7 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
   };
 
   const handleGerarPdfEntrega = async () => {
-    const atual = checklistRef.current || checklist;
+    let atual = checklistRef.current || checklist;
     logChecklist("log", "[Checklist] Gerar PDF entrega clicado", {
       status: atual?.status,
       gerandoPdfEntrega,
@@ -1593,6 +1794,25 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
       setErro(msg);
       setToastMsg(msg);
       return;
+    }
+    if (fotosUploadFalharam(atual).length) {
+      const msg = "Algumas fotos falharam no envio. Toque em Tentar novamente antes de gerar o PDF.";
+      setErro(msg);
+      setToastMsg(msg);
+      return;
+    }
+    if (fotosUploadPendentes(atual).length) {
+      setToastMsg("Aguardando envio das fotos…");
+      const pronto = await aguardarUploadsFotos(checklistRef);
+      if (!pronto) {
+        const msg = fotosUploadFalharam(checklistRef.current).length
+          ? "Algumas fotos falharam no envio. Tente novamente antes de gerar o PDF."
+          : "Ainda há fotos sendo enviadas. Aguarde e tente de novo.";
+        setErro(msg);
+        setToastMsg(msg);
+        return;
+      }
+      atual = checklistRef.current || checklist;
     }
     if (pdfBlobCache && pdfModalTipo === "entrega") {
       setShowPdfShare(true);
@@ -1621,7 +1841,7 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
   };
 
   const handleGerarPdfCompleto = async () => {
-    const atual = checklistRef.current || checklist;
+    let atual = checklistRef.current || checklist;
     logChecklist("log", "[Checklist] Gerar PDF completo clicado", {
       entregaConcluida: atual?.status === "concluido",
       gerandoPdf,
@@ -1638,6 +1858,25 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
       setErro(msg);
       setToastMsg(msg);
       return;
+    }
+    if (fotosUploadFalharam(atual).length) {
+      const msg = "Algumas fotos falharam no envio. Toque em Tentar novamente antes de gerar o PDF.";
+      setErro(msg);
+      setToastMsg(msg);
+      return;
+    }
+    if (fotosUploadPendentes(atual).length) {
+      setToastMsg("Aguardando envio das fotos…");
+      const pronto = await aguardarUploadsFotos(checklistRef);
+      if (!pronto) {
+        const msg = fotosUploadFalharam(checklistRef.current).length
+          ? "Algumas fotos falharam no envio. Tente novamente antes de gerar o PDF."
+          : "Ainda há fotos sendo enviadas. Aguarde e tente de novo.";
+        setErro(msg);
+        setToastMsg(msg);
+        return;
+      }
+      atual = checklistRef.current || checklist;
     }
     if (pdfBlobCache && pdfModalTipo === "completo") {
       setShowPdfShare(true);
@@ -2035,6 +2274,120 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
     fileInputRef.current?.click();
   };
 
+  const aplicarFotosNoChecklist = useCallback(
+    (isEntrega, fotos) => {
+      const base = checklistRef.current || checklist;
+      if (isEntrega) {
+        const entrega = { ...normalizeEntregaData(base.entrega), fotos };
+        const next = { ...base, entrega };
+        checklistRef.current = next;
+        setChecklist(next);
+        return next;
+      }
+      const coleta = { ...base.coleta, fotos };
+      const next = { ...base, coleta };
+      checklistRef.current = next;
+      setChecklist(next);
+      return next;
+    },
+    [checklist]
+  );
+
+  const enviarFotoBackground = useCallback(
+    async ({ localId, previewUrl, slotAtivo, isEntrega, blob, nomeArquivo, novaFoto, checklistId }) => {
+      const marcarFoto = (patch) => {
+        const base = checklistRef.current || checklist;
+        const fotosAtuais = isEntrega ? base.entrega?.fotos : base.coleta?.fotos;
+        const fotos = atualizarFotoPorLocalId(fotosAtuais, localId, patch);
+        aplicarFotosNoChecklist(isEntrega, fotos);
+      };
+
+      try {
+        marcarFoto({ uploadStatus: "uploading" });
+        logChecklist("log", "[Checklist] Enviando foto ao Storage (background)", {
+          nomeArquivo,
+          checklistId,
+          slot: slotAtivo,
+        });
+        const url = isEntrega
+          ? await uploadChecklistEntregaImage(uid, checklistId, nomeArquivo, blob)
+          : await uploadChecklistImage(uid, checklistId, nomeArquivo, blob);
+        logChecklist("log", "[Checklist] Upload concluído", { slot: slotAtivo, url: url?.slice(0, 80) });
+
+        const fotoFinal = { ...novaFoto, url, uploadStatus: undefined };
+        delete fotoFinal.previewUrl;
+        delete fotoFinal.localId;
+
+        const base = checklistRef.current || checklist;
+        const fotosAtuais = isEntrega ? base.entrega?.fotos : base.coleta?.fotos;
+        const fotos = atualizarFotosLista(fotosAtuais, slotAtivo, fotoFinal, previewUrl);
+        const next = aplicarFotosNoChecklist(isEntrega, fotos);
+        await salvar(isEntrega ? { entrega: next.entrega } : { coleta: next.coleta });
+
+        pendingUploadsRef.current.delete(localId);
+        if (previewUrl) URL.revokeObjectURL(previewUrl);
+      } catch (err) {
+        logChecklist("error", "[Checklist] Falha upload foto (background):", err);
+        marcarFoto({ uploadStatus: "failed" });
+        setToastMsg("Falha ao enviar foto. Toque em Tentar novamente.");
+      }
+    },
+    [uid, checklist, salvar, aplicarFotosNoChecklist]
+  );
+
+  const retryUploadFoto = useCallback(
+    (foto, contexto = "coleta") => {
+      if (!foto?.localId || !uid || !checklist?.id) return;
+      const pending = pendingUploadsRef.current.get(foto.localId);
+      const isEntrega = contexto === "entrega";
+      const checklistId = checklist.id;
+      const slotAtivo = foto.tipo;
+      const nomeArquivo =
+        pending?.nomeArquivo ||
+        (slotAtivo === "avarias"
+          ? `avarias_${Date.now()}`
+          : isEntrega
+            ? `entrega_${slotAtivo}`
+            : slotAtivo);
+
+      const run = async () => {
+        let blob = pending?.blob;
+        if (!blob && foto.previewUrl) {
+          try {
+            blob = await fetch(foto.previewUrl).then((r) => r.blob());
+          } catch {
+            setToastMsg("Não foi possível recuperar a foto para reenvio.");
+            return;
+          }
+        }
+        if (!blob) {
+          setToastMsg("Foto local indisponível. Capture novamente.");
+          return;
+        }
+        pendingUploadsRef.current.set(foto.localId, {
+          blob,
+          nomeArquivo,
+          slotAtivo,
+          isEntrega,
+          previewUrl: foto.previewUrl,
+          novaFoto: foto,
+        });
+        await enviarFotoBackground({
+          localId: foto.localId,
+          previewUrl: foto.previewUrl,
+          slotAtivo,
+          isEntrega,
+          blob,
+          nomeArquivo,
+          novaFoto: foto,
+          checklistId,
+        });
+      };
+      void run();
+    },
+    [uid, checklist, enviarFotoBackground]
+  );
+
   const handleArquivoFoto = async (e) => {
     const file = e.target.files?.[0];
     e.target.value = "";
@@ -2050,14 +2403,15 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
 
     const isEntrega = fotoContexto === "entrega";
     const checklistId = checklist.id;
-    logChecklist("log", "[Checklist] Foto capturada", { slot: slotAtivo, contexto: fotoContexto, checklistId });
+    const slotCaptura = slotAtivo;
+    logChecklist("log", "[Checklist] Foto capturada", { slot: slotCaptura, contexto: fotoContexto, checklistId });
 
-    if (isEntrega) setUploadingEntregaSlot(slotAtivo);
-    else setUploadingSlot(slotAtivo);
+    if (isEntrega) setProcessingEntregaSlot(slotCaptura);
+    else setProcessingSlot(slotCaptura);
     setErro("");
 
     let previewUrl = null;
-    let fotoPersistida = false;
+    let localId = null;
     try {
       const gps = await getDriverGeolocation({ preferFresh: true });
       const lat = gps?.lat ?? null;
@@ -2067,89 +2421,69 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
       const stamp = buildPhotoStampText(lat, lng, now);
       const blob = await stampAndCompressImage(file, stamp);
       previewUrl = URL.createObjectURL(blob);
-      logChecklist("log", "[Checklist] Foto comprimida, preview local criado", { slot: slotAtivo });
+      localId = `${slotCaptura}_${Date.now()}`;
+      logChecklist("log", "[Checklist] Foto comprimida, preview local criado", { slot: slotCaptura });
 
       const slots = isEntrega ? CHECKLIST_ENTREGA_FOTO_SLOTS : CHECKLIST_FOTO_SLOTS;
-      const slotInfo = slots.find((s) => s.id === slotAtivo);
+      const slotInfo = slots.find((s) => s.id === slotCaptura);
       const novaFoto = {
-        tipo: slotAtivo,
-        label: slotInfo?.label || slotAtivo,
+        tipo: slotCaptura,
+        label: slotInfo?.label || slotCaptura,
         url: "",
         previewUrl,
+        localId,
+        uploadStatus: "uploading",
         dataHora,
         lat,
         lng,
       };
 
       const base = checklistRef.current || checklist;
-      if (isEntrega) {
-        const fotos = atualizarFotosLista(base.entrega?.fotos, slotAtivo, novaFoto);
-        const entrega = { ...base.entrega, fotos };
-        setChecklist((c) => ({ ...c, entrega }));
-        checklistRef.current = { ...base, entrega };
-      } else {
-        const fotos = atualizarFotosLista(base.coleta?.fotos, slotAtivo, novaFoto);
-        const coleta = { ...base.coleta, fotos };
-        setChecklist((c) => ({ ...c, coleta }));
-        checklistRef.current = { ...base, coleta };
+      const fotosExistentes = isEntrega ? base.entrega?.fotos : base.coleta?.fotos;
+      if (slotCaptura !== "avarias") {
+        const anterior = (fotosExistentes || []).find((f) => f.tipo === slotCaptura);
+        if (anterior?.previewUrl) URL.revokeObjectURL(anterior.previewUrl);
+        if (anterior?.localId) pendingUploadsRef.current.delete(anterior.localId);
       }
+
+      const fotos = atualizarFotosLista(fotosExistentes, slotCaptura, novaFoto);
+      aplicarFotosNoChecklist(isEntrega, fotos);
 
       const nomeArquivo =
-        slotAtivo === "avarias"
+        slotCaptura === "avarias"
           ? `avarias_${Date.now()}`
           : isEntrega
-            ? `entrega_${slotAtivo}`
-            : slotAtivo;
-      logChecklist("log", "[Checklist] Enviando foto ao Storage", { nomeArquivo, checklistId });
-      const url = isEntrega
-        ? await uploadChecklistEntregaImage(uid, checklistId, nomeArquivo, blob)
-        : await uploadChecklistImage(uid, checklistId, nomeArquivo, blob);
-      logChecklist("log", "[Checklist] Upload concluído", { slot: slotAtivo, url: url?.slice(0, 80) });
+            ? `entrega_${slotCaptura}`
+            : slotCaptura;
 
-      const fotoFinal = { ...novaFoto, url };
-      delete fotoFinal.previewUrl;
+      pendingUploadsRef.current.set(localId, {
+        blob,
+        nomeArquivo,
+        slotAtivo: slotCaptura,
+        isEntrega,
+        previewUrl,
+        novaFoto,
+      });
 
-      const atual = checklistRef.current || checklist;
-      if (isEntrega) {
-        const fotos = atualizarFotosLista(atual.entrega?.fotos, slotAtivo, fotoFinal, previewUrl);
-        const entregaSalvar = { ...atual.entrega, fotos };
-        setChecklist((c) => ({ ...c, entrega: entregaSalvar }));
-        checklistRef.current = { ...atual, entrega: entregaSalvar };
-        logChecklist("log", "[Checklist] Persistindo foto entrega no Firestore", {
-          slot: slotAtivo,
-          totalFotos: fotos.length,
-        });
-        const ok = await salvar({ entrega: entregaSalvar });
-        logChecklist("log", "[Checklist] Foto entrega salva", { ok: !!ok, slot: slotAtivo });
-        fotoPersistida = !!ok;
-      } else {
-        const fotos = atualizarFotosLista(atual.coleta?.fotos, slotAtivo, fotoFinal, previewUrl);
-        const coletaSalvar = { ...atual.coleta, fotos };
-        setChecklist((c) => ({ ...c, coleta: coletaSalvar }));
-        checklistRef.current = { ...atual, coleta: coletaSalvar };
-        logChecklist("log", "[Checklist] Persistindo foto coleta no Firestore", {
-          slot: slotAtivo,
-          totalFotos: fotos.length,
-        });
-        const ok = await salvar({ coleta: coletaSalvar });
-        logChecklist("log", "[Checklist] Foto coleta salva", { ok: !!ok, slot: slotAtivo });
-        fotoPersistida = !!ok;
-      }
+      void enviarFotoBackground({
+        localId,
+        previewUrl,
+        slotAtivo: slotCaptura,
+        isEntrega,
+        blob,
+        nomeArquivo,
+        novaFoto,
+        checklistId,
+      });
     } catch (err) {
-      logChecklist("error", "[Checklist] Falha no fluxo de foto:", err);
-      const base = checklistRef.current || checklist;
-      if (isEntrega) {
-        const fotos = (base.entrega?.fotos || []).filter((f) => f.previewUrl !== previewUrl);
-        setChecklist((c) => ({ ...c, entrega: { ...c.entrega, fotos } }));
-      } else {
-        const fotos = (base.coleta?.fotos || []).filter((f) => f.previewUrl !== previewUrl);
-        setChecklist((c) => ({ ...c, coleta: { ...c.coleta, fotos } }));
-      }
-      setErro("Falha ao enviar foto. Tente novamente.");
+      logChecklist("error", "[Checklist] Falha no processamento local da foto:", err);
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+      if (localId) pendingUploadsRef.current.delete(localId);
+      setErro("Falha ao processar a foto. Tente novamente.");
+      setToastMsg("Falha ao processar a foto.");
     } finally {
-      if (previewUrl && fotoPersistida) URL.revokeObjectURL(previewUrl);
-      if (isEntrega) setUploadingEntregaSlot(null);
-      else setUploadingSlot(null);
+      if (isEntrega) setProcessingEntregaSlot(null);
+      else setProcessingSlot(null);
       setSlotAtivo(null);
     }
   };
@@ -2565,6 +2899,8 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
   const fotosEntrega = checklist.entrega?.fotos || [];
   const fotoEntregaPorSlot = (slotId) => fotosEntrega.find((f) => f.tipo === slotId);
   const fotosAvariasEntrega = fotosEntrega.filter((f) => f.tipo === "avarias");
+  const coletaProcessandoFoto = !!processingSlot;
+  const entregaProcessandoFoto = !!processingEntregaSlot;
 
   return (
     <div
@@ -2939,9 +3275,10 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
                   key={slot.id}
                   slot={slot}
                   foto={fotoPorSlot(slot.id)}
-                  uploading={uploadingSlot === slot.id}
+                  processing={processingSlot === slot.id && !fotoPorSlot(slot.id)?.previewUrl}
                   onCapture={() => abrirCaptura(slot.id)}
                   onView={abrirVisualizadorFoto}
+                  onRetry={(f) => retryUploadFoto(f, "coleta")}
                   somenteLeitura={travarEtapasColeta}
                 />
               ))}
@@ -2956,9 +3293,10 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
                   key={`avarias-${globalIdx}`}
                   slot={CHECKLIST_FOTO_SLOTS.find((s) => s.id === "avarias")}
                   foto={foto}
-                  uploading={uploadingSlot === "avarias"}
+                  processing={false}
                   onCapture={() => abrirCaptura("avarias")}
                   onView={abrirVisualizadorFoto}
+                  onRetry={(f) => retryUploadFoto(f, "coleta")}
                   onRemove={() => removerFotoAvaria(globalIdx)}
                   somenteLeitura={travarEtapasColeta}
                 />
@@ -2968,7 +3306,7 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
             <button
               type="button"
               onClick={() => abrirCaptura("avarias")}
-              disabled={!!uploadingSlot}
+              disabled={coletaProcessandoFoto}
               style={{
                 width: "100%",
                 padding: "12px 0",
@@ -2978,16 +3316,16 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
                 color: C.text2,
                 fontWeight: 700,
                 fontSize: 14,
-                cursor: uploadingSlot ? "wait" : "pointer",
+                cursor: coletaProcessandoFoto ? "wait" : "pointer",
               }}
             >
-              + Adicionar foto de avaria
+              {processingSlot === "avarias" ? "⏳ Processando…" : "+ Adicionar foto de avaria"}
             </button>
             )}
             <button
               type="button"
               onClick={avancarEtapa3}
-              disabled={salvando || !!uploadingSlot || travarEtapasColeta}
+              disabled={salvando || coletaProcessandoFoto || travarEtapasColeta}
               style={{
                 width: "100%",
                 padding: "14px 0",
@@ -2997,9 +3335,9 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
                 color: "#fff",
                 fontWeight: 800,
                 fontSize: 15,
-                cursor: salvando || uploadingSlot ? "wait" : "pointer",
+                cursor: salvando || coletaProcessandoFoto ? "wait" : "pointer",
                 fontFamily: "'Sora',sans-serif",
-                opacity: salvando || uploadingSlot ? 0.7 : 1,
+                opacity: salvando || coletaProcessandoFoto ? 0.7 : 1,
               }}
             >
               {salvando ? "Salvando…" : "Ir para Assinaturas →"}
@@ -3116,9 +3454,10 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
                   key={slot.id}
                   slot={slot}
                   foto={fotoEntregaPorSlot(slot.id)}
-                  uploading={uploadingEntregaSlot === slot.id}
+                  processing={processingEntregaSlot === slot.id && !fotoEntregaPorSlot(slot.id)?.previewUrl}
                   onCapture={() => abrirCaptura(slot.id, "entrega")}
                   onView={abrirVisualizadorFoto}
+                  onRetry={(f) => retryUploadFoto(f, "entrega")}
                   somenteLeitura={travarEntrega}
                 />
               ))}
@@ -3133,9 +3472,10 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
                   key={`entrega-avarias-${globalIdx}`}
                   slot={CHECKLIST_ENTREGA_FOTO_SLOTS.find((s) => s.id === "avarias")}
                   foto={foto}
-                  uploading={uploadingEntregaSlot === "avarias"}
+                  processing={false}
                   onCapture={() => abrirCaptura("avarias", "entrega")}
                   onView={abrirVisualizadorFoto}
+                  onRetry={(f) => retryUploadFoto(f, "entrega")}
                   onRemove={() => removerFotoAvaria(globalIdx, "entrega")}
                   somenteLeitura={travarEntrega}
                 />
@@ -3145,7 +3485,7 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
             <button
               type="button"
               onClick={() => abrirCaptura("avarias", "entrega")}
-              disabled={!!uploadingEntregaSlot}
+              disabled={entregaProcessandoFoto}
               style={{
                 width: "100%",
                 padding: "12px 0",
@@ -3155,10 +3495,10 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
                 color: C.text2,
                 fontWeight: 700,
                 fontSize: 14,
-                cursor: uploadingEntregaSlot ? "wait" : "pointer",
+                cursor: entregaProcessandoFoto ? "wait" : "pointer",
               }}
             >
-              + Adicionar foto de avaria
+              {processingEntregaSlot === "avarias" ? "⏳ Processando…" : "+ Adicionar foto de avaria"}
             </button>
             )}
 
@@ -3412,7 +3752,7 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
             <button
               type="button"
               onClick={finalizarEntrega}
-              disabled={entregaConcluida || salvando || !!uploadingEntregaSlot || travarEntrega}
+              disabled={entregaConcluida || salvando || entregaProcessandoFoto || travarEntrega}
               style={{
                 width: "100%",
                 padding: "14px 0",
@@ -3422,9 +3762,9 @@ export default function ChecklistVeiculo({ checklist: initial, frete, uid, perfi
                 color: "#fff",
                 fontWeight: 800,
                 fontSize: 15,
-                cursor: entregaConcluida || salvando || uploadingEntregaSlot ? "default" : "pointer",
+                cursor: entregaConcluida || salvando || entregaProcessandoFoto ? "default" : "pointer",
                 fontFamily: "'Sora',sans-serif",
-                opacity: entregaConcluida || salvando || uploadingEntregaSlot ? 0.7 : 1,
+                opacity: entregaConcluida || salvando || entregaProcessandoFoto ? 0.7 : 1,
               }}
             >
               {salvando ? "Salvando…" : entregaConcluida ? "Entrega concluída" : "Finalizar entrega"}
