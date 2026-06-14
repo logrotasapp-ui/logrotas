@@ -115,7 +115,7 @@ import {
   NavigationIcon, CalculatorIcon, BarChart3Icon, FuelIcon,
   TrendingUpIcon, TrendingDownIcon, DollarSignIcon, MapPinIcon,
   EyeIcon, EyeOffIcon, UserIcon, MailIcon, RouteIcon, InfoIcon, KeyIcon,
-  LogOutIcon, EditIcon, SaveIcon, ChevronLeftIcon, ChevronRightIcon,
+  LogOutIcon, EditIcon, PenLineIcon, SaveIcon, ChevronLeftIcon, ChevronRightIcon,
   ThumbsUpIcon, ThumbsDownIcon, SettingsIcon,
 } from "lucide-react";
 
@@ -123,7 +123,7 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="V271";
+const APP_VERSION="V272";
 const BETA_HIDE_PLANOS=true;
 
 const OfflineRestoredBanner=({show})=>show?(
@@ -4228,7 +4228,7 @@ const Dashboard=({onNav,setShowCalc,setCalcMode,historicoFretes,manutencoes,docs
             onClick={()=>onNovoChecklist?.()}
             style={{gridColumn:"1 / -1",background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:"13px 15px",cursor:"pointer",textAlign:"left",display:"flex",alignItems:"center",gap:11,boxShadow:"0 1px 4px #1E3A8A08"}}
           >
-            <div style={{background:C.navy+"18",borderRadius:10,padding:8,flexShrink:0}}><FileTextIcon size={16} color={C.navy}/></div>
+            <div style={{background:C.navy+"18",borderRadius:10,padding:8,flexShrink:0}}><PenLineIcon size={16} color={C.navy}/></div>
             <div>
               <div style={{color:C.text,fontWeight:700,fontSize:14}}>Novo Checklist</div>
               <div style={{color:C.muted,fontSize:12,marginTop:2}}>Checklist avulso de veículo</div>
