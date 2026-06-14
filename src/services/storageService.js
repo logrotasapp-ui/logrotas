@@ -2,7 +2,8 @@ import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { storage } from "../firebase.js";
 import { logChecklist } from "./checklistLogSanitizer.js";
 
-const MAX_DIM = 1280;
+/** Máximo no lado maior antes de embutir no PDF / enviar ao Storage (checklist fotos). */
+const MAX_DIM = 1600;
 const JPEG_QUALITY = 0.7;
 
 function loadImageFromBlob(blob) {
@@ -32,7 +33,8 @@ function blobFromCanvas(canvas, quality = JPEG_QUALITY) {
 }
 
 /**
- * Redimensiona para máx 1280px no lado maior e exporta JPEG (~0.7).
+ * Redimensiona para máx 1600px no lado maior e exporta JPEG (~0.7) via canvas.
+ * Aceita File ou Blob (captura da câmera/galeria).
  */
 export async function compressImageToJpegBlob(input) {
   const img = await loadImageFromBlob(input);
