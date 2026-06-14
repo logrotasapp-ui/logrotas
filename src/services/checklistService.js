@@ -4,6 +4,7 @@ import {
   getDocs,
   addDoc,
   updateDoc,
+  deleteDoc,
   query,
   where,
   serverTimestamp,
@@ -355,7 +356,9 @@ function buildNovoDocumento(freteId, dados = {}) {
   return {
     numero: "",
     status: "coleta",
-    freteId,
+    freteId: freteId ?? null,
+    avulso: false,
+    enviadoEm: null,
     cliente: {
       nome: dados.cliente?.nome || "",
       telefone: dados.cliente?.telefone || "",
@@ -495,6 +498,47 @@ export async function criarChecklist(uid, freteId, dados = {}) {
   });
 
   return { id: ref.id, ...payload };
+}
+
+/** Checklist avulso (sem frete). */
+export async function criarChecklistAvulso(uid, dados = {}) {
+  if (!uid) throw new Error("uid é obrigatório");
+
+  const numero = await gerarNumero(uid);
+  const payload = buildNovoDocumento(null, dados);
+  payload.numero = numero;
+  payload.avulso = true;
+  payload.freteId = null;
+  payload.enviadoEm = null;
+
+  const ref = await addDoc(colRef(uid), {
+    ...sanitizeFirestoreData(payload),
+    criadoEm: serverTimestamp(),
+    atualizadoEm: serverTimestamp(),
+  });
+
+  return { id: ref.id, ...payload };
+}
+
+/** Avulso finalizado e ainda não enviado (máx. 1 por usuário). */
+export function isChecklistAvulsoPendente(checklist) {
+  return !!checklist?.avulso && checklist?.status === "concluido" && !checklist?.enviadoEm;
+}
+
+export async function buscarChecklistAvulsoPendente(uid) {
+  if (!uid) return null;
+
+  const q = query(colRef(uid), where("avulso", "==", true));
+  const snap = await getDocs(q);
+  const pendentes = snap.docs
+    .map((d) => ({ ...d.data(), id: d.id }))
+    .filter(isChecklistAvulsoPendente);
+  return pendentes[0] || null;
+}
+
+export async function excluirChecklist(uid, checklistId) {
+  if (!uid || !checklistId) throw new Error("uid e checklistId são obrigatórios");
+  await deleteDoc(doc(db, "users", uid, COLLECTION, checklistId));
 }
 
 export async function atualizarChecklist(uid, checklistId, data) {

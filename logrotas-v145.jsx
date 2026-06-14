@@ -54,7 +54,7 @@ import DeliveryMap from "./src/components/DeliveryMap.js";
 import NavigationMap from "./src/components/NavigationMap.jsx";
 import ProgressOverlay from "./src/components/ProgressOverlay.jsx";
 import ChecklistVeiculo from "./src/components/ChecklistVeiculo.jsx";
-import { criarChecklist, buscarChecklistPorFrete } from "./src/services/checklistService.js";
+import { criarChecklist, buscarChecklistPorFrete, criarChecklistAvulso, buscarChecklistAvulsoPendente } from "./src/services/checklistService.js";
 import { logChecklist } from "./src/services/checklistLogSanitizer.js";
 import { loadDeliveryRoutes, saveDeliveryRoute, deleteDeliveryRoute } from "./src/services/deliveryRouteService.js";
 import {
@@ -119,7 +119,7 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="V268";
+const APP_VERSION="V269";
 const BETA_HIDE_PLANOS=true;
 
 const OfflineRestoredBanner=({show})=>show?(
@@ -4040,7 +4040,7 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
 };
 
 // ── DASHBOARD ─────────────────────────────────────────────────────────────────
-const Dashboard=({onNav,setShowCalc,setCalcMode,historicoFretes,manutencoes,docs,despesas=[],perfil})=>{
+const Dashboard=({onNav,setShowCalc,setCalcMode,historicoFretes,manutencoes,docs,despesas=[],perfil,onNovoChecklist})=>{
   const[showReferralSoon,setShowReferralSoon]=useState(false);
   const hoje=new Date();hoje.setHours(0,0,0,0);
   const docsVencendo=(docs||[]).filter(d=>{
@@ -4219,6 +4219,17 @@ const Dashboard=({onNav,setShowCalc,setCalcMode,historicoFretes,manutencoes,docs
               <div><div style={{color:C.text,fontWeight:700,fontSize:14}}>{s.label}</div><div style={{color:C.muted,fontSize:12,marginTop:2}}>{s.sub}</div></div>
             </button>
           ))}
+          <button
+            type="button"
+            onClick={()=>onNovoChecklist?.()}
+            style={{gridColumn:"1 / -1",background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:"13px 15px",cursor:"pointer",textAlign:"left",display:"flex",alignItems:"center",gap:11,boxShadow:"0 1px 4px #1E3A8A08"}}
+          >
+            <div style={{background:C.navy+"18",borderRadius:10,padding:8,flexShrink:0}}><FileTextIcon size={16} color={C.navy}/></div>
+            <div>
+              <div style={{color:C.text,fontWeight:700,fontSize:14}}>Novo Checklist</div>
+              <div style={{color:C.muted,fontSize:12,marginTop:2}}>Checklist avulso de veículo</div>
+            </div>
+          </button>
         </div>
       </div>
       {showReferralSoon&&(
@@ -6299,6 +6310,7 @@ export default function App(){
   const docsVencendo=(docs||[]).filter(d=>{if(!d.expiry)return false;const[dia,mes,ano]=d.expiry.split("/");const dias=Math.ceil((new Date(ano,mes-1,dia)-hoje)/(1000*60*60*24));return dias<=60&&dias>=0;});
   const[perfil,setPerfil]=useState({nome:"",email:"",telefone:"",documento:"",tipo:"Motorista Autônomo",veiculo:""});
   const[checklistScreen,setChecklistScreen]=useState(null);
+  const[checklistPendenteModal,setChecklistPendenteModal]=useState(null);
   const[authReady,setAuthReady]=useState(false);
   const[firebaseUser,setFirebaseUser]=useState(null);
   const[splashDone,setSplashDone]=useState(false);
@@ -6455,6 +6467,42 @@ export default function App(){
       setChecklistScreen({frete,checklist});
     }catch(err){
       logChecklist("error","[Checklist] Falha ao abrir/criar checklist:",err);
+    }
+  },[firebaseUser?.uid]);
+
+  useEffect(()=>{
+    let startY=0;
+    const onTouchStart=(e)=>{startY=e.touches?.[0]?.clientY??0;};
+    const onTouchMove=(e)=>{
+      const scrollEl=document.scrollingElement||document.documentElement;
+      if(scrollEl.scrollTop<=0&&e.touches?.[0]?.clientY>startY+4){
+        e.preventDefault();
+      }
+    };
+    document.addEventListener("touchstart",onTouchStart,{passive:true});
+    document.addEventListener("touchmove",onTouchMove,{passive:false});
+    return()=>{
+      document.removeEventListener("touchstart",onTouchStart);
+      document.removeEventListener("touchmove",onTouchMove);
+    };
+  },[]);
+
+  const handleNovoChecklistAvulso=useCallback(async()=>{
+    const uid=firebaseUser?.uid;
+    if(!uid){
+      logChecklist("warn","[Checklist] Novo avulso abortado: sem uid");
+      return;
+    }
+    try{
+      const pendente=await buscarChecklistAvulsoPendente(uid);
+      if(pendente){
+        setChecklistPendenteModal(pendente);
+        return;
+      }
+      const checklist=await criarChecklistAvulso(uid,{});
+      setChecklistScreen({frete:null,checklist,abrirEnvioAoMontar:false});
+    }catch(err){
+      logChecklist("error","[Checklist] Falha ao criar checklist avulso:",err);
     }
   },[firebaseUser?.uid]);
 
@@ -6733,7 +6781,7 @@ export default function App(){
         );})}
       </div>
       <div style={{maxWidth:820,margin:"0 auto",padding:`20px 14px ${showNavActiveBanner?(plan==="free"?"168px":"128px"):plan==="free"?"120px":"80px"}`}}>
-        {page==="dashboard"   &&<Dashboard onNav={setPage} setShowCalc={setShowCalc} setCalcMode={setCalcMode} historicoFretes={historicoFretes} manutencoes={manutencoes} docs={docs} despesas={despesas} perfil={perfil}/>}
+        {page==="dashboard"   &&<Dashboard onNav={setPage} setShowCalc={setShowCalc} setCalcMode={setCalcMode} historicoFretes={historicoFretes} manutencoes={manutencoes} docs={docs} despesas={despesas} perfil={perfil} onNovoChecklist={handleNovoChecklistAvulso}/>}
         {page==="financeiro"  &&<Financeiro historicoFretes={historicoFretes} manutencoes={manutencoes} despesas={despesas}/>}
         {page==="despesas"    &&<Despesas despesas={despesas} onAddDespesa={handleAddDespesa} onUpdateDespesa={handleUpdateDespesa} onDeleteDespesa={handleDeleteDespesa}/>}
         {page==="comparador"  &&<Comparador historicoFretes={historicoFretes} onAddFrete={handleAddFrete} onUpdateFrete={handleUpdateFrete} onDeleteFrete={handleDeleteFrete} perfil={perfil} uid={firebaseUser?.uid} onOpenChecklist={handleOpenChecklist}/>}
@@ -6751,7 +6799,9 @@ export default function App(){
           frete={checklistScreen.frete}
           uid={firebaseUser?.uid}
           perfil={perfil}
+          abrirEnvioAoMontar={!!checklistScreen.abrirEnvioAoMontar}
           onClose={()=>setChecklistScreen(null)}
+          onAvulsoEnviado={()=>setChecklistScreen(null)}
           onSaved={(c)=>{
             if(!c?.id){
               logChecklist("warn","[Checklist] onSaved ignorado: checklist sem id",c);
@@ -6760,6 +6810,47 @@ export default function App(){
             setChecklistScreen(s=>({...s,checklist:c}));
           }}
         />
+      )}
+      {checklistPendenteModal&&(
+        <div style={{position:"fixed",inset:0,background:"#1E3A8A66",zIndex:960,display:"flex",alignItems:"center",justifyContent:"center",padding:20}} onClick={()=>setChecklistPendenteModal(null)}>
+          <div style={{background:C.surface,borderRadius:18,width:"100%",maxWidth:360,padding:24,boxShadow:"0 12px 40px #00000033",textAlign:"center"}} onClick={e=>e.stopPropagation()}>
+            <div style={{fontSize:36,marginBottom:10}}>📋</div>
+            <div style={{color:C.navy,fontWeight:800,fontSize:16,fontFamily:"'Sora',sans-serif",marginBottom:10}}>Checklist não enviado</div>
+            <div style={{color:C.text2,fontSize:14,marginBottom:22,lineHeight:1.55}}>
+              Você tem um checklist finalizado que ainda não foi enviado. Deseja enviá-lo antes de começar outro?
+            </div>
+            <div style={{display:"flex",flexDirection:"column",gap:10}}>
+              <button
+                type="button"
+                onClick={()=>{
+                  const pendente=checklistPendenteModal;
+                  setChecklistPendenteModal(null);
+                  setChecklistScreen({frete:null,checklist:pendente,abrirEnvioAoMontar:true});
+                }}
+                style={{width:"100%",padding:"12px 0",background:C.navy,border:"none",borderRadius:12,color:"#fff",fontWeight:800,fontSize:14,cursor:"pointer",fontFamily:"'Sora',sans-serif"}}
+              >
+                Enviar agora
+              </button>
+              <button
+                type="button"
+                onClick={async()=>{
+                  const uid=firebaseUser?.uid;
+                  setChecklistPendenteModal(null);
+                  if(!uid)return;
+                  try{
+                    const checklist=await criarChecklistAvulso(uid,{});
+                    setChecklistScreen({frete:null,checklist,abrirEnvioAoMontar:false});
+                  }catch(err){
+                    logChecklist("error","[Checklist] Falha ao criar novo avulso:",err);
+                  }
+                }}
+                style={{width:"100%",padding:"12px 0",background:C.subtle,border:`1px solid ${C.border}`,borderRadius:12,color:C.text2,fontWeight:700,fontSize:14,cursor:"pointer"}}
+              >
+                Começar novo
+              </button>
+            </div>
+          </div>
+        </div>
       )}
       {/* Modal notificações */}
       {showNotif&&(
