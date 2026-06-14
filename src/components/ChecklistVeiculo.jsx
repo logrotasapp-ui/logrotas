@@ -25,7 +25,7 @@ import {
   getEstadoEntregaItem,
   inicializarEstadosEntrega,
   proximoEstadoAcessorio,
-  excluirChecklist,
+  aplicarLimiteAvulsosSalvos,
 } from "../services/checklistService.js";
 import {
   stampAndCompressImage,
@@ -1416,8 +1416,7 @@ export default function ChecklistVeiculo({
   perfil,
   onClose,
   onSaved,
-  onAvulsoEnviado,
-  abrirEnvioAoMontar = false,
+  onAvulsoFinalizado,
 }) {
   const [checklist, setChecklist] = useState(() => normalizeChecklist(initial));
   const [etapa, setEtapa] = useState(1);
@@ -1459,7 +1458,6 @@ export default function ChecklistVeiculo({
   const etapaRef = useRef(etapa);
   const migrationRanRef = useRef(null);
   const pendingUploadsRef = useRef(new Map());
-  const envioAutoRef = useRef(false);
   const gerarPdfCompletoRef = useRef(null);
   checklistRef.current = checklist;
   etapaRef.current = etapa;
@@ -1945,31 +1943,6 @@ export default function ChecklistVeiculo({
     }
   };
   gerarPdfCompletoRef.current = handleGerarPdfCompleto;
-
-  const concluirEnvioAvulso = useCallback(async () => {
-    const atual = checklistRef.current || checklist;
-    if (!atual?.avulso || atual?.status !== "concluido" || !uid || !atual?.id) return;
-    try {
-      await excluirChecklist(uid, atual.id);
-      setShowPdfShare(false);
-      onAvulsoEnviado?.();
-    } catch (err) {
-      logChecklist("error", "[Checklist] Falha ao remover avulso após envio:", err);
-      setToastMsg("Não foi possível concluir o envio.");
-    }
-  }, [uid, checklist, onAvulsoEnviado]);
-
-  useEffect(() => {
-    if (!abrirEnvioAoMontar || envioAutoRef.current) return;
-    const atual = checklistRef.current || checklist;
-    if (!atual?.avulso || atual?.status !== "concluido") return;
-    envioAutoRef.current = true;
-    setEtapa(6);
-    const t = setTimeout(() => {
-      gerarPdfCompletoRef.current?.();
-    }, 500);
-    return () => clearTimeout(t);
-  }, [abrirEnvioAoMontar, checklist?.id, checklist?.avulso, checklist?.status]);
 
   const assinaturaSalvaValida = (assin) =>
     !!assin?.imagemUrl?.trim() && !String(assin.imagemUrl).startsWith("data:");
@@ -2951,6 +2924,15 @@ export default function ChecklistVeiculo({
         recebedorEntregaPadRef.current?.clear?.();
         prestadorEntregaPadRef.current?.clear?.();
         setSubstituirEntrega({ recebedor: false, prestador: false });
+        const atualizado = checklistRef.current || checklist;
+        if (atualizado?.avulso && uid) {
+          try {
+            await aplicarLimiteAvulsosSalvos(uid);
+            onAvulsoFinalizado?.();
+          } catch (err) {
+            logChecklist("error", "[Checklist] Falha ao limitar avulsos salvos:", err);
+          }
+        }
       }
     } catch (err) {
       logChecklist("error", "[Checklist] Falha finalizar entrega:", err);
@@ -4010,7 +3992,6 @@ export default function ChecklistVeiculo({
                         else if (pdfModalTipo === "entrega") shareChecklistEntregaWhatsApp(pdfParams);
                         else shareChecklistColetaWhatsApp(pdfParams);
                       }
-                      await concluirEnvioAvulso();
                     }}
                     style={{
                       width: "100%",
@@ -4033,7 +4014,6 @@ export default function ChecklistVeiculo({
                     if (pdfModalTipo === "completo") shareChecklistCompletoWhatsApp(pdfParams);
                     else if (pdfModalTipo === "entrega") shareChecklistEntregaWhatsApp(pdfParams);
                     else shareChecklistColetaWhatsApp(pdfParams);
-                    void concluirEnvioAvulso();
                   }}
                   style={{
                     width: "100%",

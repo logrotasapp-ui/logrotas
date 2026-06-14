@@ -520,20 +520,68 @@ export async function criarChecklistAvulso(uid, dados = {}) {
   return { id: ref.id, ...payload };
 }
 
-/** Avulso finalizado e ainda não enviado (máx. 1 por usuário). */
-export function isChecklistAvulsoPendente(checklist) {
-  return !!checklist?.avulso && checklist?.status === "concluido" && !checklist?.enviadoEm;
+/** Checklist avulso finalizado e persistido (até 2 mais recentes). */
+export function isChecklistAvulsoSalvo(checklist) {
+  return !!checklist?.avulso && checklist?.status === "concluido";
 }
 
-export async function buscarChecklistAvulsoPendente(uid) {
-  if (!uid) return null;
+function timestampMs(value) {
+  if (!value) return 0;
+  if (typeof value?.toDate === "function") return value.toDate().getTime();
+  const t = new Date(value).getTime();
+  return Number.isNaN(t) ? 0 : t;
+}
+
+/** Lista os N checklists avulsos finalizados mais recentes. */
+export async function listarChecklistsAvulsosRecentes(uid, limit = 2) {
+  if (!uid) return [];
 
   const q = query(colRef(uid), where("avulso", "==", true));
   const snap = await getDocs(q);
-  const pendentes = snap.docs
+  return snap.docs
     .map((d) => ({ ...d.data(), id: d.id }))
-    .filter(isChecklistAvulsoPendente);
-  return pendentes[0] || null;
+    .filter(isChecklistAvulsoSalvo)
+    .sort((a, b) => {
+      const ta = timestampMs(a.entrega?.finalizadaEm) || timestampMs(a.atualizadoEm);
+      const tb = timestampMs(b.entrega?.finalizadaEm) || timestampMs(b.atualizadoEm);
+      return tb - ta;
+    })
+    .slice(0, limit);
+}
+
+/** Mantém no máximo 2 avulsos finalizados; remove os mais antigos (FIFO). */
+export async function aplicarLimiteAvulsosSalvos(uid, maxSalvos = 2) {
+  if (!uid) return;
+
+  const q = query(colRef(uid), where("avulso", "==", true));
+  const snap = await getDocs(q);
+  const salvos = snap.docs
+    .map((d) => ({ ...d.data(), id: d.id }))
+    .filter(isChecklistAvulsoSalvo)
+    .sort((a, b) => {
+      const ta = timestampMs(a.entrega?.finalizadaEm) || timestampMs(a.atualizadoEm);
+      const tb = timestampMs(b.entrega?.finalizadaEm) || timestampMs(b.atualizadoEm);
+      return tb - ta;
+    });
+
+  const excess = salvos.slice(maxSalvos);
+  await Promise.all(
+    excess.map((c) => deleteDoc(doc(db, "users", uid, COLLECTION, c.id)))
+  );
+}
+
+export function resumoChecklistAvulso(checklist) {
+  const numero = checklist?.numero || "—";
+  const raw = checklist?.entrega?.finalizadaEm || checklist?.atualizadoEm;
+  let data = "—";
+  if (raw) {
+    const d = typeof raw?.toDate === "function" ? raw.toDate() : new Date(raw);
+    if (!Number.isNaN(d.getTime())) data = d.toLocaleDateString("pt-BR");
+  }
+  const origem = checklist?.origem?.endereco?.trim() || "";
+  const destino = checklist?.destino?.endereco?.trim() || "";
+  const endereco = origem && destino ? `${origem} → ${destino}` : origem || destino || "—";
+  return { numero, data, endereco };
 }
 
 export async function excluirChecklist(uid, checklistId) {
