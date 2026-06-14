@@ -55,6 +55,11 @@ import NavigationMap from "./src/components/NavigationMap.jsx";
 import ProgressOverlay from "./src/components/ProgressOverlay.jsx";
 import ChecklistVeiculo from "./src/components/ChecklistVeiculo.jsx";
 import { criarChecklist, buscarChecklistPorFrete, criarChecklistAvulso, listarChecklistsAvulsosRecentes, resumoChecklistAvulso } from "./src/services/checklistService.js";
+import {
+  registrarConclusaoCalculadora,
+  dispensarAvaliacao,
+  enviarAvaliacao,
+} from "./src/services/avaliacaoService.js";
 import { logChecklist } from "./src/services/checklistLogSanitizer.js";
 import {
   generateChecklistCompletoPdf,
@@ -123,7 +128,7 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="V272";
+const APP_VERSION="V273";
 const BETA_HIDE_PLANOS=true;
 
 const OfflineRestoredBanner=({show})=>show?(
@@ -1312,6 +1317,121 @@ const RegisterFlow=({onDone,onBack})=>{
   );
 };
 
+// ── AVALIAÇÃO DO APP (estrelas) ───────────────────────────────────────────────
+const AvaliacaoAppModal=({open,origem,perfil,uid,onDispensar,onEnviado})=>{
+  const[nota,setNota]=useState(0);
+  const[hover,setHover]=useState(0);
+  const[comentario,setComentario]=useState("");
+  const[enviando,setEnviando]=useState(false);
+  const[erro,setErro]=useState("");
+
+  useEffect(()=>{
+    if(open){
+      setNota(0);
+      setHover(0);
+      setComentario("");
+      setErro("");
+      setEnviando(false);
+    }
+  },[open]);
+
+  if(!open)return null;
+
+  const notaAtiva=hover||nota;
+  const notaBaixa=nota>=1&&nota<=3;
+
+  const handleEnviar=async()=>{
+    if(nota<1){setErro("Selecione uma nota de 1 a 5 estrelas.");return;}
+    if(!uid){setErro("Faça login para enviar sua avaliação.");return;}
+    setEnviando(true);
+    setErro("");
+    try{
+      await enviarAvaliacao(uid,{nota,comentario,calculadora:origem,perfil});
+      onEnviado?.();
+    }catch{
+      setErro("Não foi possível enviar. Tente novamente.");
+    }finally{
+      setEnviando(false);
+    }
+  };
+
+  return(
+    <div style={{position:"fixed",inset:0,background:"#1E3A8A55",zIndex:950,display:"flex",alignItems:"center",justifyContent:"center",padding:20}} onClick={()=>!enviando&&onDispensar?.()}>
+      <div style={{background:C.surface,borderRadius:18,width:"100%",maxWidth:380,padding:24,boxShadow:"0 12px 40px #00000028",textAlign:"center"}} onClick={e=>e.stopPropagation()}>
+        <div style={{fontSize:32,marginBottom:8}}>⭐</div>
+        <div style={{color:C.navy,fontWeight:800,fontSize:17,fontFamily:"'Sora',sans-serif",marginBottom:6,lineHeight:1.35}}>
+          Como está sua experiência com o LogRotas?
+        </div>
+        <div style={{color:C.muted,fontSize:13,marginBottom:18,lineHeight:1.45}}>
+          Sua opinião nos ajuda a melhorar o app para motoristas como você.
+        </div>
+        <div style={{display:"flex",justifyContent:"center",gap:8,marginBottom:18}} onMouseLeave={()=>setHover(0)}>
+          {[1,2,3,4,5].map(n=>(
+            <button
+              key={n}
+              type="button"
+              onMouseEnter={()=>setHover(n)}
+              onClick={()=>setNota(n)}
+              style={{background:"transparent",border:"none",cursor:"pointer",padding:4,lineHeight:0}}
+              aria-label={`${n} estrela${n!==1?"s":""}`}
+            >
+              <StarIcon
+                size={34}
+                color={n<=notaAtiva?"#F59E0B":"#CBD5E1"}
+                fill={n<=notaAtiva?"#F59E0B":"none"}
+                strokeWidth={n<=notaAtiva?1.5:2}
+              />
+            </button>
+          ))}
+        </div>
+        <div style={{textAlign:"left",marginBottom:16}}>
+          <label style={{display:"block",color:notaBaixa?C.navy:C.muted,fontWeight:notaBaixa?700:600,fontSize:notaBaixa?13:12,marginBottom:6}}>
+            {notaBaixa?"O que podemos melhorar?":"Comentário (opcional)"}
+          </label>
+          <textarea
+            value={comentario}
+            onChange={e=>setComentario(e.target.value)}
+            placeholder={notaBaixa?"Conte o que não funcionou bem para você…":"Alguma sugestão ou elogio?"}
+            rows={3}
+            style={{
+              width:"100%",
+              boxSizing:"border-box",
+              background:notaBaixa?"#FFFBEB":C.card,
+              border:`1.5px solid ${notaBaixa?"#FCD34D":C.border}`,
+              borderRadius:12,
+              padding:"10px 12px",
+              fontSize:14,
+              color:C.text,
+              resize:"vertical",
+              outline:"none",
+              fontFamily:"inherit",
+            }}
+          />
+        </div>
+        {erro&&<div style={{color:C.red,fontSize:12,marginBottom:12,textAlign:"center"}}>{erro}</div>}
+        <div style={{display:"flex",flexDirection:"column",gap:10}}>
+          <button
+            type="button"
+            onClick={handleEnviar}
+            disabled={enviando}
+            style={{width:"100%",padding:13,background:C.navy,border:"none",borderRadius:12,cursor:enviando?"default":"pointer",color:"#fff",fontWeight:700,fontSize:14,opacity:enviando?0.7:1}}
+          >
+            {enviando?"Enviando…":"Enviar"}
+          </button>
+          <button
+            type="button"
+            onClick={()=>!enviando&&onDispensar?.()}
+            disabled={enviando}
+            style={{width:"100%",padding:12,background:C.subtle,border:`1px solid ${C.border}`,borderRadius:12,cursor:enviando?"default":"pointer",color:C.text2,fontWeight:600,fontSize:14}}
+          >
+            Agora não
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // ── SELETOR DE CALCULADORA ────────────────────────────────────────────────────
 const CalcSelector=({onFrete,onViagem,onOtimizar,onClose})=>(
   <ModalWrap maxW={480}>
@@ -1649,7 +1769,7 @@ const HistoricoEntregasScreen=({
   );
 };
 
-const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation=false,onNavigationResumed})=>{
+const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation=false,onNavigationResumed,onConcluido})=>{
   const[paradas,setParadas]=useState([]);
   const[novoEndereco,setNovoEndereco]=useState("");
   const[processandoFoto,setProcessandoFoto]=useState(false);
@@ -2373,6 +2493,7 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
       setResultado(out.resultado);
       if(out.routePath?.length)setRotaPath(out.routePath);
       setAposConclusao(false);
+      onConcluido?.("roteirizacao");
     }catch{
       setErroOtimizar("Erro ao otimizar a rota. Verifique sua conexão e tente novamente.");
     }finally{
@@ -3169,7 +3290,7 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
 };
 
 // ── CALCULADORA DE VIAGEM (V171 — Google Directions + pedágio em R$ + voz) ─
-const TripCalcModal=({onClose,vehicles})=>{
+const TripCalcModal=({onClose,vehicles,onConcluido})=>{
   const TRIP_VEHICLES=[
     {id:"moto",   emoji:"🏍️", label:"Moto",         consumption:25, axles:1, electric:false},
     {id:"carro",  emoji:"🚗",  label:"Carro",         consumption:12, axles:1, electric:false},
@@ -3267,6 +3388,7 @@ const TripCalcModal=({onClose,vehicles})=>{
     if(!out.ok){setErro(out.error);return;}
     setErro("");
     setResult(out.result);
+    onConcluido?.("viagem");
   };
 
   return(
@@ -3462,7 +3584,7 @@ const TripCalcModal=({onClose,vehicles})=>{
   );
 };
 
-const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHistorico})=>{
+const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHistorico,onConcluido})=>{
   const[stops,setStops]=useState([{id:1,v:"",coords:null},{id:2,v:"",coords:null}]);
   const[vehicleId,setVehicleId]=useState("carro");
   const[fuelPrice,setFuelPrice]=useState("");
@@ -3639,6 +3761,7 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
     if(!out.ok){setErro(out.error);return;}
     setErro("");
     setResult(out.result);
+    onConcluido?.("frete");
   };
 
   const TRAILER_OPTS=[
@@ -6333,6 +6456,9 @@ export default function App(){
   const[avulsoPdfShare,setAvulsoPdfShare]=useState(null);
   const[gerandoAvulsoPdf,setGerandoAvulsoPdf]=useState(false);
   const[toastAvulso,setToastAvulso]=useState("");
+  const[showAvaliacaoModal,setShowAvaliacaoModal]=useState(null);
+  const avaliacaoSessaoRef=useRef({mostrada:false});
+  const avaliacaoPendenteRef=useRef(null);
   const[authReady,setAuthReady]=useState(false);
   const[firebaseUser,setFirebaseUser]=useState(null);
   const[splashDone,setSplashDone]=useState(false);
@@ -6510,6 +6636,41 @@ export default function App(){
   useEffect(()=>{
     refreshUltimosAvulsos();
   },[refreshUltimosAvulsos]);
+
+  const tentarExibirAvaliacaoPendente=useCallback(()=>{
+    if(avaliacaoSessaoRef.current.mostrada||!avaliacaoPendenteRef.current)return;
+    setShowAvaliacaoModal({origem:avaliacaoPendenteRef.current});
+    avaliacaoSessaoRef.current.mostrada=true;
+    avaliacaoPendenteRef.current=null;
+  },[]);
+
+  const handleCalcConcluida=useCallback(async(origem)=>{
+    const uid=firebaseUser?.uid;
+    if(!uid)return;
+    try{
+      const {shouldShow}=await registrarConclusaoCalculadora(uid,origem,avaliacaoSessaoRef.current.mostrada);
+      if(shouldShow)avaliacaoPendenteRef.current=origem;
+    }catch{/* ignore */}
+  },[firebaseUser?.uid]);
+
+  const handleCalcModalClose=useCallback((extra)=>{
+    extra?.();
+    setShowCalc(false);
+    setCalcMode(null);
+    setTimeout(()=>tentarExibirAvaliacaoPendente(),120);
+  },[tentarExibirAvaliacaoPendente]);
+
+  const handleAvaliacaoDispensar=useCallback(async()=>{
+    const uid=firebaseUser?.uid;
+    setShowAvaliacaoModal(null);
+    if(uid){
+      try{await dispensarAvaliacao(uid);}catch{/* ignore */}
+    }
+  },[firebaseUser?.uid]);
+
+  const handleAvaliacaoEnviada=useCallback(()=>{
+    setShowAvaliacaoModal(null);
+  },[]);
 
   const handleNovoChecklistAvulso=useCallback(async()=>{
     const uid=firebaseUser?.uid;
@@ -6978,10 +7139,18 @@ export default function App(){
         onFrete={()=>setCalcMode("frete")}
         onViagem={()=>setCalcMode("viagem")}
         onOtimizar={()=>setCalcMode("otimizar")}
-        onClose={()=>setShowCalc(false)}/>}
-      {showCalc&&calcMode==="viagem"&&<TripCalcModal onClose={()=>{setShowCalc(false);setCalcMode(null);}} vehicles={vehicles}/>}
-      {showCalc&&calcMode==="frete"&&<RouteCalcModal onClose={()=>{setShowCalc(false);setCalcMode(null);}} vehicles={vehicles} valorKmPadrao={valorKm} adicionalPadrao={adicionalFixo} onSalvarHistorico={handleAddFrete}/>}
-      {showCalc&&calcMode==="otimizar"&&<OtimizarEntregasModal uid={firebaseUser?.uid} resumeNavigation={resumeNav} onNavigationResumed={()=>setResumeNav(false)} onClose={()=>{setShowCalc(false);setCalcMode(null);setResumeNav(false);}} perfil={perfil} plan={plan} onUpgrade={()=>{setShowCalc(false);setCalcMode(null);setResumeNav(false);setPage("assinatura");}}/>}
+        onClose={()=>handleCalcModalClose()}/>}
+      {showCalc&&calcMode==="viagem"&&<TripCalcModal onClose={()=>handleCalcModalClose()} onConcluido={handleCalcConcluida} vehicles={vehicles}/>}
+      {showCalc&&calcMode==="frete"&&<RouteCalcModal onClose={()=>handleCalcModalClose()} onConcluido={handleCalcConcluida} vehicles={vehicles} valorKmPadrao={valorKm} adicionalPadrao={adicionalFixo} onSalvarHistorico={handleAddFrete}/>}
+      {showCalc&&calcMode==="otimizar"&&<OtimizarEntregasModal uid={firebaseUser?.uid} resumeNavigation={resumeNav} onNavigationResumed={()=>setResumeNav(false)} onClose={()=>handleCalcModalClose(()=>setResumeNav(false))} onConcluido={handleCalcConcluida} perfil={perfil} plan={plan} onUpgrade={()=>{setShowCalc(false);setCalcMode(null);setResumeNav(false);setPage("assinatura");}}/>}
+      <AvaliacaoAppModal
+        open={!!showAvaliacaoModal}
+        origem={showAvaliacaoModal?.origem}
+        perfil={perfil}
+        uid={firebaseUser?.uid}
+        onDispensar={handleAvaliacaoDispensar}
+        onEnviado={handleAvaliacaoEnviada}
+      />
 
       {/* V233 — barra inteira clicável (volta ao mapa); botão mantido por affordance */}
       {showNavActiveBanner&&(

@@ -7,6 +7,7 @@ export const OFFLINE_KEYS = {
   frete: "logrotas_offline_frete",
   otimizar: "logrotas_offline_otimizar",
   navegacao: "logrotas_navegacao_sessao",
+  avaliacao: "logrotas_avaliacao_state",
 };
 
 export const AUTH_KEYS = {
