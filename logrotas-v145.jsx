@@ -28,6 +28,7 @@ import {
 } from "./src/services/routingService.js";
 // V234 — import removido por engano no V226 (quebrava o "Calcular Viagem")
 import { calculateTripCosts } from "./src/services/tripCalcService.js";
+import { buscarPedagioRoutes } from "./src/services/routesTollService.js";
 import {
   formatMoeda,
   formatMoedaKm,
@@ -129,7 +130,7 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="V274";
+const APP_VERSION="V275";
 const BETA_HIDE_PLANOS=true;
 
 const OfflineRestoredBanner=({show})=>show?(
@@ -3309,6 +3310,8 @@ const TripCalcModal=({onClose,vehicles,onConcluido})=>{
   const[consumo,setConsumo]=useState("");
   const[combustivel,setCombustivel]=useState("");
   const[pedagio,setPedagio]=useState("");
+  const[pedagioAuto,setPedagioAuto]=useState(false);
+  const pedagioEditadoPeloUsuarioRef=useRef(false);
   const[roundTrip,setRoundTrip]=useState(false);
   const[result,setResult]=useState(null);
   const[erro,setErro]=useState("");
@@ -3377,7 +3380,26 @@ const TripCalcModal=({onClose,vehicles,onConcluido})=>{
   const paradaSearchBias=()=>buildCalculatorStopSearchBias(stops[0]?.v,stops[0]?.coords);
   const{wazeLabel,abrirProximaParada,temParadas}=useWazeSequentialNav(stops);
 
-  const calcular=()=>{
+  const aplicarPedagioAuto=async(stopsAtuais,valorAtual)=>{
+    if(pedagioEditadoPeloUsuarioRef.current)return valorAtual;
+    try{
+      const out=await buscarPedagioRoutes(stopsAtuais);
+      if(out.ok){
+        setPedagio(out.formatado);
+        setPedagioAuto(true);
+        return out.formatado;
+      }
+      setPedagioAuto(false);
+    }catch(err){
+      console.error("[LogRotas] Falha ao estimar pedágio (Viagem):",err);
+      setPedagioAuto(false);
+    }
+    return valorAtual;
+  };
+
+  const calcular=async()=>{
+    setErro("");
+    const pedagioCalc=await aplicarPedagioAuto(stops,pedagio);
     const out=calculateTripCosts({
       distanciaKm:distancia,
       roundTrip,
@@ -3385,7 +3407,7 @@ const TripCalcModal=({onClose,vehicles,onConcluido})=>{
       consumo,
       defaultConsumo:veiculo.consumption,
       combustivelPreco:combustivel,
-      pedagioTotalReais:pedagio,
+      pedagioTotalReais:pedagioCalc,
       totalAxles,
     });
     if(!out.ok){setErro(out.error);return;}
@@ -3416,6 +3438,8 @@ const TripCalcModal=({onClose,vehicles,onConcluido})=>{
             value={stops[0]?.v||""}
             onChange={v=>setStops(s=>s.map((x,i)=>i===0?{...x,v,coords:null}:x))}
             onSelect={s=>{
+              pedagioEditadoPeloUsuarioRef.current=false;
+              setPedagioAuto(false);
               setStops(prev=>{
                 const nov=prev.map((x,i)=>i===0?{...x,v:s.label,coords:s.coords}:x);
                 buscarDistAuto(nov);
@@ -3435,6 +3459,8 @@ const TripCalcModal=({onClose,vehicles,onConcluido})=>{
                 value={stop.v}
                 onChange={v=>setStops(s=>s.map(x=>x.id===stop.id?{...x,v,coords:null}:x))}
                 onSelect={s=>{
+                  pedagioEditadoPeloUsuarioRef.current=false;
+                  setPedagioAuto(false);
                   setStops(prev=>{
                     const nov=prev.map(x=>x.id===stop.id?{...x,v:s.label,coords:s.coords}:x);
                     buscarDistAuto(nov);
@@ -3463,6 +3489,8 @@ const TripCalcModal=({onClose,vehicles,onConcluido})=>{
             value={stops[stops.length-1]?.v||""}
             onChange={v=>setStops(s=>s.map((x,i)=>i===s.length-1?{...x,v,coords:null}:x))}
             onSelect={s=>{
+              pedagioEditadoPeloUsuarioRef.current=false;
+              setPedagioAuto(false);
               setStops(prev=>{
                 const nov=prev.map((x,i)=>i===prev.length-1?{...x,v:s.label,coords:s.coords}:x);
                 buscarDistAuto(nov);
@@ -3485,7 +3513,8 @@ const TripCalcModal=({onClose,vehicles,onConcluido})=>{
             <span style={{padding:"0 10px",color:buscandoDist?"#3B82F6":C.muted,fontSize:12,borderLeft:`1px solid ${C.border}`,background:C.subtle}}>{buscandoDist?"🔍":"km"}</span>
           </div>
 
-          <Field label="🏁 Pedágio (R$, tarifa base)" value={pedagio} onChange={setPedagio} placeholder="Ex: 45.00" prefix="R$" hint="Tarifa base na ida; multiplica pelos eixos do veículo e dobra se marcar ida e volta." calc/>
+          <Field label="🏁 Pedágio (R$, tarifa base)" value={pedagio} onChange={v=>{pedagioEditadoPeloUsuarioRef.current=true;setPedagioAuto(false);setPedagio(v);}} placeholder="Ex: 45.00" prefix="R$" hint="Tarifa base na ida; multiplica pelos eixos do veículo e dobra se marcar ida e volta." calc/>
+          {pedagioAuto&&<div style={{color:C.muted,fontSize:11,marginTop:-4}}>Estimativa automática — confira o valor da praça.</div>}
 
           {/* Ida e volta */}
           <button onClick={()=>setRoundTrip(r=>!r)} style={{display:"flex",alignItems:"center",gap:9,background:roundTrip?"#EFF6FF":"#fff",border:`1.5px solid ${roundTrip?"#3B82F6":C.border}`,borderRadius:10,padding:"9px 13px",cursor:"pointer"}}>
@@ -3595,6 +3624,8 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
   const[arlaPrice,setArlaPrice]=useState("");
   const[arlaConsumption,setArlaConsumption]=useState("");
   const[pedagioTotal,setPedagioTotal]=useState("");
+  const[pedagioAuto,setPedagioAuto]=useState(false);
+  const pedagioEditadoPeloUsuarioRef=useRef(false);
   const[trailer,setTrailer]=useState("none");
   const[trailerAxleMap,setTrailerAxleMap]=useState({simples:1,duplo:2});
   const[editingTrailer,setEditingTrailer]=useState(null);
@@ -3742,7 +3773,26 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
 
   const{wazeLabel,abrirProximaParada,temParadas}=useWazeSequentialNav(stops);
 
-  const calcular=()=>{
+  const aplicarPedagioAuto=async(stopsAtuais,valorAtual)=>{
+    if(pedagioEditadoPeloUsuarioRef.current)return valorAtual;
+    try{
+      const out=await buscarPedagioRoutes(stopsAtuais);
+      if(out.ok){
+        setPedagioTotal(out.formatado);
+        setPedagioAuto(true);
+        return out.formatado;
+      }
+      setPedagioAuto(false);
+    }catch(err){
+      console.error("[LogRotas] Falha ao estimar pedágio (Frete):",err);
+      setPedagioAuto(false);
+    }
+    return valorAtual;
+  };
+
+  const calcular=async()=>{
+    setErro("");
+    const pedagioCalc=await aplicarPedagioAuto(stops,pedagioTotal);
     const out=calculateRouteCosts({
       segmentDistances:dists,
       roundTrip,
@@ -3756,7 +3806,7 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
       defaultConsumptionKmL:veh.consumption||1,
       arlaConsumption,
       arlaPrice,
-      tollTotalReais:pedagioTotal,
+      tollTotalReais:pedagioCalc,
       totalAxles,
       freight,
       metaLocal,
@@ -3800,6 +3850,8 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
               value={stops[0]?.v||""}
               onChange={v=>setStops(s=>s.map((x,i)=>i===0?{...x,v,coords:null}:x))}
               onSelect={s=>{
+                pedagioEditadoPeloUsuarioRef.current=false;
+                setPedagioAuto(false);
                 setStops(prev=>{
                   const nov=prev.map((x,i)=>i===0?{...x,v:s.label,coords:s.coords}:x);
                   buscarDistAuto(nov);
@@ -3819,6 +3871,8 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
                   value={stop.v}
                   onChange={v=>setStops(s=>s.map(x=>x.id===stop.id?{...x,v,coords:null}:x))}
                   onSelect={s=>{
+                    pedagioEditadoPeloUsuarioRef.current=false;
+                    setPedagioAuto(false);
                     setStops(prev=>{
                       const nov=prev.map(x=>x.id===stop.id?{...x,v:s.label,coords:s.coords}:x);
                       buscarDistAuto(nov);
@@ -3849,6 +3903,8 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
               value={stops[stops.length-1]?.v||""}
               onChange={v=>setStops(s=>s.map((x,i)=>i===s.length-1?{...x,v,coords:null}:x))}
               onSelect={s=>{
+                pedagioEditadoPeloUsuarioRef.current=false;
+                setPedagioAuto(false);
                 setStops(prev=>{
                   const nov=prev.map((x,i)=>i===prev.length-1?{...x,v:s.label,coords:s.coords}:x);
                   buscarDistAuto(nov);
@@ -3902,7 +3958,8 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
             <span style={{color:roundTrip?C.orange:C.text2,fontWeight:600,fontSize:12}}>Ida e volta</span>
           </button>
           <div style={{marginTop:12}}>
-            <Field label="🏁 Pedágio total (R$)" value={pedagioTotal} onChange={setPedagioTotal} placeholder="Ex: 45.00" prefix="R$" hint="Valor estimado na ida; dobra automaticamente se marcar ida e volta." calc/>
+            <Field label="🏁 Pedágio total (R$)" value={pedagioTotal} onChange={v=>{pedagioEditadoPeloUsuarioRef.current=true;setPedagioAuto(false);setPedagioTotal(v);}} placeholder="Ex: 45.00" prefix="R$" hint="Valor estimado na ida; dobra automaticamente se marcar ida e volta." calc/>
+            {pedagioAuto&&<div style={{color:C.muted,fontSize:11,marginTop:-4}}>Estimativa automática — confira o valor da praça.</div>}
           </div>
         </div>
 

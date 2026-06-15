@@ -43,6 +43,7 @@ export const API_ENDPOINTS = {
   orsGeocode: "https://api.openrouteservice.org/geocode/autocomplete",
   orsDirections: "https://api.openrouteservice.org/v2/directions/driving-hgv",
   googleVisionAnnotate: "https://vision.googleapis.com/v1/images:annotate",
+  googleRoutesCompute: "https://routes.googleapis.com/directions/v2:computeRoutes",
   anthropicMessages: "https://api.anthropic.com/v1/messages",
 };
 
