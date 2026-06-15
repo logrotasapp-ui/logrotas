@@ -130,7 +130,8 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="V275";
+const APP_VERSION="V276";
+const PEDAGIO_AVISO_RESULTADO="Pedágio estimado pelo Google. Pode haver variação — confirme o valor da praça.";
 const BETA_HIDE_PLANOS=true;
 
 const OfflineRestoredBanner=({show})=>show?(
@@ -3312,7 +3313,6 @@ const TripCalcModal=({onClose,vehicles,onConcluido})=>{
   const[pedagio,setPedagio]=useState("");
   const[pedagioAuto,setPedagioAuto]=useState(false);
   const pedagioEditadoPeloUsuarioRef=useRef(false);
-  const[roundTrip,setRoundTrip]=useState(false);
   const[result,setResult]=useState(null);
   const[erro,setErro]=useState("");
   const[offlineHydrated,setOfflineHydrated]=useState(false);
@@ -3352,14 +3352,56 @@ const TripCalcModal=({onClose,vehicles,onConcluido})=>{
     });
   },[offlineHydrated,vehicleId,trailer,consumo,combustivel]);
 
-  // V171 — soma origem→paradas→destino via Google Directions (KM editável)
-  const buscarDistAuto=async(stopsAtuais)=>{
-    const coordsList=stopsAtuais.map(s=>s.coords);
-    setBuscandoDist(true);
-    const out=await fetchRouteTotalDistanceKm(coordsList);
-    setBuscandoDist(false);
-    if(out.ok&&out.distanceKm!=null)setDistancia(String(out.distanceKm));
+  const aplicarPedagioAuto=async(stopsAtuais)=>{
+    if(pedagioEditadoPeloUsuarioRef.current)return null;
+    try{
+      const out=await buscarPedagioRoutes(stopsAtuais);
+      if(out.ok){
+        setPedagio(out.formatado);
+        setPedagioAuto(true);
+        return out.formatado;
+      }
+      setPedagioAuto(false);
+    }catch(err){
+      console.error("[LogRotas] Falha ao estimar pedágio (Viagem):",err);
+      setPedagioAuto(false);
+    }
+    return null;
   };
+
+  // V276 — distância + pedágio automáticos com debounce (origem e destino obrigatórios)
+  const buscarDistEPedagioAuto=async(stopsAtuais)=>{
+    const origem=String(stopsAtuais[0]?.v||"").trim();
+    const destino=String(stopsAtuais[stopsAtuais.length-1]?.v||"").trim();
+    if(!origem||!destino)return;
+    setBuscandoDist(true);
+    try{
+      const resolvidos=await resolveCalculatorStopsCoords(stopsAtuais);
+      const coordsList=resolvidos.map(s=>s.coords);
+      const out=await fetchRouteTotalDistanceKm(coordsList);
+      if(out.ok&&out.distanceKm!=null)setDistancia(String(out.distanceKm));
+      setStops(prev=>prev.map((s,i)=>{
+        const next=resolvidos[i]?.coords??s.coords;
+        const cur=s.coords;
+        if(cur&&next&&cur[0]===next[0]&&cur[1]===next[1])return s;
+        if(!cur&&!next)return s;
+        return{...s,coords:next};
+      }));
+      await aplicarPedagioAuto(resolvidos);
+    }finally{
+      setBuscandoDist(false);
+    }
+  };
+
+  const stopsEnderecoKey=stops.map(s=>`${s.id}:${String(s.v||"").trim()}`).join("|");
+  useEffect(()=>{
+    if(!offlineHydrated)return;
+    const origem=String(stops[0]?.v||"").trim();
+    const destino=String(stops[stops.length-1]?.v||"").trim();
+    if(!origem||!destino)return;
+    const t=setTimeout(()=>buscarDistEPedagioAuto(stops),800);
+    return()=>clearTimeout(t);
+  },[stopsEnderecoKey,offlineHydrated]);
 
   const veiculo=TRIP_VEHICLES.find(v=>v.id===vehicleId)||TRIP_VEHICLES[1];
   const isElec=veiculo?.electric;
@@ -3380,29 +3422,12 @@ const TripCalcModal=({onClose,vehicles,onConcluido})=>{
   const paradaSearchBias=()=>buildCalculatorStopSearchBias(stops[0]?.v,stops[0]?.coords);
   const{wazeLabel,abrirProximaParada,temParadas}=useWazeSequentialNav(stops);
 
-  const aplicarPedagioAuto=async(stopsAtuais,valorAtual)=>{
-    if(pedagioEditadoPeloUsuarioRef.current)return valorAtual;
-    try{
-      const out=await buscarPedagioRoutes(stopsAtuais);
-      if(out.ok){
-        setPedagio(out.formatado);
-        setPedagioAuto(true);
-        return out.formatado;
-      }
-      setPedagioAuto(false);
-    }catch(err){
-      console.error("[LogRotas] Falha ao estimar pedágio (Viagem):",err);
-      setPedagioAuto(false);
-    }
-    return valorAtual;
-  };
-
   const calcular=async()=>{
     setErro("");
-    const pedagioCalc=await aplicarPedagioAuto(stops,pedagio);
+    const pedagioAutoVal=await aplicarPedagioAuto(stops);
+    const pedagioCalc=pedagioAutoVal??pedagio;
     const out=calculateTripCosts({
       distanciaKm:distancia,
-      roundTrip,
       isElec,
       consumo,
       defaultConsumo:veiculo.consumption,
@@ -3440,11 +3465,7 @@ const TripCalcModal=({onClose,vehicles,onConcluido})=>{
             onSelect={s=>{
               pedagioEditadoPeloUsuarioRef.current=false;
               setPedagioAuto(false);
-              setStops(prev=>{
-                const nov=prev.map((x,i)=>i===0?{...x,v:s.label,coords:s.coords}:x);
-                buscarDistAuto(nov);
-                return nov;
-              });
+              setStops(prev=>prev.map((x,i)=>i===0?{...x,v:s.label,coords:s.coords}:x));
             }}
             placeholder="Origem (opcional)"
             dotColor="#22C55E"
@@ -3461,11 +3482,7 @@ const TripCalcModal=({onClose,vehicles,onConcluido})=>{
                 onSelect={s=>{
                   pedagioEditadoPeloUsuarioRef.current=false;
                   setPedagioAuto(false);
-                  setStops(prev=>{
-                    const nov=prev.map(x=>x.id===stop.id?{...x,v:s.label,coords:s.coords}:x);
-                    buscarDistAuto(nov);
-                    return nov;
-                  });
+                  setStops(prev=>prev.map(x=>x.id===stop.id?{...x,v:s.label,coords:s.coords}:x));
                 }}
                 placeholder={`Parada ${i+1}`}
                 dotColor={C.orange}
@@ -3491,11 +3508,7 @@ const TripCalcModal=({onClose,vehicles,onConcluido})=>{
             onSelect={s=>{
               pedagioEditadoPeloUsuarioRef.current=false;
               setPedagioAuto(false);
-              setStops(prev=>{
-                const nov=prev.map((x,i)=>i===prev.length-1?{...x,v:s.label,coords:s.coords}:x);
-                buscarDistAuto(nov);
-                return nov;
-              });
+              setStops(prev=>prev.map((x,i)=>i===prev.length-1?{...x,v:s.label,coords:s.coords}:x));
             }}
             placeholder="Destino (opcional)"
             dotColor={C.red}
@@ -3513,16 +3526,8 @@ const TripCalcModal=({onClose,vehicles,onConcluido})=>{
             <span style={{padding:"0 10px",color:buscandoDist?"#3B82F6":C.muted,fontSize:12,borderLeft:`1px solid ${C.border}`,background:C.subtle}}>{buscandoDist?"🔍":"km"}</span>
           </div>
 
-          <Field label="🏁 Pedágio (R$, tarifa base)" value={pedagio} onChange={v=>{pedagioEditadoPeloUsuarioRef.current=true;setPedagioAuto(false);setPedagio(v);}} placeholder="Ex: 45.00" prefix="R$" hint="Tarifa base na ida; multiplica pelos eixos do veículo e dobra se marcar ida e volta." calc/>
+          <Field label="🏁 Pedágio (R$, tarifa base)" value={pedagio} onChange={v=>{pedagioEditadoPeloUsuarioRef.current=true;setPedagioAuto(false);setPedagio(v);}} placeholder="Ex: 45.00" prefix="R$" hint="Tarifa base; multiplica pelos eixos do veículo." calc/>
           {pedagioAuto&&<div style={{color:C.muted,fontSize:11,marginTop:-4}}>Estimativa automática — confira o valor da praça.</div>}
-
-          {/* Ida e volta */}
-          <button onClick={()=>setRoundTrip(r=>!r)} style={{display:"flex",alignItems:"center",gap:9,background:roundTrip?"#EFF6FF":"#fff",border:`1.5px solid ${roundTrip?"#3B82F6":C.border}`,borderRadius:10,padding:"9px 13px",cursor:"pointer"}}>
-            <div style={{width:34,height:18,borderRadius:9,background:roundTrip?"#3B82F6":C.border,position:"relative",flexShrink:0,transition:"background .2s"}}>
-              <div style={{width:14,height:14,borderRadius:"50%",background:"#fff",position:"absolute",top:2,left:roundTrip?18:2,transition:"left .2s",boxShadow:"0 1px 3px #00000033"}}/>
-            </div>
-            <span style={{color:roundTrip?"#3B82F6":C.text2,fontWeight:600,fontSize:12}}>Ida e volta</span>
-          </button>
         </div>
 
         {/* BLOCO VEÍCULO */}
@@ -3572,20 +3577,22 @@ const TripCalcModal=({onClose,vehicles,onConcluido})=>{
             <div style={{background:"linear-gradient(135deg,#1E3A8A,#2952C8)",borderRadius:14,padding:"20px 18px",textAlign:"center",boxShadow:"0 4px 16px #1E3A8A44"}}>
               <div style={{color:"#BFDBFE",fontSize:14,fontWeight:700,letterSpacing:1,textTransform:"uppercase",marginBottom:6}}>💸 CUSTO TOTAL DA VIAGEM</div>
               <div style={{color:"#fff",fontWeight:900,fontSize:40,fontFamily:"'Sora',sans-serif",lineHeight:1,marginBottom:4}}>{formatMoeda(result.total||0)}</div>
-              <div style={{color:"#93C5FD",fontSize:12}}>{formatKmDecimal(result.dist||0)} · {roundTrip?"ida e volta":"somente ida"}</div>
+              <div style={{color:"#93C5FD",fontSize:12}}>{formatKmDecimal(result.dist||0)}</div>
             </div>
             <div style={{background:"#F8FAFC",borderRadius:14,padding:"14px 16px",display:"flex",flexDirection:"column",gap:0}}>
               {[
                 {emoji:isElec?"⚡":"⛽",l:isElec?"Custo energia":"Custo combustível",v:formatMoeda(result.custoComb||0),sub:isElec?`${formatDecimal(result.dist/100*(parseNumeroBR(consumo)||veiculo.kwh),1)} kWh`:`${formatDecimal(result.litros||0,1)} litros · ${formatConsumoKmL(result.cons)}`},
-                // V235 — eixos explícitos no valor: o efeito do reboque nunca é invisível
-                {emoji:"🏁",l:"Pedágio",v:`${formatMoeda(result.custoPed||0)}${(result.custoPed||0)>0?` (${plural(result.totalAxles||totalAxles,"eixo","eixos")})`:""}`,sub:`tarifa base × ${plural(result.totalAxles||totalAxles,"eixo","eixos")} · ${roundTrip?"ida e volta":"somente ida"}`},
+                {emoji:"🏁",l:"Pedágio",v:formatMoeda(result.custoPed||0),sub:`tarifa base × ${plural(result.totalAxles||totalAxles,"eixo","eixos")}`,isPedagio:true},
               ].map((r,i,arr)=>(
-                <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"11px 0",borderBottom:i<arr.length-1?`1px solid ${C.border}`:"none"}}>
-                  <div style={{display:"flex",alignItems:"center",gap:9}}>
-                    <span style={{fontSize:18}}>{r.emoji}</span>
-                    <div><div style={{color:C.text2,fontSize:14}}>{r.l}</div><div style={{color:C.muted,fontSize:12,marginTop:1}}>{r.sub}</div></div>
+                <div key={i}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"11px 0",borderBottom:i<arr.length-1&&!r.isPedagio?`1px solid ${C.border}`:r.isPedagio?"none":`1px solid ${C.border}`}}>
+                    <div style={{display:"flex",alignItems:"center",gap:9}}>
+                      <span style={{fontSize:18}}>{r.emoji}</span>
+                      <div><div style={{color:C.text2,fontSize:14}}>{r.l}</div><div style={{color:C.muted,fontSize:12,marginTop:1}}>{r.sub}</div></div>
+                    </div>
+                    <span style={{color:C.navy,fontWeight:700,fontSize:15}}>{r.v}</span>
                   </div>
-                  <span style={{color:C.navy,fontWeight:700,fontSize:15}}>{r.v}</span>
+                  {r.isPedagio&&<div style={{color:C.muted,fontSize:11,paddingBottom:11,borderBottom:i<arr.length-1?`1px solid ${C.border}`:"none"}}>{PEDAGIO_AVISO_RESULTADO}</div>}
                 </div>
               ))}
             </div>
@@ -3630,7 +3637,6 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
   const[trailerAxleMap,setTrailerAxleMap]=useState({simples:1,duplo:2});
   const[editingTrailer,setEditingTrailer]=useState(null);
   const[editTrailerVal,setEditTrailerVal]=useState("");
-  const[roundTrip,setRoundTrip]=useState(false);
   const[metaLocal,setMetaLocal]=useState(valorKmPadrao||"");
   const[freight,setFreight]=useState("");
   const[valorMinSaida,setValorMinSaida]=useState("");
@@ -3705,10 +3711,28 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
     });
   },[offlineHydrated,vehicleId,fuelPrice,arlaPrice,consumo,trailer,trailerAxleMap,cargo,metaLocal,freight,valorMinSaida,kmInclusosMin,metaLucro]);
 
-  // V171 — KM por trecho via Google Directions driving
-  const buscarDistAuto=async(stopsAtuais)=>{
-    const preenchidos=stopsAtuais.filter(s=>String(s?.v||"").trim());
-    if(preenchidos.length<2)return;
+  const aplicarPedagioAuto=async(stopsAtuais)=>{
+    if(pedagioEditadoPeloUsuarioRef.current)return null;
+    try{
+      const out=await buscarPedagioRoutes(stopsAtuais);
+      if(out.ok){
+        setPedagioTotal(out.formatado);
+        setPedagioAuto(true);
+        return out.formatado;
+      }
+      setPedagioAuto(false);
+    }catch(err){
+      console.error("[LogRotas] Falha ao estimar pedágio (Frete):",err);
+      setPedagioAuto(false);
+    }
+    return null;
+  };
+
+  // V276 — distância + pedágio automáticos com debounce (origem e destino obrigatórios)
+  const buscarDistEPedagioAuto=async(stopsAtuais)=>{
+    const origem=String(stopsAtuais[0]?.v||"").trim();
+    const destino=String(stopsAtuais[stopsAtuais.length-1]?.v||"").trim();
+    if(!origem||!destino)return;
     setBuscandoDist(true);
     try{
       const resolvidos=await resolveCalculatorStopsCoords(stopsAtuais);
@@ -3725,6 +3749,7 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
         if(!cur&&!next)return s;
         return{...s,coords:next};
       }));
+      await aplicarPedagioAuto(resolvidos);
     }finally{
       setBuscandoDist(false);
     }
@@ -3733,9 +3758,10 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
   const stopsEnderecoKey=stops.map(s=>`${s.id}:${String(s.v||"").trim()}`).join("|");
   useEffect(()=>{
     if(!offlineHydrated)return;
-    const preenchidos=stops.filter(s=>String(s?.v||"").trim());
-    if(preenchidos.length<2)return;
-    const t=setTimeout(()=>buscarDistAuto(stops),900);
+    const origem=String(stops[0]?.v||"").trim();
+    const destino=String(stops[stops.length-1]?.v||"").trim();
+    if(!origem||!destino)return;
+    const t=setTimeout(()=>buscarDistEPedagioAuto(stops),800);
     return()=>clearTimeout(t);
   },[stopsEnderecoKey,offlineHydrated]);
 
@@ -3773,29 +3799,12 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
 
   const{wazeLabel,abrirProximaParada,temParadas}=useWazeSequentialNav(stops);
 
-  const aplicarPedagioAuto=async(stopsAtuais,valorAtual)=>{
-    if(pedagioEditadoPeloUsuarioRef.current)return valorAtual;
-    try{
-      const out=await buscarPedagioRoutes(stopsAtuais);
-      if(out.ok){
-        setPedagioTotal(out.formatado);
-        setPedagioAuto(true);
-        return out.formatado;
-      }
-      setPedagioAuto(false);
-    }catch(err){
-      console.error("[LogRotas] Falha ao estimar pedágio (Frete):",err);
-      setPedagioAuto(false);
-    }
-    return valorAtual;
-  };
-
   const calcular=async()=>{
     setErro("");
-    const pedagioCalc=await aplicarPedagioAuto(stops,pedagioTotal);
+    const pedagioAutoVal=await aplicarPedagioAuto(stops);
+    const pedagioCalc=pedagioAutoVal??pedagioTotal;
     const out=calculateRouteCosts({
       segmentDistances:dists,
-      roundTrip,
       hasOrigin:!!stops[0]?.v,
       hasDestination:!!stops[stops.length-1]?.v,
       isElec,
@@ -3852,11 +3861,7 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
               onSelect={s=>{
                 pedagioEditadoPeloUsuarioRef.current=false;
                 setPedagioAuto(false);
-                setStops(prev=>{
-                  const nov=prev.map((x,i)=>i===0?{...x,v:s.label,coords:s.coords}:x);
-                  buscarDistAuto(nov);
-                  return nov;
-                });
+                setStops(prev=>prev.map((x,i)=>i===0?{...x,v:s.label,coords:s.coords}:x));
               }}
               placeholder="Origem (ex: São Paulo, SP)"
               dotColor={C.green}
@@ -3873,11 +3878,7 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
                   onSelect={s=>{
                     pedagioEditadoPeloUsuarioRef.current=false;
                     setPedagioAuto(false);
-                    setStops(prev=>{
-                      const nov=prev.map(x=>x.id===stop.id?{...x,v:s.label,coords:s.coords}:x);
-                      buscarDistAuto(nov);
-                      return nov;
-                    });
+                    setStops(prev=>prev.map(x=>x.id===stop.id?{...x,v:s.label,coords:s.coords}:x));
                   }}
                   placeholder={`Parada ${i+1}`}
                   dotColor={C.orange}
@@ -3905,11 +3906,7 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
               onSelect={s=>{
                 pedagioEditadoPeloUsuarioRef.current=false;
                 setPedagioAuto(false);
-                setStops(prev=>{
-                  const nov=prev.map((x,i)=>i===prev.length-1?{...x,v:s.label,coords:s.coords}:x);
-                  buscarDistAuto(nov);
-                  return nov;
-                });
+                setStops(prev=>prev.map((x,i)=>i===prev.length-1?{...x,v:s.label,coords:s.coords}:x));
               }}
               placeholder="Destino final"
               dotColor={C.red}
@@ -3952,15 +3949,8 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
             )}
           </div>
 
-          {/* Ida e volta */}
-          <button onClick={()=>setRoundTrip(r=>!r)} style={{display:"flex",alignItems:"center",gap:9,background:roundTrip?C.orangeLight:"#fff",border:`1.5px solid ${roundTrip?C.orange:C.border}`,borderRadius:10,padding:"9px 13px",cursor:"pointer",marginTop:10,width:"100%"}}>
-            <div style={{width:34,height:18,borderRadius:9,background:roundTrip?C.orange:C.border,position:"relative",flexShrink:0,transition:"background .2s"}}><div style={{width:14,height:14,borderRadius:"50%",background:"#fff",position:"absolute",top:2,left:roundTrip?18:2,transition:"left .2s",boxShadow:"0 1px 3px #00000033"}}/></div>
-            <span style={{color:roundTrip?C.orange:C.text2,fontWeight:600,fontSize:12}}>Ida e volta</span>
-          </button>
-          <div style={{marginTop:12}}>
-            <Field label="🏁 Pedágio total (R$)" value={pedagioTotal} onChange={v=>{pedagioEditadoPeloUsuarioRef.current=true;setPedagioAuto(false);setPedagioTotal(v);}} placeholder="Ex: 45.00" prefix="R$" hint="Valor estimado na ida; dobra automaticamente se marcar ida e volta." calc/>
+            <Field label="🏁 Pedágio (R$, tarifa base)" value={pedagioTotal} onChange={v=>{pedagioEditadoPeloUsuarioRef.current=true;setPedagioAuto(false);setPedagioTotal(v);}} placeholder="Ex: 45.00" prefix="R$" hint="Tarifa base; multiplica pelos eixos do veículo." calc/>
             {pedagioAuto&&<div style={{color:C.muted,fontSize:11,marginTop:-4}}>Estimativa automática — confira o valor da praça.</div>}
-          </div>
         </div>
 
         {/* ── BLOCO 2: VEÍCULO ── */}
@@ -4064,12 +4054,21 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
                 {[
                   {emoji:result.isElec?"⚡":"⛽",l:result.isElec?"Custo Energia":"Custo Combustível",v:`R$ ${(result.energyCost||0).toFixed(2)}`,c:"#1E40AF"},
                   result.isTruck&&result.arlaCost>0&&{emoji:"🟦",l:"ARLA 32",v:`R$ ${(result.arlaCost||0).toFixed(2)}`,c:"#6D28D9"},
-                  {emoji:"🏁",l:"Pedágio Total",v:`R$ ${(result.tollCost||0).toFixed(2)}`,c:"#B45309"},
+                  {emoji:"🏁",l:"Pedágio",v:`R$ ${(result.tollCost||0).toFixed(2)}`,c:"#B45309",sub:`tarifa base × ${plural(result.totalAxles,"eixo","eixos")}`,isPedagio:true},
                   {emoji:"📊",l:"Custo Total da Viagem",v:`R$ ${(result.total||0).toFixed(2)}`,c:"#DC2626",bold:true},
                 ].filter(Boolean).map((r,i,arr)=>(
-                  <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 0",borderBottom:i<arr.length-1?`1px solid ${C.border}`:"none"}}>
-                    <div style={{display:"flex",alignItems:"center",gap:8}}><span style={{fontSize:14}}>{r.emoji}</span><span style={{color:C.text2,fontSize:14}}>{r.l}</span></div>
-                    <span style={{color:r.c,fontWeight:r.bold?700:400,fontSize:14}}>{r.v}</span>
+                  <div key={i}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:r.sub?"flex-start":"center",padding:"10px 0",borderBottom:r.isPedagio?"none":i<arr.length-1?`1px solid ${C.border}`:"none"}}>
+                      <div style={{display:"flex",alignItems:"center",gap:8}}>
+                        <span style={{fontSize:14}}>{r.emoji}</span>
+                        <div>
+                          <span style={{color:C.text2,fontSize:14}}>{r.l}</span>
+                          {r.sub&&<div style={{color:C.muted,fontSize:12,marginTop:2}}>{r.sub}</div>}
+                        </div>
+                      </div>
+                      <span style={{color:r.c,fontWeight:r.bold?700:400,fontSize:14}}>{r.v}</span>
+                    </div>
+                    {r.isPedagio&&<div style={{color:C.muted,fontSize:11,paddingBottom:10,borderBottom:i<arr.length-1?`1px solid ${C.border}`:"none"}}>{PEDAGIO_AVISO_RESULTADO}</div>}
                   </div>
                 ))}
               </div>

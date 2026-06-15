@@ -9,7 +9,6 @@ import { parseNumeroBR } from "./formatUtils.js";
 export function calculateTripCosts(input) {
   const {
     distanciaKm,
-    roundTrip,
     isElec,
     consumo,
     defaultConsumo,
@@ -30,17 +29,16 @@ export function calculateTripCosts(input) {
   }
 
   const cons = parseNumeroBR(consumo) || (isElec ? 0.2 : defaultConsumo);
-  const dist = parseNumeroBR(distanciaKm) * (roundTrip ? 2 : 1);
+  const dist = parseNumeroBR(distanciaKm);
   const preco = parseNumeroBR(combustivelPreco);
 
   const custoComb = isElec
     ? (dist / 100) * cons * preco
     : (dist / cons) * preco;
   // V234 — pedágio POR EIXO: o valor informado é a tarifa base (1 eixo);
-  // escala com os eixos do veículo (carretinha = +1 eixo) e dobra na ida e volta
+  // escala com os eixos do veículo (carretinha = +1 eixo)
   const eixos = Math.max(1, parseInt(totalAxles, 10) || 1);
-  const custoPed =
-    (parseNumeroBR(pedagioTotalReais) || 0) * eixos * (roundTrip ? 2 : 1);
+  const custoPed = (parseNumeroBR(pedagioTotalReais) || 0) * eixos;
   const total = custoComb + custoPed;
 
   return {

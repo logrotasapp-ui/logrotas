@@ -1409,12 +1409,11 @@ export async function reoptimizeRemainingDeliveryRoute(
 
 // ── Cálculos puros (sem rede) ────────────────────────────────────────────────
 
-/** Soma distâncias por trecho (km), aplicando ida e volta quando indicado. */
-export function sumSegmentDistancesKm(segmentDistances, roundTrip = false) {
-  const oneWay = (segmentDistances || [])
+/** Soma distâncias por trecho (km). */
+export function sumSegmentDistancesKm(segmentDistances) {
+  return (segmentDistances || [])
     .map((d) => parseNumeroBR(d) || 0)
     .reduce((a, b) => a + b, 0);
-  return oneWay * (roundTrip ? 2 : 1);
 }
 
 /**
@@ -1424,7 +1423,6 @@ export function sumSegmentDistancesKm(segmentDistances, roundTrip = false) {
 export function calculateRouteCosts(input) {
   const {
     segmentDistances,
-    roundTrip,
     hasOrigin,
     hasDestination,
     isElec,
@@ -1440,7 +1438,7 @@ export function calculateRouteCosts(input) {
     freight,
   } = input;
 
-  const tot = sumSegmentDistancesKm(segmentDistances, roundTrip);
+  const tot = sumSegmentDistancesKm(segmentDistances);
 
   if (!hasOrigin) {
     return { ok: false, error: "⚠️ Preencha o campo de Origem." };
@@ -1471,7 +1469,8 @@ export function calculateRouteCosts(input) {
   const arlaL100 = parseNumeroBR(arlaConsumption) || 3.5;
   const arlaCost = isTruck ? (tot / 100) * arlaL100 * (parseNumeroBR(arlaPrice) || 0) : 0;
 
-  const tollCost = (parseNumeroBR(tollTotalReais) || 0) * (roundTrip ? 2 : 1);
+  const eixos = Math.max(1, parseInt(totalAxles, 10) || 1);
+  const tollCost = (parseNumeroBR(tollTotalReais) || 0) * eixos;
   const total = energyCost + arlaCost + tollCost;
   const freteVal = parseNumeroBR(freight) || 0;
   const lucro = freteVal - total;
