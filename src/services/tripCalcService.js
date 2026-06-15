@@ -3,6 +3,7 @@
  */
 import { parseNumeroBR } from "./formatUtils.js";
 import {
+  CALC_VIAGEM,
   custoPedagioEscalado,
   descricaoPedagioResultado,
   totalEixosPedagio,
@@ -44,7 +45,12 @@ export function calculateTripCosts(input) {
     : (dist / cons) * preco;
 
   const totalEixos = totalEixosPedagio({ vehicleId, vehicleAxles, trailerExtra });
-  const custoPed = custoPedagioEscalado(pedagioTotalReais, { vehicleId, totalEixos });
+  const custoPed = custoPedagioEscalado(pedagioTotalReais, {
+    vehicleId,
+    vehicleAxles,
+    trailerExtra,
+    context: CALC_VIAGEM,
+  });
   const total = custoComb + custoPed;
 
   return {
@@ -57,7 +63,12 @@ export function calculateTripCosts(input) {
       litros: isElec ? null : dist / cons,
       cons,
       totalAxles: totalEixos,
-      pedagioDescricao: descricaoPedagioResultado({ vehicleId, vehicleLabel, totalEixos }),
+      pedagioDescricao: descricaoPedagioResultado({
+        vehicleId,
+        vehicleLabel,
+        totalEixos,
+        trailerExtra,
+      }),
     },
   };
 }

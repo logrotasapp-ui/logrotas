@@ -137,7 +137,7 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="V277";
+const APP_VERSION="V278";
 const PEDAGIO_AVISO_RESULTADO="Pedágio estimado pelo Google. Pode haver variação — confirme o valor da praça.";
 const BETA_HIDE_PLANOS=true;
 
@@ -3417,7 +3417,7 @@ const TripCalcModal=({onClose,vehicles,onConcluido})=>{
   const totalEixosPedagioVal=totalEixosPedagio({vehicleId,vehicleAxles:veiculo.axles,trailerExtra:trailerAxles});
   const pedagioHint=isPedagioMoto(vehicleId)
     ?"Estimativa Google para moto."
-    :"Valor de carro (2 eixos); escala conforme categoria ao calcular.";
+    :"Valor de carro (2 eixos); reboque escala por eixo leve ao calcular.";
   const TRIP_TRAILER_OPTS=[
     {id:"none",   label:"Sem reboque",    emoji:"🚫",desc:"Sem eixos adicionais"},
     {id:"simples",label:"Reboque simples",emoji:"🔗",desc:"+1 eixo"},
@@ -3792,8 +3792,8 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
   const pedagioHint=isPedagioMoto(vehicleId)
     ?"Estimativa Google para moto."
     :isTruck
-      ?`Valor de carro (${EIXOS_CATEGORIA_CARRO} eixos); caminhão escala ao calcular.`
-      :"Valor de carro (2 eixos); reboque escala ao calcular.";
+      ?`Valor de carro (${EIXOS_CATEGORIA_CARRO} eixos); caminhão = 2× tarifa leve por eixo.`
+      :"Valor de carro (2 eixos); reboque escala por eixo leve ao calcular.";
 
   useEffect(()=>{
     if(skipVehicleReset.current){

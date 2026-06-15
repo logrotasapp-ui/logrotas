@@ -61,6 +61,7 @@ function logOcr(msg, data) {
 // V235 — entrada numérica tolerante (vírgula ou ponto) nos campos das calculadoras
 import { parseNumeroBR } from "./formatUtils.js";
 import {
+  CALC_FRETE,
   custoPedagioEscalado,
   descricaoPedagioResultado,
   totalEixosPedagio,
@@ -1484,7 +1485,9 @@ export function calculateRouteCosts(input) {
   });
   const tollCost = custoPedagioEscalado(tollTotalReais, {
     vehicleId,
-    totalEixos: eixosPedagio,
+    vehicleAxles,
+    trailerExtra,
+    context: CALC_FRETE,
   });
   const total = energyCost + arlaCost + tollCost;
   const freteVal = parseNumeroBR(freight) || 0;
@@ -1506,6 +1509,7 @@ export function calculateRouteCosts(input) {
         vehicleId,
         vehicleLabel,
         totalEixos: eixosPedagio,
+        trailerExtra,
       }),
       isElec,
       isTruck,
