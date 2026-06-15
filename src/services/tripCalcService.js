@@ -2,6 +2,11 @@
  * V171 — Calculadora de Viagem (lógica local; rede via routingService).
  */
 import { parseNumeroBR } from "./formatUtils.js";
+import {
+  custoPedagioEscalado,
+  descricaoPedagioResultado,
+  totalEixosPedagio,
+} from "./pedagioCalcService.js";
 
 /**
  * @returns {{ ok: true, result: object } | { ok: false, error: string }}
@@ -14,10 +19,12 @@ export function calculateTripCosts(input) {
     defaultConsumo,
     combustivelPreco,
     pedagioTotalReais,
-    totalAxles,
+    vehicleId,
+    vehicleLabel,
+    vehicleAxles,
+    trailerExtra = 0,
   } = input;
 
-  // V235 — entrada tolerante: aceita "6,4", "6.4", "1.250", "1.234,56", "R$ 6,49"
   if (!distanciaKm || parseNumeroBR(distanciaKm) <= 0) {
     return { ok: false, error: "⚠️ Preencha a distância em km." };
   }
@@ -35,10 +42,9 @@ export function calculateTripCosts(input) {
   const custoComb = isElec
     ? (dist / 100) * cons * preco
     : (dist / cons) * preco;
-  // V234 — pedágio POR EIXO: o valor informado é a tarifa base (1 eixo);
-  // escala com os eixos do veículo (carretinha = +1 eixo)
-  const eixos = Math.max(1, parseInt(totalAxles, 10) || 1);
-  const custoPed = (parseNumeroBR(pedagioTotalReais) || 0) * eixos;
+
+  const totalEixos = totalEixosPedagio({ vehicleId, vehicleAxles, trailerExtra });
+  const custoPed = custoPedagioEscalado(pedagioTotalReais, { vehicleId, totalEixos });
   const total = custoComb + custoPed;
 
   return {
@@ -50,8 +56,8 @@ export function calculateTripCosts(input) {
       total,
       litros: isElec ? null : dist / cons,
       cons,
-      totalAxles: eixos,
+      totalAxles: totalEixos,
+      pedagioDescricao: descricaoPedagioResultado({ vehicleId, vehicleLabel, totalEixos }),
     },
   };
 }
-

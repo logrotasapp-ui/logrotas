@@ -30,6 +30,13 @@ import {
 import { calculateTripCosts } from "./src/services/tripCalcService.js";
 import { buscarPedagioRoutes } from "./src/services/routesTollService.js";
 import {
+  travelModePedagio,
+  totalEixosPedagio,
+  isPedagioMoto,
+  eixosFixosPerfil,
+  EIXOS_CATEGORIA_CARRO,
+} from "./src/services/pedagioCalcService.js";
+import {
   formatMoeda,
   formatMoedaKm,
   formatKm,
@@ -130,7 +137,7 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="V276";
+const APP_VERSION="V277";
 const PEDAGIO_AVISO_RESULTADO="Pedágio estimado pelo Google. Pode haver variação — confirme o valor da praça.";
 const BETA_HIDE_PLANOS=true;
 
@@ -635,11 +642,11 @@ const StopsField=({stops,setStops,originLabel,destLabel})=>{
 };
 
 // ── GLOBAL VEHICLE STATE — single source of truth, shared between tabs ────────
-// axles: Moto=1, Carro=1, Elétrico=1, Caminhão=2 (all editable)
+// axles: Moto=2 (informativo), Carro=2, Elétrico=2, Caminhão=editável (pedágio)
 const DEFAULT_VEHICLES = [
-  {id:"moto",     label:"Moto",          emoji:"🏍️",  axles:1, consumption:25,  electric:false, kwh:0   },
-  {id:"carro",    label:"Carro",         emoji:"🚗",  axles:1, consumption:12,  electric:false, kwh:0   },
-  {id:"eletrico", label:"Carro Elétrico",emoji:"🚙", axles:1, consumption:0,   electric:true,  kwh:1.85},
+  {id:"moto",     label:"Moto",          emoji:"🏍️",  axles:2, consumption:25,  electric:false, kwh:0   },
+  {id:"carro",    label:"Carro",         emoji:"🚗",  axles:2, consumption:12,  electric:false, kwh:0   },
+  {id:"eletrico", label:"Carro Elétrico",emoji:"🚙", axles:2, consumption:0,   electric:true,  kwh:1.85},
   {id:"caminhao", label:"Caminhão",      emoji:"🚛",  axles:2, consumption:3.5, electric:false, kwh:0   },
 ];
 
@@ -3297,9 +3304,9 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
 // ── CALCULADORA DE VIAGEM (V171 — Google Directions + pedágio em R$ + voz) ─
 const TripCalcModal=({onClose,vehicles,onConcluido})=>{
   const TRIP_VEHICLES=[
-    {id:"moto",   emoji:"🏍️", label:"Moto",         consumption:25, axles:1, electric:false},
-    {id:"carro",  emoji:"🚗",  label:"Carro",         consumption:12, axles:1, electric:false},
-    {id:"eletric",emoji:"🚙",  label:"Carro Elétrico",consumption:0,  axles:1, electric:true, kwh:0.20},
+    {id:"moto",   emoji:"🏍️", label:"Moto",         consumption:25, axles:2, electric:false},
+    {id:"carro",  emoji:"🚗",  label:"Carro",         consumption:12, axles:2, electric:false},
+    {id:"eletric",emoji:"🚙",  label:"Carro Elétrico",consumption:0,  axles:2, electric:true, kwh:0.20},
   ];
   const nid=useRef(10);
   const[stops,setStops]=useState([{id:1,v:"",coords:null},{id:2,v:"",coords:null}]);
@@ -3355,7 +3362,7 @@ const TripCalcModal=({onClose,vehicles,onConcluido})=>{
   const aplicarPedagioAuto=async(stopsAtuais)=>{
     if(pedagioEditadoPeloUsuarioRef.current)return null;
     try{
-      const out=await buscarPedagioRoutes(stopsAtuais);
+      const out=await buscarPedagioRoutes(stopsAtuais,{travelMode:travelModePedagio(vehicleId)});
       if(out.ok){
         setPedagio(out.formatado);
         setPedagioAuto(true);
@@ -3401,13 +3408,16 @@ const TripCalcModal=({onClose,vehicles,onConcluido})=>{
     if(!origem||!destino)return;
     const t=setTimeout(()=>buscarDistEPedagioAuto(stops),800);
     return()=>clearTimeout(t);
-  },[stopsEnderecoKey,offlineHydrated]);
+  },[stopsEnderecoKey,offlineHydrated,vehicleId,trailer]);
 
   const veiculo=TRIP_VEHICLES.find(v=>v.id===vehicleId)||TRIP_VEHICLES[1];
   const isElec=veiculo?.electric;
-  // V235 — reboque vale para Moto, Carro e Carro Elétrico: simples +1 eixo, duplo +2
-  const trailerAxles=trailer==="simples"?1:trailer==="duplo"?2:0;
-  const totalAxles=(veiculo.axles||1)+trailerAxles;
+  const showTrailer=vehicleId==="carro"||vehicleId==="eletric";
+  const trailerAxles=showTrailer?(trailer==="simples"?1:trailer==="duplo"?2:0):0;
+  const totalEixosPedagioVal=totalEixosPedagio({vehicleId,vehicleAxles:veiculo.axles,trailerExtra:trailerAxles});
+  const pedagioHint=isPedagioMoto(vehicleId)
+    ?"Estimativa Google para moto."
+    :"Valor de carro (2 eixos); escala conforme categoria ao calcular.";
   const TRIP_TRAILER_OPTS=[
     {id:"none",   label:"Sem reboque",    emoji:"🚫",desc:"Sem eixos adicionais"},
     {id:"simples",label:"Reboque simples",emoji:"🔗",desc:"+1 eixo"},
@@ -3433,7 +3443,10 @@ const TripCalcModal=({onClose,vehicles,onConcluido})=>{
       defaultConsumo:veiculo.consumption,
       combustivelPreco:combustivel,
       pedagioTotalReais:pedagioCalc,
-      totalAxles,
+      vehicleId,
+      vehicleLabel:veiculo.label,
+      vehicleAxles:veiculo.axles,
+      trailerExtra:trailerAxles,
     });
     if(!out.ok){setErro(out.error);return;}
     setErro("");
@@ -3526,7 +3539,7 @@ const TripCalcModal=({onClose,vehicles,onConcluido})=>{
             <span style={{padding:"0 10px",color:buscandoDist?"#3B82F6":C.muted,fontSize:12,borderLeft:`1px solid ${C.border}`,background:C.subtle}}>{buscandoDist?"🔍":"km"}</span>
           </div>
 
-          <Field label="🏁 Pedágio (R$, tarifa base)" value={pedagio} onChange={v=>{pedagioEditadoPeloUsuarioRef.current=true;setPedagioAuto(false);setPedagio(v);}} placeholder="Ex: 45.00" prefix="R$" hint="Tarifa base; multiplica pelos eixos do veículo." calc/>
+          <Field label="🏁 Pedágio (R$)" value={pedagio} onChange={v=>{pedagioEditadoPeloUsuarioRef.current=true;setPedagioAuto(false);setPedagio(v);}} placeholder="Ex: 45,00" prefix="R$" hint={pedagioHint} calc/>
           {pedagioAuto&&<div style={{color:C.muted,fontSize:11,marginTop:-4}}>Estimativa automática — confira o valor da praça.</div>}
         </div>
 
@@ -3544,12 +3557,17 @@ const TripCalcModal=({onClose,vehicles,onConcluido})=>{
             );})}
           </div>
 
-          {/* V235 — seletor de reboque (mesmo componente da Calculadora de Fretes) */}
-          <TrailerSelector options={TRIP_TRAILER_OPTS} value={trailer} onChange={setTrailer}/>
+          {showTrailer&&(
+            <TrailerSelector options={TRIP_TRAILER_OPTS} value={trailer} onChange={setTrailer}/>
+          )}
 
           <div style={{background:"#EFF6FF",border:"1px solid #BFDBFE",borderRadius:9,padding:"8px 12px",display:"flex",alignItems:"center",gap:6}}>
             <InfoIcon size={12} color="#3B82F6"/>
-            <span style={{color:"#1D4ED8",fontSize:12}}><b>{plural(totalAxles,"eixo","eixos")}</b> no veículo</span>
+            <span style={{color:"#1D4ED8",fontSize:12}}>
+              {isPedagioMoto(vehicleId)
+                ?<><b>Moto</b> · pedágio estimado pela categoria</>
+                :<><b>{plural(totalEixosPedagioVal,"eixo","eixos")}</b> no veículo</>}
+            </span>
           </div>
         </div>
 
@@ -3582,7 +3600,7 @@ const TripCalcModal=({onClose,vehicles,onConcluido})=>{
             <div style={{background:"#F8FAFC",borderRadius:14,padding:"14px 16px",display:"flex",flexDirection:"column",gap:0}}>
               {[
                 {emoji:isElec?"⚡":"⛽",l:isElec?"Custo energia":"Custo combustível",v:formatMoeda(result.custoComb||0),sub:isElec?`${formatDecimal(result.dist/100*(parseNumeroBR(consumo)||veiculo.kwh),1)} kWh`:`${formatDecimal(result.litros||0,1)} litros · ${formatConsumoKmL(result.cons)}`},
-                {emoji:"🏁",l:"Pedágio",v:formatMoeda(result.custoPed||0),sub:`tarifa base × ${plural(result.totalAxles||totalAxles,"eixo","eixos")}`,isPedagio:true},
+                {emoji:"🏁",l:"Pedágio",v:formatMoeda(result.custoPed||0),sub:result.pedagioDescricao||"—",isPedagio:true},
               ].map((r,i,arr)=>(
                 <div key={i}>
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"11px 0",borderBottom:i<arr.length-1&&!r.isPedagio?`1px solid ${C.border}`:r.isPedagio?"none":`1px solid ${C.border}`}}>
@@ -3714,7 +3732,7 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
   const aplicarPedagioAuto=async(stopsAtuais)=>{
     if(pedagioEditadoPeloUsuarioRef.current)return null;
     try{
-      const out=await buscarPedagioRoutes(stopsAtuais);
+      const out=await buscarPedagioRoutes(stopsAtuais,{travelMode:travelModePedagio(vehicleId)});
       if(out.ok){
         setPedagioTotal(out.formatado);
         setPedagioAuto(true);
@@ -3763,14 +3781,19 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
     if(!origem||!destino)return;
     const t=setTimeout(()=>buscarDistEPedagioAuto(stops),800);
     return()=>clearTimeout(t);
-  },[stopsEnderecoKey,offlineHydrated]);
+  },[stopsEnderecoKey,offlineHydrated,vehicleId,trailer]);
 
   const veh=vehicles.find(v=>v.id===vehicleId)||vehicles[0];
   const isElec=veh.electric;
   const isTruck=vehicleId==="caminhao";
   const showTrailer=vehicleId==="carro"||vehicleId==="eletrico";
   const trailerExtra=showTrailer?(trailerAxleMap[trailer]||0):0;
-  const totalAxles=veh.axles+trailerExtra;
+  const totalEixosPedagioVal=totalEixosPedagio({vehicleId,vehicleAxles:veh.axles,trailerExtra});
+  const pedagioHint=isPedagioMoto(vehicleId)
+    ?"Estimativa Google para moto."
+    :isTruck
+      ?`Valor de carro (${EIXOS_CATEGORIA_CARRO} eixos); caminhão escala ao calcular.`
+      :"Valor de carro (2 eixos); reboque escala ao calcular.";
 
   useEffect(()=>{
     if(skipVehicleReset.current){
@@ -3816,7 +3839,10 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
       arlaConsumption,
       arlaPrice,
       tollTotalReais:pedagioCalc,
-      totalAxles,
+      vehicleId,
+      vehicleLabel:veh.label,
+      vehicleAxles:veh.axles,
+      trailerExtra,
       freight,
       metaLocal,
     });
@@ -3949,7 +3975,7 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
             )}
           </div>
 
-            <Field label="🏁 Pedágio (R$, tarifa base)" value={pedagioTotal} onChange={v=>{pedagioEditadoPeloUsuarioRef.current=true;setPedagioAuto(false);setPedagioTotal(v);}} placeholder="Ex: 45.00" prefix="R$" hint="Tarifa base; multiplica pelos eixos do veículo." calc/>
+            <Field label="🏁 Pedágio (R$)" value={pedagioTotal} onChange={v=>{pedagioEditadoPeloUsuarioRef.current=true;setPedagioAuto(false);setPedagioTotal(v);}} placeholder="Ex: 45,00" prefix="R$" hint={pedagioHint} calc/>
             {pedagioAuto&&<div style={{color:C.muted,fontSize:11,marginTop:-4}}>Estimativa automática — confira o valor da praça.</div>}
         </div>
 
@@ -3982,7 +4008,11 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
 
           <div style={{background:"#F8FAFC",border:`1px solid ${C.navy}22`,borderRadius:10,padding:"9px 12px",marginTop:10,display:"flex",alignItems:"center",gap:7}}>
             <InfoIcon size={13} color={C.navy}/>
-            <span style={{color:C.navy,fontSize:12}}><b>{plural(totalAxles,"eixo","eixos")}</b> no veículo</span>
+            <span style={{color:C.navy,fontSize:12}}>
+              {isPedagioMoto(vehicleId)
+                ?<><b>Moto</b> · pedágio estimado pela categoria</>
+                :<><b>{plural(totalEixosPedagioVal,"eixo","eixos")}</b> no veículo</>}
+            </span>
           </div>
         </div>
 
@@ -4045,7 +4075,7 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
                 <div style={{fontSize:26}}>{ok?"✅":"❌"}</div>
                 <div>
                   <div style={{color:ok?"#15803D":"#DC2626",fontWeight:700,fontSize:15,fontFamily:"'Sora',sans-serif"}}>{ok?"Frete cobre os custos!":"Custos acima do frete"}</div>
-                  <div style={{color:C.muted,fontSize:12,marginTop:2}}>{result.tot} km · {plural(result.totalAxles,"eixo","eixos")}{result.isElec?" · ⚡ Elétrico":""}</div>
+                  <div style={{color:C.muted,fontSize:12,marginTop:2}}>{result.tot} km · {result.pedagioDescricao||"—"}{result.isElec?" · ⚡ Elétrico":""}</div>
                 </div>
               </div>
 
@@ -4054,7 +4084,7 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
                 {[
                   {emoji:result.isElec?"⚡":"⛽",l:result.isElec?"Custo Energia":"Custo Combustível",v:`R$ ${(result.energyCost||0).toFixed(2)}`,c:"#1E40AF"},
                   result.isTruck&&result.arlaCost>0&&{emoji:"🟦",l:"ARLA 32",v:`R$ ${(result.arlaCost||0).toFixed(2)}`,c:"#6D28D9"},
-                  {emoji:"🏁",l:"Pedágio",v:`R$ ${(result.tollCost||0).toFixed(2)}`,c:"#B45309",sub:`tarifa base × ${plural(result.totalAxles,"eixo","eixos")}`,isPedagio:true},
+                  {emoji:"🏁",l:"Pedágio",v:`R$ ${(result.tollCost||0).toFixed(2)}`,c:"#B45309",sub:result.pedagioDescricao||"—",isPedagio:true},
                   {emoji:"📊",l:"Custo Total da Viagem",v:`R$ ${(result.total||0).toFixed(2)}`,c:"#DC2626",bold:true},
                 ].filter(Boolean).map((r,i,arr)=>(
                   <div key={i}>
@@ -6193,7 +6223,15 @@ const Perfil=({uid,metaMes,setMetaMes,faturamentoMes,saldoLiquidoMes,vehicles,se
   const atingiu=faturamentoMes>=metaMes&&metaMes>0;
   const salvarMeta=()=>{const v=parseNumeroBR(draftMeta);if(v>0)setMetaMes(v);setEditandoMeta(false);};
   const startEditVeh=v=>{setEditVeh(v.id);setEditVehVals({consumption:String(v.consumption),axles:String(v.axles),kwh:String(v.kwh||"")});};
-  const saveVeh=id=>{setVehicles(vs=>vs.map(x=>x.id===id?{...x,consumption:parseNumeroBR(editVehVals.consumption)||x.consumption,axles:parseInt(editVehVals.axles)||x.axles,kwh:parseNumeroBR(editVehVals.kwh)||x.kwh}:x));setEditVeh(null);};
+  const saveVeh=id=>{setVehicles(vs=>vs.map(x=>{
+    if(x.id!==id)return x;
+    const fixos=eixosFixosPerfil(x.id);
+    return{...x,
+      consumption:parseNumeroBR(editVehVals.consumption)||x.consumption,
+      axles:fixos!=null?fixos:(parseInt(editVehVals.axles)||x.axles),
+      kwh:parseNumeroBR(editVehVals.kwh)||x.kwh,
+    };
+  }));setEditVeh(null);};
 
   const tapTimer=useRef(null);
 
@@ -6311,7 +6349,7 @@ const Perfil=({uid,metaMes,setMetaMes,faturamentoMes,saldoLiquidoMes,vehicles,se
         <div style={{padding:"12px 18px 18px"}}>
           <div style={{background:C.greenLight,border:`1px solid ${C.green}33`,borderRadius:10,padding:"9px 12px",marginBottom:14,display:"flex",alignItems:"center",gap:7}}>
             <InfoIcon size={13} color={C.green}/>
-            <span style={{color:C.green,fontSize:12}}>Edite o consumo e os eixos de cada veículo. As alterações refletem automaticamente na calculadora.</span>
+            <span style={{color:C.green,fontSize:12}}>Edite o consumo de cada veículo. Só o caminhão permite alterar o número de eixos (pedágio).</span>
           </div>
           <div style={{display:"flex",flexDirection:"column",gap:10}}>
             {vehicles.map(v=>(
@@ -6320,7 +6358,11 @@ const Perfil=({uid,metaMes,setMetaMes,faturamentoMes,saldoLiquidoMes,vehicles,se
                   <div style={{fontSize:26,flexShrink:0}}>{v.emoji}</div>
                   <div style={{flex:1}}>
                     <div style={{color:C.text,fontWeight:700,fontSize:14}}>{v.label}</div>
-                    <div style={{color:C.muted,fontSize:12}}>{plural(v.axles,"eixo","eixos")} · {v.electric?formatKwhPrice(v.kwh||1.85):formatConsumoKmL(v.consumption)}</div>
+                    <div style={{color:C.muted,fontSize:12}}>
+                      {v.id==="moto"
+                        ?(v.electric?formatKwhPrice(v.kwh||1.85):formatConsumoKmL(v.consumption))
+                        :`${plural(v.id==="caminhao"?v.axles:EIXOS_CATEGORIA_CARRO,"eixo","eixos")} · ${v.electric?formatKwhPrice(v.kwh||1.85):formatConsumoKmL(v.consumption)}`}
+                    </div>
                   </div>
                   {editVeh===v.id
                     ?<button onClick={()=>saveVeh(v.id)} style={{background:C.greenLight,border:`1px solid ${C.green}33`,borderRadius:8,padding:"5px 10px",cursor:"pointer",color:C.green,fontSize:14,fontWeight:700,display:"flex",alignItems:"center",gap:4,flexShrink:0}}><SaveIcon size={11}/> Salvar</button>
@@ -6331,7 +6373,11 @@ const Perfil=({uid,metaMes,setMetaMes,faturamentoMes,saldoLiquidoMes,vehicles,se
                     {v.electric
                       ?<Field label="Preço por kWh (R$)" value={editVehVals.kwh||""} onChange={val=>setEditVehVals(e=>({...e,kwh:val}))} placeholder="1.85" prefix="R$"/>
                       :<Field label="Consumo (km/L)" value={editVehVals.consumption||""} onChange={val=>setEditVehVals(e=>({...e,consumption:val}))} placeholder="12" suffix="km/L"/>}
-                    <Field label="Número de Eixos" value={editVehVals.axles||""} onChange={val=>setEditVehVals(e=>({...e,axles:val}))} placeholder="1" suffix="eixos"/>
+                    {v.id==="caminhao"
+                      ?<Field label="Número de Eixos" value={editVehVals.axles||""} onChange={val=>setEditVehVals(e=>({...e,axles:val}))} placeholder="2" suffix="eixos" hint="Define o multiplicador de pedágio do caminhão."/>
+                      :v.id==="moto"
+                        ?<div style={{background:C.navyLight,border:`1px solid ${C.navy}22`,borderRadius:9,padding:"8px 12px",color:C.navy,fontSize:12}}>Pedágio estimado pela categoria moto (Google).</div>
+                        :<Field label="Número de Eixos" value={String(EIXOS_CATEGORIA_CARRO)} readOnly suffix="eixos" hint="Categoria fixa para pedágio (carro)."/>}
                   </div>
                 )}
               </div>

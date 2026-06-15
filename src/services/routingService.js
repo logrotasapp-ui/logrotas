@@ -60,6 +60,11 @@ function logOcr(msg, data) {
 
 // V235 — entrada numérica tolerante (vírgula ou ponto) nos campos das calculadoras
 import { parseNumeroBR } from "./formatUtils.js";
+import {
+  custoPedagioEscalado,
+  descricaoPedagioResultado,
+  totalEixosPedagio,
+} from "./pedagioCalcService.js";
 
 /** Valor estimado por eixo por praça de pedágio (R$). */
 export const TOLL_PER_AXLE = 3.2;
@@ -1434,7 +1439,10 @@ export function calculateRouteCosts(input) {
     arlaConsumption,
     arlaPrice,
     tollTotalReais,
-    totalAxles,
+    vehicleId,
+    vehicleLabel,
+    vehicleAxles,
+    trailerExtra = 0,
     freight,
   } = input;
 
@@ -1469,8 +1477,15 @@ export function calculateRouteCosts(input) {
   const arlaL100 = parseNumeroBR(arlaConsumption) || 3.5;
   const arlaCost = isTruck ? (tot / 100) * arlaL100 * (parseNumeroBR(arlaPrice) || 0) : 0;
 
-  const eixos = Math.max(1, parseInt(totalAxles, 10) || 1);
-  const tollCost = (parseNumeroBR(tollTotalReais) || 0) * eixos;
+  const eixosPedagio = totalEixosPedagio({
+    vehicleId,
+    vehicleAxles,
+    trailerExtra,
+  });
+  const tollCost = custoPedagioEscalado(tollTotalReais, {
+    vehicleId,
+    totalEixos: eixosPedagio,
+  });
   const total = energyCost + arlaCost + tollCost;
   const freteVal = parseNumeroBR(freight) || 0;
   const lucro = freteVal - total;
@@ -1486,7 +1501,12 @@ export function calculateRouteCosts(input) {
       lucro,
       margem: freteVal ? (lucro / freteVal) * 100 : null,
       freteVal,
-      totalAxles,
+      totalAxles: eixosPedagio,
+      pedagioDescricao: descricaoPedagioResultado({
+        vehicleId,
+        vehicleLabel,
+        totalEixos: eixosPedagio,
+      }),
       isElec,
       isTruck,
     },

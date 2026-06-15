@@ -1,5 +1,5 @@
 /**
- * V275 — Estimativa de pedágio via Google Routes API (computeRoutes + TOLLS).
+ * V275/V277 — Estimativa de pedágio via Google Routes API (computeRoutes + TOLLS).
  */
 import { API_KEYS, API_ENDPOINTS } from "./apiConfig.js";
 import { resolveCalculatorStopsCoords } from "./routingService.js";
@@ -8,7 +8,6 @@ import { formatDecimal } from "./formatUtils.js";
 const ROUTES_FIELD_MASK =
   "routes.travelAdvisory.tollInfo,routes.legs.travelAdvisory.tollInfo,routes.distanceMeters";
 const ROUTES_TIMEOUT_MS = 15000;
-const EIXOS_PADRAO_GOOGLE = 2;
 
 function moneyToReais(money) {
   if (!money || typeof money !== "object") return null;
@@ -60,14 +59,17 @@ function waypointFromStop(stop) {
 }
 
 /**
- * Busca pedágio estimado e retorna tarifa base por 1 eixo (valor Google ÷ 2).
+ * Busca pedágio estimado (valor direto da categoria: carro DRIVE ou moto TWO_WHEELER).
  * @param {Array<{ v?: string, coords?: number[] | null }>} stops
- * @returns {Promise<{ ok: true, tarifaBasePorEixo: number, formatado: string } | { ok: false, error?: string }>}
+ * @param {{ travelMode?: 'DRIVE' | 'TWO_WHEELER' }} opts
+ * @returns {Promise<{ ok: true, valorPedagio: number, formatado: string, travelMode: string } | { ok: false, error?: string }>}
  */
-export async function buscarPedagioRoutes(stops) {
+export async function buscarPedagioRoutes(stops, opts = {}) {
   if (!API_KEYS.googleMaps) {
     return { ok: false, error: "api_key_ausente" };
   }
+
+  const travelMode = opts.travelMode === "TWO_WHEELER" ? "TWO_WHEELER" : "DRIVE";
 
   try {
     const resolvidos = await resolveCalculatorStopsCoords(stops || []);
@@ -85,12 +87,14 @@ export async function buscarPedagioRoutes(stops) {
     const body = {
       origin: waypointFromStop(origin),
       destination: waypointFromStop(destination),
-      travelMode: "DRIVE",
+      travelMode,
       extraComputations: ["TOLLS"],
-      routeModifiers: {
-        vehicleInfo: { emissionType: "GASOLINE" },
-      },
     };
+    if (travelMode === "DRIVE") {
+      body.routeModifiers = {
+        vehicleInfo: { emissionType: "GASOLINE" },
+      };
+    }
     if (intermediates.length) {
       body.intermediates = intermediates.map(waypointFromStop);
     }
@@ -134,16 +138,16 @@ export async function buscarPedagioRoutes(stops) {
       return { ok: false, error: "sem_rota" };
     }
 
-    const pedagioTotalBrl = extractRouteTollReais(route);
-    if (pedagioTotalBrl == null) {
+    const valorPedagio = extractRouteTollReais(route);
+    if (valorPedagio == null) {
       return { ok: false, error: "sem_pedagio_brl" };
     }
 
-    const tarifaBasePorEixo = pedagioTotalBrl / EIXOS_PADRAO_GOOGLE;
     return {
       ok: true,
-      tarifaBasePorEixo,
-      formatado: formatDecimal(tarifaBasePorEixo, 2),
+      valorPedagio,
+      formatado: formatDecimal(valorPedagio, 2),
+      travelMode,
     };
   } catch (err) {
     console.error("[LogRotas] Routes API pedágio — falha:", err);
