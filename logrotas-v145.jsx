@@ -138,7 +138,7 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="V279";
+const APP_VERSION="V280";
 const PEDAGIO_AVISO_RESULTADO="Pedágio estimado pelo Google. Pode haver variação — confirme o valor da praça.";
 const BETA_HIDE_PLANOS=true;
 
@@ -3411,9 +3411,14 @@ const TripCalcModal=({onClose,vehicles,onConcluido})=>{
     try{
       const out=await buscarPedagioRoutes(stopsAtuais,{travelMode:travelModePedagio(vehicleId)});
       if(out.ok){
-        setPedagio(out.formatado);
-        setPedagioAuto(true);
-        return out.formatado;
+        if(out.valorPedagio>0){
+          setPedagio(out.formatado);
+          setPedagioAuto(true);
+          return out.formatado;
+        }
+        setPedagio("");
+        setPedagioAuto(false);
+        return "";
       }
       setPedagioAuto(false);
     }catch(err){
@@ -3428,6 +3433,10 @@ const TripCalcModal=({onClose,vehicles,onConcluido})=>{
     const origem=String(stopsAtuais[0]?.v||"").trim();
     const destino=String(stopsAtuais[stopsAtuais.length-1]?.v||"").trim();
     if(!origem||!destino)return;
+    if(!pedagioEditadoPeloUsuarioRef.current){
+      setPedagio("");
+      setPedagioAuto(false);
+    }
     setBuscandoDist(true);
     try{
       const resolvidos=await resolveCalculatorStopsCoords(stopsAtuais);
@@ -3590,7 +3599,7 @@ const TripCalcModal=({onClose,vehicles,onConcluido})=>{
           </div>
 
           <Field label="🏁 Pedágio (R$)" value={pedagio} onChange={v=>{pedagioEditadoPeloUsuarioRef.current=true;setPedagioAuto(false);setPedagio(v);}} placeholder="Ex: 45,00" prefix="R$" hint={pedagioHint} calc/>
-          {pedagioAuto&&<div style={{color:C.muted,fontSize:11,marginTop:-4}}>Estimativa automática — confira o valor da praça.</div>}
+          {pedagioAuto&&parseNumeroBR(pedagio)>0&&<div style={{color:C.muted,fontSize:11,marginTop:-4}}>Estimativa automática — confira o valor da praça.</div>}
         </div>
 
         {/* BLOCO VEÍCULO */}
@@ -3660,7 +3669,7 @@ const TripCalcModal=({onClose,vehicles,onConcluido})=>{
                     </div>
                     <span style={{color:C.navy,fontWeight:700,fontSize:15}}>{r.v}</span>
                   </div>
-                  {r.isPedagio&&<div style={{color:C.muted,fontSize:11,paddingBottom:11,borderBottom:i<arr.length-1?`1px solid ${C.border}`:"none"}}>{PEDAGIO_AVISO_RESULTADO}</div>}
+                  {r.isPedagio&&(result.custoPed||0)>0&&<div style={{color:C.muted,fontSize:11,paddingBottom:11,borderBottom:i<arr.length-1?`1px solid ${C.border}`:"none"}}>{PEDAGIO_AVISO_RESULTADO}</div>}
                 </div>
               ))}
             </div>
@@ -3784,9 +3793,14 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
     try{
       const out=await buscarPedagioRoutes(stopsAtuais,{travelMode:travelModePedagio(vehicleId)});
       if(out.ok){
-        setPedagioTotal(out.formatado);
-        setPedagioAuto(true);
-        return out.formatado;
+        if(out.valorPedagio>0){
+          setPedagioTotal(out.formatado);
+          setPedagioAuto(true);
+          return out.formatado;
+        }
+        setPedagioTotal("");
+        setPedagioAuto(false);
+        return "";
       }
       setPedagioAuto(false);
     }catch(err){
@@ -3801,6 +3815,10 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
     const origem=String(stopsAtuais[0]?.v||"").trim();
     const destino=String(stopsAtuais[stopsAtuais.length-1]?.v||"").trim();
     if(!origem||!destino)return;
+    if(!pedagioEditadoPeloUsuarioRef.current){
+      setPedagioTotal("");
+      setPedagioAuto(false);
+    }
     setBuscandoDist(true);
     try{
       const resolvidos=await resolveCalculatorStopsCoords(stopsAtuais);
@@ -4029,7 +4047,7 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
           </div>
 
             <Field label="🏁 Pedágio (R$)" value={pedagioTotal} onChange={v=>{pedagioEditadoPeloUsuarioRef.current=true;setPedagioAuto(false);setPedagioTotal(v);}} placeholder="Ex: 45,00" prefix="R$" hint={pedagioHint} calc/>
-            {pedagioAuto&&<div style={{color:C.muted,fontSize:11,marginTop:-4}}>Estimativa automática — confira o valor da praça.</div>}
+            {pedagioAuto&&parseNumeroBR(pedagioTotal)>0&&<div style={{color:C.muted,fontSize:11,marginTop:-4}}>Estimativa automática — confira o valor da praça.</div>}
         </div>
 
         {/* ── BLOCO 2: VEÍCULO ── */}
@@ -4151,7 +4169,7 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
                       </div>
                       <span style={{color:r.c,fontWeight:r.bold?700:400,fontSize:14}}>{r.v}</span>
                     </div>
-                    {r.isPedagio&&<div style={{color:C.muted,fontSize:11,paddingBottom:10,borderBottom:i<arr.length-1?`1px solid ${C.border}`:"none"}}>{PEDAGIO_AVISO_RESULTADO}</div>}
+                    {r.isPedagio&&(result.tollCost||0)>0&&<div style={{color:C.muted,fontSize:11,paddingBottom:10,borderBottom:i<arr.length-1?`1px solid ${C.border}`:"none"}}>{PEDAGIO_AVISO_RESULTADO}</div>}
                   </div>
                 ))}
               </div>
