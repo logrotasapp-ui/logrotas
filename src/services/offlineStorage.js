@@ -9,6 +9,7 @@ export const OFFLINE_KEYS = {
   navegacao: "logrotas_navegacao_sessao",
   avaliacao: "logrotas_avaliacao_state",
   avaliacaoPendentes: "logrotas_avaliacao_pendentes",
+  vehicles: "logrotas_vehicles",
 };
 
 export const AUTH_KEYS = {
@@ -136,6 +137,48 @@ export function readOfflineCache(key) {
 export function writeOfflineCache(key, payload) {
   try {
     localStorage.setItem(key, JSON.stringify(payload));
+  } catch {
+    /* quota / modo privado */
+  }
+}
+
+/** id, axles, consumption, kwh — label/emoji vêm do DEFAULT_VEHICLES. */
+export function serializeVehiclesForStorage(vehicles) {
+  return (vehicles || []).map((v) => ({
+    id: v.id,
+    axles: v.axles,
+    consumption: v.consumption,
+    kwh: v.kwh,
+  }));
+}
+
+/** Valores salvos pelo usuário têm prioridade; veículos ausentes mantêm o default. */
+export function mergeVehiclesWithDefaults(defaultVehicles, saved) {
+  if (!Array.isArray(saved) || saved.length === 0) return defaultVehicles;
+  const byId = Object.fromEntries(saved.filter((s) => s?.id).map((s) => [s.id, s]));
+  return defaultVehicles.map((d) => {
+    const s = byId[d.id];
+    if (!s) return d;
+    return {
+      ...d,
+      axles: s.axles != null ? s.axles : d.axles,
+      consumption: s.consumption != null ? s.consumption : d.consumption,
+      kwh: s.kwh != null ? s.kwh : d.kwh,
+    };
+  });
+}
+
+export function readVehiclesLocalCache(defaultVehicles) {
+  return mergeVehiclesWithDefaults(defaultVehicles, readOfflineCache(OFFLINE_KEYS.vehicles));
+}
+
+export function writeVehiclesLocalCache(vehicles) {
+  writeOfflineCache(OFFLINE_KEYS.vehicles, serializeVehiclesForStorage(vehicles));
+}
+
+export function clearVehiclesLocalCache() {
+  try {
+    localStorage.removeItem(OFFLINE_KEYS.vehicles);
   } catch {
     /* quota / modo privado */
   }
