@@ -56,3 +56,41 @@ export async function geocodeAddressGoogle(address, options = {}) {
     return null;
   }
 }
+
+/**
+ * Reverse geocode (lat/lng → endereço legível).
+ * @param {number} lat
+ * @param {number} lng
+ * @returns {Promise<{ lat: number, lng: number, formattedAddress: string } | null>}
+ */
+export async function reverseGeocodeGoogle(lat, lng) {
+  if (!Number.isFinite(lat) || !Number.isFinite(lng) || !API_KEYS.googleMaps) return null;
+
+  try {
+    await waitForGoogleMaps();
+    const geocoder = new window.google.maps.Geocoder();
+
+    return new Promise((resolve) => {
+      geocoder.geocode(
+        { location: { lat, lng }, language: "pt-BR" },
+        (results, status) => {
+          if (
+            status !== window.google.maps.GeocoderStatus.OK ||
+            !results?.[0]?.geometry?.location
+          ) {
+            resolve(null);
+            return;
+          }
+          const loc = results[0].geometry.location;
+          resolve({
+            lat: loc.lat(),
+            lng: loc.lng(),
+            formattedAddress: results[0].formatted_address || `${lat}, ${lng}`,
+          });
+        }
+      );
+    });
+  } catch {
+    return null;
+  }
+}
