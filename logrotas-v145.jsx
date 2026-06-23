@@ -136,7 +136,7 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="V283";
+const APP_VERSION="V284";
 const PEDAGIO_AVISO_RESULTADO="Pedágio estimado pelo Google. Pode haver variação — confirme o valor da praça.";
 const BETA_HIDE_PLANOS=true;
 
@@ -308,17 +308,17 @@ const AddressInput=({value,onChange,onSelect,placeholder,dotColor,disabled,enabl
 
   return(
     <div style={{position:"relative",flex:1,minWidth:0,zIndex:aberto?10002:"auto"}}>
-      <div style={{display:"flex",alignItems:"center",background:disabled?C.subtle:"#fff",border:`1.5px solid ${idleBorder}`,borderRadius:10,boxShadow:calc?"0 1px 2px #1E3A8A0A":"0 1px 3px #1E3A8A08",transition:"border-color .15s",opacity:disabled?0.7:1}}
+      <div style={{display:"flex",alignItems:calc?"stretch":"center",background:disabled?C.subtle:"#fff",border:`1.5px solid ${idleBorder}`,borderRadius:10,boxShadow:calc?"0 1px 2px #1E3A8A0A":"0 1px 3px #1E3A8A08",transition:"border-color .15s",opacity:disabled?0.7:1,...(calc?{minHeight:CALC_INPUT_ROW_H}:{})}}
         onFocusCapture={e=>{if(!disabled)e.currentTarget.style.borderColor=C.orange;}}
         onBlurCapture={e=>e.currentTarget.style.borderColor=idleBorder}>
-        <div style={{width:10,height:10,borderRadius:"50%",background:cor,border:"2px solid #fff",boxShadow:`0 0 0 1.5px ${cor}`,flexShrink:0,marginLeft:12}}/>
+        <div style={{width:10,height:10,borderRadius:"50%",background:cor,border:"2px solid #fff",boxShadow:`0 0 0 1.5px ${cor}`,flexShrink:0,marginLeft:12,...(calc?{alignSelf:"center"}:{})}}/>
         <input value={value} onChange={e=>handleChange(e.target.value)} placeholder={placeholder} disabled={disabled}
-          style={{flex:1,minWidth:0,background:"transparent",border:"none",outline:"none",color:disabled?C.muted:C.text,padding:"10px 8px 10px 12px",fontSize:14,cursor:disabled?"not-allowed":"text"}}
+          style={{flex:1,background:"transparent",border:"none",outline:"none",color:disabled?C.muted:C.text,cursor:disabled?"not-allowed":"text",...(calc?{...calcFieldInputStyle,alignSelf:"stretch"}:{padding:"10px 8px 10px 12px",fontSize:14,minWidth:0})}}
           onFocus={()=>{if(!disabled&&(enableMyLocation||sugestoes.length>0)){setAberto(true);setLocErro("");}}}
           onBlur={()=>setTimeout(()=>setAberto(false),200)}/>
         {enableVoice&&speechOk&&(
           <button type="button" onMouseDown={e=>e.preventDefault()} onClick={iniciarVoz} disabled={disabled||ouvindo} title="Falar endereço"
-            style={{background:ouvindo?"#FEE2E2":"transparent",border:"none",borderRadius:8,padding:"6px 8px",marginRight:4,cursor:disabled||ouvindo?"not-allowed":"pointer",fontSize:15,lineHeight:1,opacity:disabled?0.5:1}}>
+            style={{background:ouvindo?"#FEE2E2":"transparent",border:"none",borderRadius:8,padding:"6px 8px",marginRight:4,cursor:disabled||ouvindo?"not-allowed":"pointer",fontSize:15,lineHeight:1,opacity:disabled?0.5:1,...(calc?{alignSelf:"center"}:{})}}>
             {ouvindo?"🔴":"🎤"}
           </button>
         )}
@@ -542,6 +542,9 @@ const DeleteConfirm=({message,onConfirm,onCancel})=>(
 
 // Fully controlled field
 const CALC_INPUT_BORDER=C.calcBorder;
+const CALC_ROTA_GAP=12;
+const CALC_INPUT_ROW_H=44;
+const calcFieldInputStyle={padding:"10px 12px",fontSize:14,minWidth:0,boxSizing:"border-box"};
 const Field=({label,value,onChange,placeholder,prefix,suffix,type="text",hint,readOnly=false,calc=false})=>{
   const [focused,setFocused]=useState(false);
   const isNumeric=!!(prefix||suffix)&&type==="text";
@@ -550,11 +553,11 @@ const Field=({label,value,onChange,placeholder,prefix,suffix,type="text",hint,re
   return(
     <div style={{display:"flex",flexDirection:"column",gap:5}}>
       {label&&<label style={{color:C.text2,fontSize:14,fontWeight:700,letterSpacing:0.4}}>{label}</label>}
-      <div style={{display:"flex",alignItems:"center",background:readOnly?C.subtle:focused?C.surface:idleBg,border:`1.5px solid ${readOnly?C.border:focused?C.orange:idleBorder}`,borderRadius:10,overflow:"hidden",transition:"border .15s",boxShadow:calc&&!focused&&!readOnly?"0 1px 2px #1E3A8A0A":"none"}}>
+      <div style={{display:"flex",alignItems:"center",background:readOnly?C.subtle:focused?C.surface:idleBg,border:`1.5px solid ${readOnly?C.border:focused?C.orange:idleBorder}`,borderRadius:10,overflow:"hidden",transition:"border .15s",boxShadow:calc&&!focused&&!readOnly?"0 1px 2px #1E3A8A0A":"none",...(calc?{minHeight:CALC_INPUT_ROW_H}:{})}}>
         {prefix&&<span style={{padding:"0 10px",color:C.muted,fontSize:12,flexShrink:0,borderRight:`1px solid ${C.border}`,background:"#fff",alignSelf:"stretch",display:"flex",alignItems:"center"}}>{prefix}</span>}
         <input type={type} inputMode={isNumeric||type==="number"?"decimal":undefined} value={value} onChange={e=>!readOnly&&onChange(e.target.value)} onFocus={()=>!readOnly&&setFocused(true)} onBlur={()=>setFocused(false)} placeholder={placeholder}
           readOnly={readOnly}
-          style={{flex:1,background:"transparent",border:"none",outline:"none",color:readOnly?C.muted:C.text,padding:"10px 12px",fontSize:14,minWidth:0,cursor:readOnly?"default":"text"}}/>
+          style={{flex:1,background:"transparent",border:"none",outline:"none",color:readOnly?C.muted:C.text,...calcFieldInputStyle,cursor:readOnly?"default":"text"}}/>
         {suffix&&<span style={{padding:"0 10px",color:C.muted,fontSize:12,flexShrink:0,borderLeft:`1px solid ${C.border}`,background:"#fff",alignSelf:"stretch",display:"flex",alignItems:"center"}}>{suffix}</span>}
       </div>
       {hint&&<div style={{color:C.muted,fontSize:11}}>{hint}</div>}
@@ -3518,7 +3521,7 @@ const TripCalcModal=({onClose,vehicles,onConcluido})=>{
       <div style={{display:"flex",flexDirection:"column",gap:14}}>
 
         {/* BLOCO ROTA */}
-        <div style={{background:C.subtle,borderRadius:14,padding:"14px 16px",display:"flex",flexDirection:"column",gap:8,overflow:"visible"}}>
+        <div style={{background:C.subtle,borderRadius:14,padding:"14px 16px",display:"flex",flexDirection:"column",gap:CALC_ROTA_GAP,overflow:"visible"}}>
           <div style={{color:C.navy,fontWeight:700,fontSize:12,textTransform:"uppercase",letterSpacing:0.5,marginBottom:2}}>🗺️ Rota</div>
 
           {/* Origem */}
@@ -3584,12 +3587,12 @@ const TripCalcModal=({onClose,vehicles,onConcluido})=>{
           />
 
           {/* KM total — editável manualmente (fallback) */}
-          <div style={{display:"flex",alignItems:"center",background:"#fff",border:`1.5px solid ${buscandoDist?"#3B82F6":C.calcBorder}`,borderRadius:10,overflow:"hidden"}}
+          <div style={{display:"flex",alignItems:"stretch",background:"#fff",border:`1.5px solid ${buscandoDist?"#3B82F6":C.calcBorder}`,borderRadius:10,overflow:"hidden",minHeight:CALC_INPUT_ROW_H}}
             onFocusCapture={e=>e.currentTarget.style.borderColor="#3B82F6"}
             onBlurCapture={e=>e.currentTarget.style.borderColor=C.calcBorder}>
             <input value={distancia} onChange={e=>setDistancia(e.target.value)} placeholder={buscandoDist?"Calculando…":"KM total"} type="text" inputMode="decimal"
-              style={{flex:1,background:"transparent",border:"none",outline:"none",color:C.text,padding:"10px 12px",fontSize:14,fontWeight:700}}/>
-            <span style={{padding:"0 10px",color:buscandoDist?"#3B82F6":C.muted,fontSize:12,borderLeft:`1px solid ${C.border}`,background:C.subtle}}>{buscandoDist?"🔍":"km"}</span>
+              style={{flex:1,background:"transparent",border:"none",outline:"none",color:C.text,...calcFieldInputStyle,fontWeight:700}}/>
+            <span style={{padding:"0 10px",color:buscandoDist?"#3B82F6":C.muted,fontSize:12,borderLeft:`1px solid ${C.border}`,background:C.subtle,alignSelf:"stretch",display:"flex",alignItems:"center"}}>{buscandoDist?"🔍":"km"}</span>
           </div>
 
           <div style={{display:"flex",flexDirection:"column",gap:6}}>
@@ -3921,13 +3924,12 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
       <div style={{display:"flex",flexDirection:"column",gap:14,overflowX:"hidden",maxWidth:"100%",minWidth:0}}>
 
         {/* ── BLOCO 1: ROTA ── */}
-        <div style={{background:C.subtle,borderRadius:16,padding:"16px 16px 12px",overflow:"hidden",maxWidth:"100%"}}>
+        <div style={{background:C.subtle,borderRadius:16,padding:"16px",overflow:"visible",maxWidth:"100%"}}>
           <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:12}}>
             <div style={{width:28,height:28,borderRadius:8,background:C.navy,display:"flex",alignItems:"center",justifyContent:"center"}}><RouteIcon size={13} color="#fff"/></div>
             <span style={{color:C.navy,fontWeight:800,fontSize:14,fontFamily:"'Sora',sans-serif"}}>Rota</span>
           </div>
-          {/* Stops — AddressInput com autocomplete */}
-          <div style={{display:"flex",flexDirection:"column",gap:7,marginBottom:10,overflow:"visible",maxWidth:"100%",minWidth:0}}>
+          <div style={{display:"flex",flexDirection:"column",gap:CALC_ROTA_GAP,overflow:"visible",maxWidth:"100%",minWidth:0}}>
             {/* Origem */}
             <AddressInput
               value={stops[0]?.v||""}
@@ -3991,17 +3993,14 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
               enableMyLocation
               searchOptions={paradaSearchBias}
             />
-          </div>
 
-          {/* Distância — com indicador de busca automática */}
-          <div style={{display:"flex",flexDirection:"column",gap:8}}>
             {stops.length>2&&Array.from({length:stops.length-1}).map((_,i)=>(
               <div key={i} style={{display:"flex",alignItems:"center",gap:8,minWidth:0,maxWidth:"100%"}}>
                 <div style={{color:C.muted,fontSize:12,flexShrink:0,minWidth:56}}>{`Trecho ${i+1}`}:</div>
-                <div style={{display:"flex",alignItems:"center",background:"#fff",border:`1.5px solid ${buscandoDist?C.orange:C.calcBorder}`,borderRadius:10,overflow:"hidden",flex:1,minWidth:0,transition:"border-color .3s"}}>
+                <div style={{display:"flex",alignItems:"stretch",background:"#fff",border:`1.5px solid ${buscandoDist?C.orange:C.calcBorder}`,borderRadius:10,overflow:"hidden",flex:1,minWidth:0,minHeight:CALC_INPUT_ROW_H,transition:"border-color .3s"}}>
                   <input value={dists[i]||""} onChange={e=>setDists(d=>{const n=[...d];n[i]=e.target.value;return n;})}
                     placeholder={buscandoDist?"Calculando...":"0"} type="number" inputMode="decimal"
-                    style={{flex:1,minWidth:0,background:"transparent",border:"none",outline:"none",color:C.text,padding:"9px 12px",fontSize:14,fontWeight:700}}/>
+                    style={{flex:1,background:"transparent",border:"none",outline:"none",color:C.text,...calcFieldInputStyle,fontWeight:700}}/>
                   <span style={{padding:"0 10px",color:buscandoDist?C.orange:C.muted,fontSize:12,borderLeft:`1px solid ${C.border}`,background:C.subtle,alignSelf:"stretch",display:"flex",alignItems:"center"}}>
                     {buscandoDist?"🔍":"km"}
                   </span>
@@ -4009,13 +4008,10 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
               </div>
             ))}
             {stops.length>1&&(
-              <div style={{display:"flex",alignItems:"center",gap:8,minWidth:0,maxWidth:"100%"}}>
-                <div style={{color:C.navy,fontSize:12,fontWeight:700,flexShrink:0,minWidth:56}}>KM Total:</div>
-                <div style={{display:"flex",alignItems:"center",background:C.subtle,border:`1.5px solid ${C.navy}33`,borderRadius:10,overflow:"hidden",flex:1,minWidth:0}}>
-                  <input value={kmTotalExibicao} readOnly tabIndex={-1} placeholder="0"
-                    style={{flex:1,minWidth:0,background:"transparent",border:"none",outline:"none",color:C.navy,padding:"9px 12px",fontSize:14,fontWeight:800,cursor:"default"}}/>
-                  <span style={{padding:"0 10px",color:C.navy,fontSize:12,fontWeight:700,borderLeft:`1px solid ${C.border}`,background:"#EEF4FF",alignSelf:"stretch",display:"flex",alignItems:"center"}}>km</span>
-                </div>
+              <div style={{display:"flex",alignItems:"stretch",background:"#fff",border:`1.5px solid ${buscandoDist?"#3B82F6":C.calcBorder}`,borderRadius:10,overflow:"hidden",minHeight:CALC_INPUT_ROW_H}}>
+                <input value={kmTotalExibicao} readOnly tabIndex={-1} placeholder={buscandoDist?"Calculando…":"KM total"}
+                  style={{flex:1,background:"transparent",border:"none",outline:"none",color:C.text,...calcFieldInputStyle,fontWeight:700,cursor:"default"}}/>
+                <span style={{padding:"0 10px",color:buscandoDist?"#3B82F6":C.muted,fontSize:12,borderLeft:`1px solid ${C.border}`,background:C.subtle,alignSelf:"stretch",display:"flex",alignItems:"center"}}>{buscandoDist?"🔍":"km"}</span>
               </div>
             )}
             {buscandoDist&&(
@@ -4024,11 +4020,11 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
                 <span style={{color:C.orange,fontSize:12,fontWeight:600}}>Calculando a distância real da rota...</span>
               </div>
             )}
-          </div>
 
-          <div style={{display:"flex",flexDirection:"column",gap:6}}>
-            <Field label="🏁 Pedágio (R$)" value={pedagioTotal} onChange={v=>{setPedagioTotal(v);setPedagioAuto(false);pedagioEditadoPeloUsuarioRef.current=String(v||"").trim()!=="";}} prefix="R$" calc/>
-            {pedagioAuto&&parseNumeroBR(pedagioTotal)>0&&<div style={{color:C.muted,fontSize:11,marginTop:2,textAlign:"center",lineHeight:1.4,paddingBottom:2}}>Estimativa automática — confira o valor da praça.</div>}
+            <div style={{display:"flex",flexDirection:"column",gap:6}}>
+              <Field label="🏁 Pedágio (R$)" value={pedagioTotal} onChange={v=>{setPedagioTotal(v);setPedagioAuto(false);pedagioEditadoPeloUsuarioRef.current=String(v||"").trim()!=="";}} prefix="R$" calc/>
+              {pedagioAuto&&parseNumeroBR(pedagioTotal)>0&&<div style={{color:C.muted,fontSize:11,marginTop:2,textAlign:"center",lineHeight:1.4,paddingBottom:2}}>Estimativa automática — confira o valor da praça.</div>}
+            </div>
           </div>
         </div>
 
