@@ -1,4 +1,5 @@
 ﻿import { useState, useRef, useEffect, useCallback, useMemo } from "react";
+import { useSwipeable } from "react-swipeable";
 import { createPortal, flushSync } from "react-dom";
 import {
   calculateRouteCosts,
@@ -136,9 +137,11 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="V284";
+const APP_VERSION="V285";
 const PEDAGIO_AVISO_RESULTADO="Pedágio estimado pelo Google. Pode haver variação — confirme o valor da praça.";
 const BETA_HIDE_PLANOS=true;
+const PAGE_SWIPE_ORDER=["dashboard","financeiro","despesas","comparador","manutencao","documentos","perfil"];
+const PAGE_SWIPE_MIN_PX=50;
 
 const OfflineRestoredBanner=({show})=>show?(
   <div style={{background:"#F0F9FF",border:"1px solid #BAE6FD",borderRadius:8,padding:"6px 12px",marginBottom:10,fontSize:11,color:"#0369A1",fontWeight:600,textAlign:"center"}}>
@@ -7082,6 +7085,30 @@ export default function App(){
     {id:"perfil",     label:"Perfil",      icon:SettingsIcon},
   ].filter(n=>!(BETA_HIDE_PLANOS&&n.id==="assinatura"));
 
+  const goSwipePage=useCallback((dir)=>{
+    setPage(cur=>{
+      const idx=PAGE_SWIPE_ORDER.indexOf(cur);
+      if(idx<0)return cur;
+      const next=dir==="left"?idx+1:idx-1;
+      if(next<0||next>=PAGE_SWIPE_ORDER.length)return cur;
+      return PAGE_SWIPE_ORDER[next];
+    });
+  },[]);
+
+  const swipePage=useCallback((eData,dir)=>{
+    if(eData.absX<PAGE_SWIPE_MIN_PX||eData.absX<=eData.absY)return;
+    goSwipePage(dir);
+  },[goSwipePage]);
+
+  const{ref:contentSwipeRef,...contentSwipeHandlers}=useSwipeable({
+    delta:PAGE_SWIPE_MIN_PX,
+    preventScrollOnSwipe:true,
+    trackTouch:true,
+    trackMouse:false,
+    onSwipedLeft:e=>swipePage(e,"left"),
+    onSwipedRight:e=>swipePage(e,"right"),
+  });
+
   if(screen==="loading"){return(
     <div style={{position:"fixed",inset:0,width:"100%",height:"100%",maxHeight:"100dvh",overflow:"hidden",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"flex-end",paddingBottom:"calc(env(safe-area-inset-bottom, 0px) + 168px)",boxSizing:"border-box"}}>
       <link href="https://fonts.googleapis.com/css2?family=Sora:wght@700;800;900&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet"/>
@@ -7166,7 +7193,7 @@ export default function App(){
           </button>
         );})}
       </div>
-      <div style={{maxWidth:820,margin:"0 auto",padding:`20px 14px ${showNavActiveBanner?(plan==="free"?"168px":"128px"):plan==="free"?"120px":"80px"}`}}>
+      <div ref={contentSwipeRef} {...contentSwipeHandlers} style={{maxWidth:820,margin:"0 auto",padding:`20px 14px ${showNavActiveBanner?(plan==="free"?"168px":"128px"):plan==="free"?"120px":"80px"}`,touchAction:"pan-y pinch-zoom"}}>
         {page==="dashboard"   &&<Dashboard onNav={setPage} setShowCalc={setShowCalc} setCalcMode={setCalcMode} historicoFretes={historicoFretes} manutencoes={manutencoes} docs={docs} despesas={despesas} perfil={perfil} onNovoChecklist={handleNovoChecklistAvulso} onUltimosChecklists={handleUltimosChecklists} ultimosAvulsosCount={ultimosAvulsos.length}/>}
         {page==="financeiro"  &&<Financeiro historicoFretes={historicoFretes} manutencoes={manutencoes} despesas={despesas}/>}
         {page==="despesas"    &&<Despesas despesas={despesas} onAddDespesa={handleAddDespesa} onUpdateDespesa={handleUpdateDespesa} onDeleteDespesa={handleDeleteDespesa}/>}
