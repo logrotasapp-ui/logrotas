@@ -136,7 +136,7 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="V281";
+const APP_VERSION="V282";
 const PEDAGIO_AVISO_RESULTADO="Pedágio estimado pelo Google. Pode haver variação — confirme o valor da praça.";
 const BETA_HIDE_PLANOS=true;
 
@@ -3592,8 +3592,8 @@ const TripCalcModal=({onClose,vehicles,onConcluido})=>{
             <span style={{padding:"0 10px",color:buscandoDist?"#3B82F6":C.muted,fontSize:12,borderLeft:`1px solid ${C.border}`,background:C.subtle}}>{buscandoDist?"🔍":"km"}</span>
           </div>
 
-          <Field label="🏁 Pedágio (R$)" value={pedagio} onChange={v=>{pedagioEditadoPeloUsuarioRef.current=true;setPedagioAuto(false);setPedagio(v);}} placeholder="Ex: 45,00" prefix="R$" calc/>
-          {pedagioAuto&&parseNumeroBR(pedagio)>0&&<div style={{color:C.muted,fontSize:11,marginTop:-4}}>Estimativa automática — confira o valor da praça.</div>}
+          <Field label="🏁 Pedágio (R$)" value={pedagio} onChange={v=>{pedagioEditadoPeloUsuarioRef.current=true;setPedagioAuto(false);setPedagio(v);}} prefix="R$" calc/>
+          {pedagioAuto&&parseNumeroBR(pedagio)>0&&<div style={{color:C.muted,fontSize:11,marginTop:-4,textAlign:"center"}}>Estimativa automática — confira o valor da praça.</div>}
         </div>
 
         {/* BLOCO VEÍCULO */}
@@ -4024,8 +4024,8 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
             )}
           </div>
 
-            <Field label="🏁 Pedágio (R$)" value={pedagioTotal} onChange={v=>{pedagioEditadoPeloUsuarioRef.current=true;setPedagioAuto(false);setPedagioTotal(v);}} placeholder="Ex: 45,00" prefix="R$" calc/>
-            {pedagioAuto&&parseNumeroBR(pedagioTotal)>0&&<div style={{color:C.muted,fontSize:11,marginTop:-4}}>Estimativa automática — confira o valor da praça.</div>}
+            <Field label="🏁 Pedágio (R$)" value={pedagioTotal} onChange={v=>{pedagioEditadoPeloUsuarioRef.current=true;setPedagioAuto(false);setPedagioTotal(v);}} prefix="R$" calc/>
+            {pedagioAuto&&parseNumeroBR(pedagioTotal)>0&&<div style={{color:C.muted,fontSize:11,marginTop:-4,textAlign:"center"}}>Estimativa automática — confira o valor da praça.</div>}
         </div>
 
         {/* ── BLOCO 2: VEÍCULO ── */}
@@ -4043,7 +4043,7 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
                   style={{background:sel?"#fff":C.surface,border:`2px solid ${sel?cor:C.border}`,borderRadius:13,padding:"12px 10px",cursor:"pointer",textAlign:"center",boxShadow:sel?`0 2px 12px ${cor}22`:"none",transition:"all .15s"}}>
                   <div style={{fontSize:26,marginBottom:4}}>{v.emoji}</div>
                   <div style={{color:sel?cor:C.text,fontWeight:700,fontSize:12}}>{v.label}</div>
-                  <div style={{color:C.muted,fontSize:10,marginTop:2}}>{plural(v.axles,"eixo","eixos")} · {v.electric?formatKwhPrice(v.kwh):formatConsumoKmL(v.consumption)}</div>
+                  <div style={{color:C.muted,fontSize:10,marginTop:2}}>{v.id==="caminhao"?`${plural(v.axles,"eixo","eixos")} · `:null}{v.electric?formatKwhPrice(v.kwh):formatConsumoKmL(v.consumption)}</div>
                   {sel&&<div style={{marginTop:6,display:"inline-block",background:cor,borderRadius:20,padding:"2px 8px"}}><span style={{color:"#fff",fontSize:9,fontWeight:800}}>✓ Selecionado</span></div>}
                 </button>
               );
