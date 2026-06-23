@@ -136,7 +136,7 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="V282";
+const APP_VERSION="V283";
 const PEDAGIO_AVISO_RESULTADO="Pedágio estimado pelo Google. Pode haver variação — confirme o valor da praça.";
 const BETA_HIDE_PLANOS=true;
 
@@ -3365,6 +3365,7 @@ const TripCalcModal=({onClose,vehicles,onConcluido})=>{
   const[pedagio,setPedagio]=useState("");
   const[pedagioAuto,setPedagioAuto]=useState(false);
   const pedagioEditadoPeloUsuarioRef=useRef(false);
+  const pedagioFetchGenRef=useRef(0);
   const[result,setResult]=useState(null);
   const[erro,setErro]=useState("");
   const[offlineHydrated,setOfflineHydrated]=useState(false);
@@ -3380,7 +3381,8 @@ const TripCalcModal=({onClose,vehicles,onConcluido})=>{
       cached.vehicleId
     );
     if(temDados){
-      if(cached.vehicleId)setVehicleId(cached.vehicleId);
+      const vid=cached.vehicleId==="eletrico"?"eletric":cached.vehicleId;
+      if(vid&&TRIP_VEHICLES.some(v=>v.id===vid))setVehicleId(vid);
       // V235 — compat: cache antigo usava boolean `carretinha` (true = reboque simples)
       if(cached.trailer)setTrailer(cached.trailer);
       else if(cached.carretinha)setTrailer("simples");
@@ -3431,10 +3433,7 @@ const TripCalcModal=({onClose,vehicles,onConcluido})=>{
     const origem=String(stopsAtuais[0]?.v||"").trim();
     const destino=String(stopsAtuais[stopsAtuais.length-1]?.v||"").trim();
     if(!origem||!destino)return;
-    if(!pedagioEditadoPeloUsuarioRef.current){
-      setPedagio("");
-      setPedagioAuto(false);
-    }
+    const fetchGen=++pedagioFetchGenRef.current;
     setBuscandoDist(true);
     try{
       const resolvidos=await resolveCalculatorStopsCoords(stopsAtuais);
@@ -3448,9 +3447,10 @@ const TripCalcModal=({onClose,vehicles,onConcluido})=>{
         if(!cur&&!next)return s;
         return{...s,coords:next};
       }));
+      if(fetchGen!==pedagioFetchGenRef.current)return;
       await aplicarPedagioAuto(resolvidos);
     }finally{
-      setBuscandoDist(false);
+      if(fetchGen===pedagioFetchGenRef.current)setBuscandoDist(false);
     }
   };
 
@@ -3592,8 +3592,10 @@ const TripCalcModal=({onClose,vehicles,onConcluido})=>{
             <span style={{padding:"0 10px",color:buscandoDist?"#3B82F6":C.muted,fontSize:12,borderLeft:`1px solid ${C.border}`,background:C.subtle}}>{buscandoDist?"🔍":"km"}</span>
           </div>
 
-          <Field label="🏁 Pedágio (R$)" value={pedagio} onChange={v=>{pedagioEditadoPeloUsuarioRef.current=true;setPedagioAuto(false);setPedagio(v);}} prefix="R$" calc/>
-          {pedagioAuto&&parseNumeroBR(pedagio)>0&&<div style={{color:C.muted,fontSize:11,marginTop:-4,textAlign:"center"}}>Estimativa automática — confira o valor da praça.</div>}
+          <div style={{display:"flex",flexDirection:"column",gap:6}}>
+            <Field label="🏁 Pedágio (R$)" value={pedagio} onChange={v=>{setPedagio(v);setPedagioAuto(false);pedagioEditadoPeloUsuarioRef.current=String(v||"").trim()!=="";}} prefix="R$" calc/>
+            {pedagioAuto&&parseNumeroBR(pedagio)>0&&<div style={{color:C.muted,fontSize:11,marginTop:2,textAlign:"center",lineHeight:1.4,paddingBottom:2}}>Estimativa automática — confira o valor da praça.</div>}
+          </div>
         </div>
 
         {/* BLOCO VEÍCULO */}
@@ -4024,8 +4026,10 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
             )}
           </div>
 
-            <Field label="🏁 Pedágio (R$)" value={pedagioTotal} onChange={v=>{pedagioEditadoPeloUsuarioRef.current=true;setPedagioAuto(false);setPedagioTotal(v);}} prefix="R$" calc/>
-            {pedagioAuto&&parseNumeroBR(pedagioTotal)>0&&<div style={{color:C.muted,fontSize:11,marginTop:-4,textAlign:"center"}}>Estimativa automática — confira o valor da praça.</div>}
+          <div style={{display:"flex",flexDirection:"column",gap:6}}>
+            <Field label="🏁 Pedágio (R$)" value={pedagioTotal} onChange={v=>{setPedagioTotal(v);setPedagioAuto(false);pedagioEditadoPeloUsuarioRef.current=String(v||"").trim()!=="";}} prefix="R$" calc/>
+            {pedagioAuto&&parseNumeroBR(pedagioTotal)>0&&<div style={{color:C.muted,fontSize:11,marginTop:2,textAlign:"center",lineHeight:1.4,paddingBottom:2}}>Estimativa automática — confira o valor da praça.</div>}
+          </div>
         </div>
 
         {/* ── BLOCO 2: VEÍCULO ── */}
