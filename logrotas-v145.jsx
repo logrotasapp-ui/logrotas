@@ -23,8 +23,6 @@ import {
   buildCalculatorStopSearchBias,
   openGoogleMapsDirections,
   openGoogleMapsNavigationToStop,
-  openWazeDirections,
-  openWazeStopDeepLink,
   filterNavigationStops,
 } from "./src/services/routingService.js";
 import { reverseGeocodeGoogle } from "./src/services/googleGeocodingService.js";
@@ -137,7 +135,7 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="V285";
+const APP_VERSION="V286";
 const PEDAGIO_AVISO_RESULTADO="Pedágio estimado pelo Google. Pode haver variação — confirme o valor da praça.";
 const BETA_HIDE_PLANOS=true;
 const PAGE_SWIPE_ORDER=["dashboard","financeiro","despesas","comparador","manutencao","documentos","perfil"];
@@ -447,50 +445,16 @@ const PrimaryBtn=({children,onClick,variant="orange",disabled,small,style:s={}})
   return <button type="button" onClick={onClick} disabled={disabled} style={{display:"flex",alignItems:"center",justifyContent:"center",gap:6,background:disabled?C.border:v.bg,color:disabled?C.muted:v.color,border:"none",borderRadius:11,padding:small?"8px 14px":"11px 18px",cursor:disabled?"not-allowed":"pointer",fontWeight:700,fontSize:small?12:13,fontFamily:"'Sora',sans-serif",boxShadow:disabled?"none":`0 3px 10px ${v.sh}44`,...s}}>{children}</button>;
 };
 
-// V152 — Logos Waze e Google Maps em base64 (funciona offline, sem CDN)
-const WAZE_LOGO="data:image/png;base64,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";
-
-const GMAPS_LOGO="data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAAIBAQIBAQICAgICAgICAwUDAwMDAwYEBAMFBwYHBwcGBwcICQsJCAgKCAcHCg0KCgsMDAwMBwkODw0MDgsMDAz/2wBDAQICAgMDAwYDAwYMCAcIDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAz/wAARCAA/AFADASIAAhEBAxEB/8QAGwABAAMBAAMAAAAAAAAAAAAAAAcICQYCBAX/xAAyEAABAgUCBAQFAwUAAAAAAAABAgMABAUGEQcIITFBUQkSE2EiMkJxgRQjYhUzUpHB/8QAGgEAAwEBAQEAAAAAAAAAAAAAAAYHCAUBA//EADERAAEBBwIEAwcFAAAAAAAAAAECAAMEBQYRIRJBBzFRYRMycSJCUmKBofAUkaLB4f/aAAwDAQACEQMRAD8A38hCEDDI4LX7c3Y+2K1RV71r8pR5d0lMu0rLkzOKAz5Wmk5Ws8s4GBniRHnuU14pe2rRauXjVQXWaSzlmXSryrnH1HytMpPdSyBnoMnpGF24PV+59wGpVQu26ag5UahPqIHEhqSbz8LDSfoaTyAHPmcqJJZaLl0qms6dyqYxIclQuBus3tpST7IJ2vk2sAS3xn8vnsNT76oJbCF66dK0rUMhGLlRA9opGNRGE3BUQG0KvLx+7Up1UW3QdPbjq8ok4S/OT7MiV+4QA4R+SI7LQ3xrbC1MmQ3cVvXBZyFLCBNOFE9Kg9cqbw4AO/kIjJ+0rUmLtqfoMNvLQgeZ0toK1JT7AccmJAlpVEiwlltAbQ18ASOHlx0+8aViOEVMl14KHagr4gtV/WxJT/FoJCV9PC88VawU9NIt9rH7tu/at2Uy+LflarR5+UqdNnUeoxMyzqXWnU9wocD/AMj6EZG7Dt5FQ2ualS8tOTLrtlVh9LdUlFElEqVED9U2PpUngVY+ZIOeISRrew+iaYQ42tLjbiQpKknIUDxBB7RnWtaRe0/HfplK1oULpO5HLI2I/Y8+wsFOVA6mrgvEjStPmHTuOxbzhCEJ7MLIQhAw1CvHbvCZkdOdP6C24pMrU6nNTr6RyWWGkpRn7F9R/EZ56Z6bVLVi8ZSiUtCS/NKAW4sfty6MgFxf8Rn8kgDnGlPjXaOVTUXSyyKrSZR2dfpFaVJLabTkhM02EpUeyfUaQCTwHmiE9DdG5TRm1UyzZQ9VJnyuT02kf3FjklJ6IT078SeJjNfGet0U6/UpOX6wPDT0FhdR7A3t1OOpGv8AhrP4WBopyh1YvSXgI76jlQ6aSn1wGv3tg2s2ntS01k7ftqQYbcQgGdn1Nj9TUXsfE64vmcnknOEjAAAEQR4r22K37g0SntQJKRlZC4rdcZVMTDKAgz8ut1LakOY+ZSStKkqPEYI5GJZ0s3g2/VrdYauKZVS6mwgIdWppS2nyBjzpKQcZ5kHke8VV8TvfjTNSLfc05tJa5mSU+27WZ5SShLnpqC0S6AeJ+IJUokD5QB1i+UbxklT2JczqAjfGXhSk67vSMakrBJUL+UlQtc+jYpr6WCVSx8mYOdCchNkgJKze2iwA745AHZqRLwrKTxB4H3jZLYbd0zfOz7T+oTiy5MGlIllrPNfoqUyCfchsRjWVeQFRyQkZ4RtLs508mNK9r1jUKbSW5uTpLSphBGC264C6tJ9wpZH4j0VLMJ/OX80j1XUoctki/spSNgBe3XJNySWlXDHxFR75fu6M+txb+2kuEIR12tjIQhAw3zbxtWUve2J6kzySuVn2i0vHMZ5Ee4OCPcRRzUOwp7TW7ZukVBP7surKHAMJfbPyuJ9iP9HI6RfWI03QaMO6sadzaqSzLKuensOOUtbyvK245jIaWf8ABRA+xwe8Q7jZwsNVwCYqAAEW58t8a0nmgn7pJwDcYCiQ30nU4lT1SX9y6VztkgjcDfoRv9Gzy3Aa0p0+pZptOcBrU4jIUOP6Ns/Wf5H6R+egzWhay4tSlKUpSiSSTkknmSe8e/da6ku5qh/WUzCKsmYWicRMJ8rrbqVFKkqHQpIIx0xiOq24aA1jcrqzTrVo4Lapkl2bminzIkJZJHqPK+2QAPqUpI6wvUFQ7mn4JMG5Gp8u2tW6ldB8o5AepOSWy3xAreYVhOPEKSEA6XTv4QTv8yuaj6DkA0s+GxtEf3D6ts12qypNn2q+h+aUtPwT8ynCm5YdwDha+yQB9caugYjmdINJaJodp3TLYt+VErTKW16aAeK3VHipxZ+palZUo9Se2I6aL/KpemEc6PeOSe/+NUKWp9Epgw55rVlR79B2G31O7IQhHTZlZCEIGGQ5whAw2bXjDbfWLJ1MpF901hLMtdYVK1EIGEicaSClw9MuNc+5aJ5kxYTwptvsvpVt2l7lmZdIrl74nnHFJ+NuVBIl2x7FOXD3LnsInTWnQ62Nwdlm37spqapSy+iZDfqraUhxGcKStBCgcEjgeIUR1jpKPSJagUmVkJJhuWk5JlDDDLYwhptCQlKQOgAAH4jjuZUl3HKisWIwO55n86lk+DpV24nb2aY0qGB0UfMfz4i3swhCOwzgyEIQMN//2Q==";
-
-// Navegação Waze parada a parada (Viagem / Frete)
-function useWazeSequentialNav(stops){
-  const navStops=filterNavigationStops(stops);
-  const[paradaIdx,setParadaIdx]=useState(0);
-  const stopsKey=navStops.map(s=>s.v||s.endereco).join("|");
-  useEffect(()=>{setParadaIdx(0);},[stopsKey]);
-  const wazeLabel=navStops.length
-    ?`Waze · Parada ${paradaIdx+1} de ${navStops.length}`
-    :"Abrir no Waze";
-  const abrirProximaParada=async()=>{
-    if(!navStops.length)return;
-    const ok=await openWazeStopDeepLink(navStops[paradaIdx]);
-    if(ok)setParadaIdx(i=>(i+1)%navStops.length);
-  };
-  return{wazeLabel,abrirProximaParada,temParadas:navStops.length>0};
-}
-
-// Componente reutilizável dos botões de navegação — V155
-const BotoesNavegacao=({onWaze,onMaps,wazeLabel="Abrir no Waze"})=>(
-  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
-    {/* Botão Waze */}
-    <button onClick={onWaze}
-      style={{padding:"18px 10px",background:"#fff",border:"1.5px solid #E2E8F0",borderRadius:20,cursor:"pointer",color:"#1E293B",fontWeight:800,fontSize:14,fontFamily:"'Sora',sans-serif",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:10,boxShadow:"0 4px 16px #00000015",minHeight:100}}>
-      <div style={{width:56,height:56,borderRadius:16,overflow:"hidden",display:"flex",alignItems:"center",justifyContent:"center",boxShadow:"0 2px 8px #00000020"}}>
-        <img src={WAZE_LOGO} alt="Waze" style={{width:56,height:56,objectFit:"cover",display:"block"}}/>
-      </div>
-      <span style={{fontSize:13,letterSpacing:0.2,color:"#1E293B",textAlign:"center",lineHeight:1.3,padding:"0 4px"}}>{wazeLabel}</span>
+// V286 — botão único de navegação (Google Maps) nas calculadoras
+const BotaoNavegar=({stops})=>{
+  if(!filterNavigationStops(stops).length)return null;
+  return(
+    <button type="button" onClick={()=>openGoogleMapsDirections(stops)}
+      style={{width:"100%",padding:"13px",background:C.navy,border:"none",borderRadius:12,cursor:"pointer",color:"#fff",fontWeight:700,fontSize:14,fontFamily:"'Sora',sans-serif",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
+      🧭 Navegar
     </button>
-
-    {/* Botão Google Maps */}
-    <button onClick={onMaps}
-      style={{padding:"18px 10px",background:"#fff",border:"1.5px solid #E2E8F0",borderRadius:20,cursor:"pointer",color:"#1E293B",fontWeight:800,fontSize:14,fontFamily:"'Sora',sans-serif",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:10,boxShadow:"0 4px 16px #00000015",minHeight:100}}>
-      <div style={{width:56,height:56,borderRadius:16,overflow:"hidden",background:"#fff",display:"flex",alignItems:"center",justifyContent:"center",boxShadow:"0 2px 8px #00000020"}}>
-        <img src={GMAPS_LOGO} alt="Google Maps" style={{width:46,height:46,objectFit:"contain",display:"block"}}/>
-      </div>
-      <span style={{fontSize:14,letterSpacing:0.3,color:"#1E293B"}}>Abrir no Maps</span>
-    </button>
-  </div>
-);
+  );
+};
 const ModalWrap=({children,maxW=480})=>(
   <div style={{position:"fixed",inset:0,background:"#1E3A8A33",zIndex:300,display:"flex",alignItems:"flex-start",justifyContent:"center",padding:"12px",overflowY:"auto",overflowX:"hidden",maxWidth:"100vw",boxSizing:"border-box"}}>
     <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:20,width:"100%",maxWidth:maxW,padding:24,marginTop:10,marginBottom:12,boxShadow:"0 20px 60px #1E3A8A18",overflowX:"hidden",boxSizing:"border-box"}}>{children}</div>
@@ -3486,7 +3450,6 @@ const TripCalcModal=({onClose,vehicles,onConcluido})=>{
   };
 
   const paradaSearchBias=()=>buildCalculatorStopSearchBias(stops[0]?.v,stops[0]?.coords);
-  const{wazeLabel,abrirProximaParada,temParadas}=useWazeSequentialNav(stops);
 
   const calcular=async()=>{
     setErro("");
@@ -3679,13 +3642,7 @@ const TripCalcModal=({onClose,vehicles,onConcluido})=>{
                 </div>
               </div>
             )}
-            {temParadas&&(
-              <BotoesNavegacao
-                onWaze={abrirProximaParada}
-                onMaps={()=>openGoogleMapsDirections(stops)}
-                wazeLabel={wazeLabel}
-              />
-            )}
+            <BotaoNavegar stops={stops}/>
           </div>
         )}
       </div>
@@ -3873,8 +3830,6 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
   const kmTotalExibicao=dists.some(d=>d&&String(d).trim()!=="")
     ?(Number.isInteger(kmTotalSoma)?String(kmTotalSoma):kmTotalSoma.toFixed(1))
     :"";
-
-  const{wazeLabel,abrirProximaParada,temParadas}=useWazeSequentialNav(stops);
 
   const calcular=async()=>{
     setErro("");
@@ -4203,14 +4158,7 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
                 </button>
               )}
 
-              {/* Botões navegação — Waze e Google Maps (V149) */}
-              {result&&temParadas&&(
-                <BotoesNavegacao
-                  onWaze={abrirProximaParada}
-                  onMaps={()=>openGoogleMapsDirections(stops)}
-                  wazeLabel={wazeLabel}
-                />
-              )}
+              {result&&<BotaoNavegar stops={stops}/>}
 
               {/* Modal WhatsApp — usa <a> para abrir direto sem popup */}
               {showWpp&&(()=>{

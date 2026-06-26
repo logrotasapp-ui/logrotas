@@ -954,7 +954,6 @@ function EtapaPdfColeta({
   perfil,
   gerandoPdf,
   onGerarPdf,
-  onWhatsApp,
   coletaOk,
 }) {
   const pdfBusy = gerandoPdf;
@@ -1024,23 +1023,6 @@ function EtapaPdfColeta({
           "📄 PDF da Coleta"
         )}
       </button>
-      <button
-        type="button"
-        onClick={onWhatsApp}
-        style={{
-          width: "100%",
-          padding: "13px 0",
-          background: "#25D366",
-          border: "none",
-          borderRadius: 12,
-          color: "#fff",
-          fontWeight: 700,
-          fontSize: 14,
-          cursor: "pointer",
-        }}
-      >
-        Compartilhar no WhatsApp
-      </button>
       <div style={{ color: C.muted, fontSize: 11, textAlign: "center", lineHeight: 1.5 }}>
         Origem: {checklist?.origem?.endereco || frete?.origin || "—"}
         <br />
@@ -1057,7 +1039,6 @@ function EtapaPdfEntrega({
   gerandoPdfCompleto,
   onGerarPdfEntrega,
   onGerarPdfCompleto,
-  onWhatsApp,
 }) {
   const pdfBusy = gerandoPdfEntrega || gerandoPdfCompleto;
 
@@ -1116,23 +1097,6 @@ function EtapaPdfEntrega({
         ) : (
           "📋 PDF Completo"
         )}
-      </button>
-      <button
-        type="button"
-        onClick={onWhatsApp}
-        style={{
-          width: "100%",
-          padding: "13px 0",
-          background: "#25D366",
-          border: "none",
-          borderRadius: 12,
-          color: "#fff",
-          fontWeight: 700,
-          fontSize: 14,
-          cursor: "pointer",
-        }}
-      >
-        Compartilhar no WhatsApp
       </button>
     </div>
   );
@@ -3483,7 +3447,6 @@ export default function ChecklistVeiculo({
             gerandoPdf={gerandoPdf}
             coletaOk={coletaOk}
             onGerarPdf={handleGerarPdf}
-            onWhatsApp={() => shareChecklistColetaWhatsApp(pdfParams)}
           />
         )}
 
@@ -3844,7 +3807,6 @@ export default function ChecklistVeiculo({
                   gerandoPdfCompleto={gerandoPdfCompleto}
                   onGerarPdfEntrega={handleGerarPdfEntrega}
                   onGerarPdfCompleto={handleGerarPdfCompleto}
-                  onWhatsApp={() => shareChecklistCompletoWhatsApp(pdfParams)}
                 />
               </>
             )}
@@ -4008,27 +3970,6 @@ export default function ChecklistVeiculo({
                     📄 Enviar PDF no WhatsApp
                   </button>
                 )}
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (pdfModalTipo === "completo") shareChecklistCompletoWhatsApp(pdfParams);
-                    else if (pdfModalTipo === "entrega") shareChecklistEntregaWhatsApp(pdfParams);
-                    else shareChecklistColetaWhatsApp(pdfParams);
-                  }}
-                  style={{
-                    width: "100%",
-                    padding: 13,
-                    background: "#25D366",
-                    border: "none",
-                    borderRadius: 12,
-                    cursor: "pointer",
-                    color: "#fff",
-                    fontWeight: 700,
-                    fontSize: 14,
-                  }}
-                >
-                  💬 Enviar resumo em texto
-                </button>
                 <button
                   type="button"
                   onClick={() => setShowPdfShare(false)}
