@@ -116,7 +116,7 @@ export default function DeliveryMap({
   motoristaCoords = null,
   showLocateButton = false,
   expandedMap = false,
-  gestureHandling = "cooperative",
+  gestureHandling = "greedy",
   onDriverLocationUpdate,
   routePath = null,
 }) {
@@ -307,10 +307,13 @@ export default function DeliveryMap({
         const map = new window.google.maps.Map(containerRef.current, {
           center: DEFAULT_CENTER,
           zoom: 10,
+          mapId: "ce3fc9adc64b688b16c15b6e",
           mapTypeControl: false,
           streetViewControl: false,
           fullscreenControl: false,
-          gestureHandling,
+          gestureHandling: "greedy",
+          headingInteractionEnabled: true,
+          tiltInteractionEnabled: true,
         });
 
         mapRef.current = map;

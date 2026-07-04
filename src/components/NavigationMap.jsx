@@ -149,10 +149,13 @@ export default function NavigationMap({
         const map = new window.google.maps.Map(containerRef.current, {
           center: DEFAULT_CENTER,
           zoom: 14,
+          mapId: "ce3fc9adc64b688b16c15b6e",
           mapTypeControl: false,
           streetViewControl: false,
           fullscreenControl: false,
           gestureHandling: "greedy",
+          headingInteractionEnabled: true,
+          tiltInteractionEnabled: true,
         });
         mapRef.current = map;
         rendererRef.current = new window.google.maps.DirectionsRenderer({
