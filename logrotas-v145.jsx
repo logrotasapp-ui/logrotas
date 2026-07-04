@@ -136,7 +136,7 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="V288";
+const APP_VERSION="V289";
 const PEDAGIO_AVISO_RESULTADO="Pedágio estimado pelo Google. Pode haver variação — confirme o valor da praça.";
 const BETA_HIDE_PLANOS=true;
 const PAGE_SWIPE_ORDER=["dashboard","financeiro","despesas","comparador","manutencao","documentos","perfil"];
@@ -1797,6 +1797,56 @@ const HistoricoEntregasScreen=({
   );
 };
 
+// V289 — formulário compartilhado de endereço + pacotes (form principal e "Adicionar parada" na navegação)
+const EnderecoPacotesForm=({
+  endereco,setEndereco,
+  destinatario,setDestinatario,
+  pacoteNum,setPacoteNum,
+  extrasNomes,setExtrasNomes,
+  extrasNums,setExtrasNums,
+  onSubmit,submitLabel="Adicionar",submitting=false,disabled=false,
+  addressPlaceholder="Ex.: Rua das Flores, 100 - Centro",onErro,
+})=>{
+  const inputStyle={flex:1,minWidth:0,background:C.subtle,border:`1.5px solid ${C.border}`,borderRadius:10,color:C.text,padding:"10px 12px",fontSize:14,outline:"none",boxSizing:"border-box"};
+  const numStyle={...inputStyle,flex:"none",width:96,flexShrink:0};
+  const addExtra=()=>{setExtrasNomes(arr=>[...arr,""]);setExtrasNums(arr=>[...arr,""]);};
+  return(
+    <div style={{display:"flex",flexDirection:"column",gap:8}}>
+      <div onKeyDown={e=>{if(e.key==="Enter"&&!submitting&&!disabled)onSubmit();}}>
+        <AddressInput
+          value={endereco}
+          onChange={v=>{if(!disabled){setEndereco(v);onErro?.("");}}}
+          onSelect={s=>{if(!disabled){setEndereco(s.label);onErro?.("");}}}
+          placeholder={addressPlaceholder}
+          dotColor={OTIMIZAR_AZUL}
+          enableVoice
+          disabled={disabled||submitting}
+        />
+      </div>
+      <div style={{display:"flex",gap:8}}>
+        <input type="text" value={destinatario} onChange={e=>setDestinatario(e.target.value)} placeholder="Nome do destinatário (opcional)" autoComplete="off" disabled={disabled||submitting} style={inputStyle}/>
+        <input type="text" value={pacoteNum} onChange={e=>setPacoteNum(e.target.value)} placeholder="Nº pacote" autoComplete="off" inputMode="numeric" disabled={disabled||submitting} style={numStyle}/>
+      </div>
+      {extrasNomes.map((nome,idx)=>(
+        <div key={idx} style={{display:"flex",gap:8}}>
+          <input type="text" value={nome} onChange={e=>setExtrasNomes(arr=>arr.map((v,i)=>i===idx?e.target.value:v))} placeholder={`Destinatário — pacote ${idx+2} (opcional)`} autoComplete="off" disabled={disabled||submitting} style={inputStyle}/>
+          <input type="text" value={extrasNums[idx]||""} onChange={e=>setExtrasNums(arr=>{const next=[...arr];next[idx]=e.target.value;return next;})} placeholder="Nº pacote" autoComplete="off" inputMode="numeric" disabled={disabled||submitting} style={numStyle}/>
+        </div>
+      ))}
+      {!disabled&&(
+        <button type="button" onClick={addExtra} disabled={submitting}
+          style={{width:"100%",padding:"10px 12px",background:"#fff",border:`1.5px dashed ${OTIMIZAR_AZUL}`,borderRadius:10,cursor:"pointer",color:OTIMIZAR_AZUL,fontWeight:700,fontSize:13}}>
+          + Adicionar outro pacote neste endereço
+        </button>
+      )}
+      <button onClick={onSubmit} disabled={disabled||submitting}
+        style={{width:"100%",background:disabled||submitting?"#94A3B8":OTIMIZAR_AZUL,border:"none",borderRadius:12,padding:"12px 20px",cursor:disabled||submitting?"not-allowed":"pointer",color:"#fff",fontWeight:800,fontSize:15,display:"flex",alignItems:"center",justifyContent:"center",gap:7,minHeight:48,boxShadow:disabled||submitting?"none":`0 4px 14px ${OTIMIZAR_AZUL}44`}}>
+        <PlusIcon size={18}/> {submitting?"…":submitLabel}
+      </button>
+    </div>
+  );
+};
+
 const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation=false,onNavigationResumed,onConcluido})=>{
   const[paradas,setParadas]=useState([]);
   const[novoEndereco,setNovoEndereco]=useState("");
@@ -1832,6 +1882,10 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
   const[showInsertOpcoes,setShowInsertOpcoes]=useState(false);
   const[paradaPendenteInsert,setParadaPendenteInsert]=useState(null);
   const[novoEnderecoNav,setNovoEnderecoNav]=useState("");
+  const[novoDestinatarioNav,setNovoDestinatarioNav]=useState("");
+  const[novoPacoteNumNav,setNovoPacoteNumNav]=useState("");
+  const[pacotesExtrasNomesNav,setPacotesExtrasNomesNav]=useState([]);
+  const[pacotesExtrasNumsNav,setPacotesExtrasNumsNav]=useState([]);
   const[erroNavAdd,setErroNavAdd]=useState("");
   const[adicionandoNav,setAdicionandoNav]=useState(false);
   const[reotimizando,setReotimizando]=useState(false);
@@ -1857,6 +1911,7 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
   const[listaExpandidaIds,setListaExpandidaIds]=useState(()=>new Set());
   const[pacotesTelaParadaId,setPacotesTelaParadaId]=useState(null);
   const[motivoPacoteTarget,setMotivoPacoteTarget]=useState(null);
+  const[editNumId,setEditNumId]=useState(null);
 
   const isPro=plan==="pro";
   const LIMITE=isPro?Infinity:10;
@@ -2308,8 +2363,10 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
         proximityLngLat:posicaoMotorista?.length>=2?posicaoMotorista:resolveStopGeocodeBias(paradas.map(p=>p.coords)),
       });
       if(!out.ok){setErroNavAdd(out.error);return;}
-      const nova=criarParadaNova({id:Date.now(),endereco:out.endereco,coords:out.coords,nomes:[""]});
-      setNovoEnderecoNav("");
+      const nomes=[novoDestinatarioNav,...pacotesExtrasNomesNav];
+      const numeros=[novoPacoteNumNav,...pacotesExtrasNumsNav];
+      const nova=criarParadaNova({id:Date.now(),endereco:out.endereco,coords:out.coords,nomes,numeros});
+      resetNavAddForm();
       // V233 — duplicado de parada PENDENTE: oferece adicionar pacote em vez de criar parada
       const dupIdx=findDuplicateStopIndex(paradas,nova);
       if(dupIdx>=0&&getParadaStatus(paradas[dupIdx])==="pendente"){
@@ -2482,6 +2539,25 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
     setResultado(null);
   };
 
+  // V289 — editar nº do pacote direto na lista (usa o campo numero de cada pacote)
+  const setPacoteNumero=(paradaId,pacoteId,numero)=>{
+    setParadas(prev=>prev.map(p=>{
+      if(String(p.id)!==String(paradaId))return p;
+      const m=migrateParada(p);
+      return{...m,pacotes:m.pacotes.map(pk=>pk.id===pacoteId?{...pk,numero}:pk)};
+    }));
+  };
+
+  // V289 — limpa os campos do formulário "Adicionar parada" (navegação)
+  const resetNavAddForm=()=>{
+    setNovoEnderecoNav("");
+    setNovoDestinatarioNav("");
+    setNovoPacoteNumNav("");
+    setPacotesExtrasNomesNav([]);
+    setPacotesExtrasNumsNav([]);
+    setErroNavAdd("");
+  };
+
   // V231 — motor híbrido: GPS fresco → NN + 2-opt no aparelho → Directions em blocos.
   // V166 (legado, USE_HYBRID_OPTIMIZER=false) — geocoding → GPS como origin → waypoints otimizáveis.
   const handleOtimizarRota=async()=>{
@@ -2619,72 +2695,20 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
           ⚠️ {erroManual}
         </div>
       )}
-      <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:atingiuLimite?8:14}}>
-        <div onKeyDown={e=>e.key==="Enter"&&!adicionandoManual&&!atingiuLimite&&adicionarManual()}>
-          <AddressInput
-            value={novoEndereco}
-            onChange={v=>{if(!atingiuLimite){setNovoEndereco(v);setErroManual("");}}}
-            onSelect={s=>{if(!atingiuLimite){setNovoEndereco(s.label);setErroManual("");}}}
-            placeholder={atingiuLimite?"Limite de paradas atingido":"Ex.: Rua das Flores, 100 - Centro"}
-            dotColor={OTIMIZAR_AZUL}
-            enableVoice
-            disabled={atingiuLimite||adicionandoManual}
-          />
-        </div>
-        <div style={{display:"flex",gap:8}}>
-          <input
-            type="text"
-            value={novoDestinatario}
-            onChange={e=>setNovoDestinatario(e.target.value)}
-            placeholder="Nome do destinatário (opcional)"
-            autoComplete="off"
-            disabled={atingiuLimite||adicionandoManual}
-            style={{flex:1,minWidth:0,background:C.subtle,border:`1.5px solid ${C.border}`,borderRadius:10,color:C.text,padding:"10px 12px",fontSize:14,outline:"none",boxSizing:"border-box"}}
-          />
-          <input
-            type="text"
-            value={novoPacoteNum}
-            onChange={e=>setNovoPacoteNum(e.target.value)}
-            placeholder="Nº pacote"
-            autoComplete="off"
-            inputMode="numeric"
-            disabled={atingiuLimite||adicionandoManual}
-            style={{width:96,flexShrink:0,background:C.subtle,border:`1.5px solid ${C.border}`,borderRadius:10,color:C.text,padding:"10px 12px",fontSize:14,outline:"none",boxSizing:"border-box"}}
-          />
-        </div>
-        {pacotesExtrasNomes.map((nome,idx)=>(
-          <div key={idx} style={{display:"flex",gap:8}}>
-            <input
-              type="text"
-              value={nome}
-              onChange={e=>setPacotesExtrasNomes(arr=>arr.map((v,i)=>i===idx?e.target.value:v))}
-              placeholder={`Destinatário — pacote ${idx+2} (opcional)`}
-              autoComplete="off"
-              disabled={atingiuLimite||adicionandoManual}
-              style={{flex:1,minWidth:0,background:C.subtle,border:`1.5px solid ${C.border}`,borderRadius:10,color:C.text,padding:"10px 12px",fontSize:14,outline:"none",boxSizing:"border-box"}}
-            />
-            <input
-              type="text"
-              value={pacotesExtrasNums[idx]||""}
-              onChange={e=>setPacotesExtrasNums(arr=>{const next=[...arr];next[idx]=e.target.value;return next;})}
-              placeholder="Nº pacote"
-              autoComplete="off"
-              inputMode="numeric"
-              disabled={atingiuLimite||adicionandoManual}
-              style={{width:96,flexShrink:0,background:C.subtle,border:`1.5px solid ${C.border}`,borderRadius:10,color:C.text,padding:"10px 12px",fontSize:14,outline:"none",boxSizing:"border-box"}}
-            />
-          </div>
-        ))}
-        {!atingiuLimite&&(
-          <button type="button" onClick={()=>{setPacotesExtrasNomes(arr=>[...arr,""]);setPacotesExtrasNums(arr=>[...arr,""]);}} disabled={adicionandoManual}
-            style={{width:"100%",padding:"10px 12px",background:"#fff",border:`1.5px dashed ${OTIMIZAR_AZUL}`,borderRadius:10,cursor:"pointer",color:OTIMIZAR_AZUL,fontWeight:700,fontSize:13}}>
-            + Adicionar outro pacote neste endereço
-          </button>
-        )}
-        <button onClick={adicionarManual} disabled={atingiuLimite||adicionandoManual}
-          style={{width:"100%",background:atingiuLimite||adicionandoManual?"#94A3B8":OTIMIZAR_AZUL,border:"none",borderRadius:12,padding:"12px 20px",cursor:atingiuLimite||adicionandoManual?"not-allowed":"pointer",color:"#fff",fontWeight:800,fontSize:15,display:"flex",alignItems:"center",justifyContent:"center",gap:7,minHeight:48,boxShadow:atingiuLimite||adicionandoManual?"none":`0 4px 14px ${OTIMIZAR_AZUL}44`}}>
-          <PlusIcon size={18}/> {adicionandoManual?"…":"Adicionar"}
-        </button>
+      <div style={{marginBottom:atingiuLimite?8:14}}>
+        <EnderecoPacotesForm
+          endereco={novoEndereco} setEndereco={setNovoEndereco}
+          destinatario={novoDestinatario} setDestinatario={setNovoDestinatario}
+          pacoteNum={novoPacoteNum} setPacoteNum={setNovoPacoteNum}
+          extrasNomes={pacotesExtrasNomes} setExtrasNomes={setPacotesExtrasNomes}
+          extrasNums={pacotesExtrasNums} setExtrasNums={setPacotesExtrasNums}
+          onSubmit={adicionarManual}
+          submitLabel="Adicionar"
+          submitting={adicionandoManual}
+          disabled={atingiuLimite}
+          addressPlaceholder={atingiuLimite?"Limite de paradas atingido":"Ex.: Rua das Flores, 100 - Centro"}
+          onErro={setErroManual}
+        />
       </div>
 
       {/* Banner limite atingido — free */}
@@ -2839,11 +2863,11 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
             </div>
           </div>
           {paradasDedup.map((p,i)=>(
-            <div key={`parada-${p.id}`} style={{
+            <div key={`parada-${p.id}`} onClick={()=>setEditNumId(prev=>String(prev)===String(p.id)?null:p.id)} style={{
               display:"flex",flexDirection:"column",gap:8,
               background:paradaCardBg(p),
               border:`1.5px solid ${p.geocodeFalhou||p.outlier?C.amber:paradaCardBorder(p,i,paradaAtualIdx,modoNavegacao)}`,
-              borderRadius:11,padding:"10px 13px",transition:"all .3s",position:"relative",
+              borderRadius:11,padding:"10px 13px",transition:"all .3s",position:"relative",cursor:"pointer",
             }}>
               <div style={{display:"flex",alignItems:"flex-start",gap:10,paddingRight:36}}>
                 <div style={{width:24,height:24,borderRadius:"50%",background:paradaBolinhaCor(p,i,paradaAtualIdx,modoNavegacao),display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,marginTop:1}}>
@@ -2853,9 +2877,13 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
                   <div style={{color:getParadaStatus(p)!=="pendente"?"#64748B":C.text,fontSize:13,textDecoration:getParadaStatus(p)!=="pendente"?"line-through":"none",lineHeight:1.4}}>
                     {p.endereco}
                   </div>
-                  {pacotesNumerosLabel(p)&&(
+                  {pacotesNumerosLabel(p)?(
                     <div style={{display:"inline-block",marginTop:4,background:"#EEF4FF",border:`1px solid ${OTIMIZAR_AZUL}`,borderRadius:6,padding:"2px 7px",color:OTIMIZAR_AZUL,fontSize:11,fontWeight:800}}>
                       📦 {pacotesNumerosLabel(p)}
+                    </div>
+                  ):(
+                    <div style={{display:"inline-block",marginTop:4,color:C.muted,fontSize:11,fontWeight:600,opacity:.85}}>
+                      📦 + nº
                     </div>
                   )}
                   {getParadaStatus(p)==="concluida"&&<div style={{color:C.green,fontSize:11,marginTop:4}}>✅ Concluída · {p.horario||""}</div>}
@@ -2868,7 +2896,26 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
                   )}
                 </div>
               </div>
-              <button onClick={()=>setParadaRemover(p.id)}
+              {String(editNumId)===String(p.id)&&(
+                <div onClick={e=>e.stopPropagation()} style={{display:"flex",flexDirection:"column",gap:6,paddingLeft:34,marginTop:2}}>
+                  {migrateParada(p).pacotes.map((pk,pi)=>(
+                    <div key={pk.id} style={{display:"flex",alignItems:"center",gap:8}}>
+                      <span style={{color:C.muted,fontSize:12,minWidth:64,flexShrink:0}}>Pacote {pi+1}</span>
+                      <input type="text" inputMode="numeric" autoComplete="off"
+                        value={pk.numero||""}
+                        onChange={e=>setPacoteNumero(p.id,pk.id,e.target.value)}
+                        placeholder="Nº do pacote"
+                        style={{flex:1,minWidth:0,background:C.subtle,border:`1.5px solid ${C.border}`,borderRadius:8,color:C.text,padding:"7px 10px",fontSize:13,outline:"none",boxSizing:"border-box"}}
+                      />
+                    </div>
+                  ))}
+                  <button type="button" onClick={()=>setEditNumId(null)}
+                    style={{alignSelf:"flex-start",background:OTIMIZAR_AZUL,border:"none",borderRadius:8,padding:"6px 14px",cursor:"pointer",color:"#fff",fontSize:12,fontWeight:700}}>
+                    ✓ Concluir
+                  </button>
+                </div>
+              )}
+              <button onClick={(e)=>{e.stopPropagation();setParadaRemover(p.id);}}
                 style={{position:"absolute",top:10,right:10,background:C.redLight,border:"none",borderRadius:7,padding:5,cursor:"pointer",color:C.red,display:"flex",flexShrink:0}}>
                 <Trash2Icon size={13}/>
               </button>
@@ -2883,7 +2930,7 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
                   <div style={{color:"#92400E",fontSize:11,fontWeight:700,lineHeight:1.4}}>
                     ⚠️ Endereço muito distante das demais paradas — confirme a cidade antes de otimizar
                   </div>
-                  <button onClick={()=>setParadas(prev=>prev.map(x=>x.id===p.id?{...x,outlier:false,outlierConfirmado:true}:x))}
+                  <button onClick={(e)=>{e.stopPropagation();setParadas(prev=>prev.map(x=>x.id===p.id?{...x,outlier:false,outlierConfirmado:true}:x));}}
                     style={{background:"#FFFBEB",border:`1.5px solid ${C.amber}`,borderRadius:8,padding:"5px 11px",cursor:"pointer",color:"#92400E",fontSize:11,fontWeight:700}}>
                     ✓ Manter mesmo assim
                   </button>
@@ -3114,7 +3161,7 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
                     style={{padding:"12px 10px",background:OTIMIZAR_AZUL,border:"none",borderRadius:12,cursor:"pointer",color:"#fff",fontWeight:800,fontSize:14,display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
                     🗺️ Navegar
                   </button>
-                  <button type="button" onClick={()=>setShowAddNavMenu(true)}
+                  <button type="button" onClick={()=>{resetNavAddForm();setShowAddNavMenu(true);}}
                     style={{padding:"12px 10px",background:"#fff",border:`2px solid ${OTIMIZAR_AZUL}`,borderRadius:12,cursor:"pointer",color:OTIMIZAR_AZUL,fontWeight:800,fontSize:13,display:"flex",alignItems:"center",justifyContent:"center",gap:4}}>
                     ➕ Nova parada
                   </button>
@@ -3320,7 +3367,7 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
       )}
 
       {showAddNavMenu&&(
-        <div style={{position:"fixed",inset:0,zIndex:760,background:"#1E3A8A66",display:"flex",alignItems:"flex-end",justifyContent:"center",padding:16}} onMouseDown={e=>{if(e.target===e.currentTarget)setShowAddNavMenu(false);}}>
+        <div style={{position:"fixed",inset:0,zIndex:760,background:"#1E3A8A66",display:"flex",alignItems:"flex-end",justifyContent:"center",padding:16}} onMouseDown={e=>{if(e.target===e.currentTarget){setShowAddNavMenu(false);resetNavAddForm();}}}>
           <div style={{background:C.surface,borderRadius:18,width:"100%",maxWidth:420,padding:20,maxHeight:"80vh",overflowY:"auto"}}>
             <div style={{color:C.navy,fontWeight:800,fontSize:16,marginBottom:12}}>Adicionar parada</div>
             {erroNavAdd&&<div style={{color:C.red,fontSize:12,marginBottom:10}}>{erroNavAdd}</div>}
@@ -3337,12 +3384,21 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
               accentBorder="#BFDBFE"
             />
             <div style={{marginTop:12}}>
-              <AddressInput value={novoEnderecoNav} onChange={setNovoEnderecoNav} placeholder="Digitar endereço manualmente" dotColor={OTIMIZAR_AZUL} disabled={adicionandoNav}/>
-              <button type="button" onClick={handleNavManualAdd} disabled={adicionandoNav} style={{width:"100%",marginTop:8,padding:12,background:OTIMIZAR_AZUL,border:"none",borderRadius:10,color:"#fff",fontWeight:700,cursor:"pointer"}}>
-                Adicionar manual
-              </button>
+              <EnderecoPacotesForm
+                endereco={novoEnderecoNav} setEndereco={setNovoEnderecoNav}
+                destinatario={novoDestinatarioNav} setDestinatario={setNovoDestinatarioNav}
+                pacoteNum={novoPacoteNumNav} setPacoteNum={setNovoPacoteNumNav}
+                extrasNomes={pacotesExtrasNomesNav} setExtrasNomes={setPacotesExtrasNomesNav}
+                extrasNums={pacotesExtrasNumsNav} setExtrasNums={setPacotesExtrasNumsNav}
+                onSubmit={handleNavManualAdd}
+                submitLabel="Adicionar manual"
+                submitting={adicionandoNav}
+                disabled={reotimizando}
+                addressPlaceholder="Digitar endereço manualmente"
+                onErro={setErroNavAdd}
+              />
             </div>
-            <button type="button" onClick={()=>setShowAddNavMenu(false)} style={{width:"100%",padding:10,marginTop:10,background:C.subtle,border:"none",borderRadius:10,cursor:"pointer",color:C.muted}}>Fechar</button>
+            <button type="button" onClick={()=>{setShowAddNavMenu(false);resetNavAddForm();}} style={{width:"100%",padding:10,marginTop:10,background:C.subtle,border:"none",borderRadius:10,cursor:"pointer",color:C.muted}}>Fechar</button>
           </div>
         </div>
       )}

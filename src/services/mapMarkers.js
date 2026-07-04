@@ -176,18 +176,6 @@ export function buildStopInfoHtml({
   const resumo =
     parada != null ? resumoPacotesLabel(migrateParada(parada)) : n === 1 ? "1 pacote" : `${n} pacotes`;
   const r = parada != null ? pacotesResumo(migrateParada(parada)) : null;
-  const resumoStatus =
-    r && r.total > 1
-      ? [
-          r.entregues ? `${r.entregues} entregue${r.entregues !== 1 ? "s" : ""}` : null,
-          r.pendentes ? `${r.pendentes} pendente${r.pendentes !== 1 ? "s" : ""}` : null,
-          r.naoEntregues
-            ? `${r.naoEntregues} não entregue${r.naoEntregues !== 1 ? "s" : ""}`
-            : null,
-        ]
-          .filter(Boolean)
-          .join(", ")
-      : "";
 
   const expandBtn =
     expandId && r && r.total > 1
@@ -198,8 +186,7 @@ export function buildStopInfoHtml({
     <div style="font-weight:800;font-size:13px;color:#1E3A8A;margin-bottom:4px">Parada ${paradaNum}</div>
     <div style="font-size:12px;color:#334155;margin-bottom:6px">${endereco || "—"}</div>
     ${numeros ? `<div style="display:inline-block;font-size:11px;font-weight:800;color:#1E3A8A;background:#EEF4FF;border:1px solid #3B82F6;border-radius:6px;padding:2px 7px;margin-bottom:6px">📦 ${numeros}</div>` : ""}
-    <div style="font-size:11px;color:#475569;margin-bottom:2px">📦 ${resumo}</div>
-    ${resumoStatus ? `<div style="font-size:10px;color:#64748B;margin-bottom:4px">${resumoStatus}</div>` : ""}
+    <div style="font-size:11px;color:#475569;margin-bottom:4px">📦 ${resumo}</div>
     <div style="font-size:11px;font-weight:700;color:${s.color}">${s.label}</div>
     ${expandBtn}
   </div>`;
