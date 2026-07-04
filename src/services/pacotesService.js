@@ -7,10 +7,11 @@ export function newPacoteId() {
   return `pkg_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
 }
 
-export function createPacote(nome = "") {
+export function createPacote(nome = "", numero = "") {
   return {
     id: newPacoteId(),
     nome: nome || "",
+    numero: numero || "",
     status: "pendente",
     motivoNaoEntrega: "",
   };
@@ -21,6 +22,7 @@ export function normalizePacote(p) {
   return {
     id: p.id || newPacoteId(),
     nome: p.nome || "",
+    numero: p.numero || "",
     status:
       p.status === "entregue" || p.status === "nao_entregue" ? p.status : "pendente",
     motivoNaoEntrega: p.motivoNaoEntrega || "",
@@ -133,6 +135,14 @@ export function pacotesResumo(parada) {
   };
 }
 
+/** V287 — rótulo dos números de pacote preenchidos (Tarefa 2). */
+export function pacotesNumerosLabel(parada) {
+  const list = migrateParada(parada).pacotes || [];
+  const nums = list.map((pk) => String(pk.numero || "").trim()).filter(Boolean);
+  if (!nums.length) return "";
+  return nums.length === 1 ? `Pacote ${nums[0]}` : `Pacotes ${nums.join(", ")}`;
+}
+
 export function resumoPacotesLabel(parada) {
   const r = pacotesResumo(parada);
   if (r.total <= 1) return "1 pacote";
@@ -145,15 +155,15 @@ export function resumoPacotesLabel(parada) {
   return `${r.total} pacotes${parts.length ? ` • ${parts.join(", ")}` : ""}`;
 }
 
-export function adicionarPacoteNaParada(parada, nome = "") {
+export function adicionarPacoteNaParada(parada, nome = "", numero = "") {
   const m = migrateParada(parada);
-  const pacotes = [...m.pacotes, createPacote(nome)];
+  const pacotes = [...m.pacotes, createPacote(nome, numero)];
   return deriveParadaFromPacotes({ ...m, pacotes, status: "pendente" });
 }
 
-export function criarParadaNova({ id, endereco, coords, nomes = [""] }) {
+export function criarParadaNova({ id, endereco, coords, nomes = [""], numeros = [] }) {
   const listaNomes = nomes.length ? nomes : [""];
-  const pacotes = listaNomes.map((nome) => createPacote(nome || ""));
+  const pacotes = listaNomes.map((nome, i) => createPacote(nome || "", numeros[i] || ""));
   return deriveParadaFromPacotes({
     id: id || Date.now(),
     endereco,
@@ -198,6 +208,7 @@ export function sanitizePacoteForFirestore(p) {
   return {
     id: p.id || newPacoteId(),
     nome: p.nome || "",
+    numero: p.numero || "",
     status: p.status || "pendente",
     motivoNaoEntrega: p.motivoNaoEntrega || "",
   };

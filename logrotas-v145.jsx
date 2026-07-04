@@ -90,6 +90,7 @@ import {
   migrateParadas,
   pacoteDisplayName,
   resumoPacotesLabel,
+  pacotesNumerosLabel,
   totalPacotesEmParadas,
   countPacotesStats,
   adicionarPacoteNaParada,
@@ -135,7 +136,7 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="V286";
+const APP_VERSION="V287";
 const PEDAGIO_AVISO_RESULTADO="Pedágio estimado pelo Google. Pode haver variação — confirme o valor da praça.";
 const BETA_HIDE_PLANOS=true;
 const PAGE_SWIPE_ORDER=["dashboard","financeiro","despesas","comparador","manutencao","documentos","perfil"];
@@ -1849,7 +1850,10 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
   const[gerandoPdf,setGerandoPdf]=useState(false);
   const[showHistoricoEntregas,setShowHistoricoEntregas]=useState(false);
   const[novoDestinatario,setNovoDestinatario]=useState("");
+  const[novoPacoteNum,setNovoPacoteNum]=useState("");
   const[pacotesExtrasNomes,setPacotesExtrasNomes]=useState([]);
+  const[pacotesExtrasNums,setPacotesExtrasNums]=useState([]);
+  const[showOrdemCarga,setShowOrdemCarga]=useState(false);
   const[listaExpandidaIds,setListaExpandidaIds]=useState(()=>new Set());
   const[pacotesTelaParadaId,setPacotesTelaParadaId]=useState(null);
   const[motivoPacoteTarget,setMotivoPacoteTarget]=useState(null);
@@ -2441,24 +2445,29 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
         return;
       }
       const nomes=[novoDestinatario,...pacotesExtrasNomes];
-      const nova=criarParadaNova({id:Date.now(),endereco:out.endereco,coords:out.coords,nomes});
+      const numeros=[novoPacoteNum,...pacotesExtrasNums];
+      const nova=criarParadaNova({id:Date.now(),endereco:out.endereco,coords:out.coords,nomes,numeros});
       const dupIdx=findDuplicateStopIndex(paradas,nova);
       if(dupIdx>=0){
         let par=paradas[dupIdx];
-        for(const nome of nomes)par=adicionarPacoteNaParada(par,nome);
+        nomes.forEach((nome,i)=>{par=adicionarPacoteNaParada(par,nome,numeros[i]||"");});
         const total=migrateParada(par).pacotes.length;
         logPacotes("manual duplicado",{idx:dupIdx,total});
         setParadas(p=>p.map((x,i)=>i===dupIdx?par:x));
         setAvisoAgrupado(`📦 ${total} pacotes agrupados em ${paradas[dupIdx].endereco}`);
         setNovoEndereco("");
         setNovoDestinatario("");
+        setNovoPacoteNum("");
         setPacotesExtrasNomes([]);
+        setPacotesExtrasNums([]);
         return;
       }
       setParadas(p=>[...p,nova]);
       setNovoEndereco("");
       setNovoDestinatario("");
+      setNovoPacoteNum("");
       setPacotesExtrasNomes([]);
+      setPacotesExtrasNums([]);
       setResultado(null);
       setAposConclusao(false);
     }catch{
@@ -2529,6 +2538,34 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
     }
   };
 
+  // V287 — usar rota na ordem adicionada, sem otimizar (não consome contagem de otimização)
+  const handleUsarRotaComoEsta=()=>{
+    if(paradas.length<2||otimizando)return;
+    setErroOtimizar("");
+    setAvisoGps("");
+    setAvisoTrajeto("");
+    setRotaPath(null);
+    setRotaPathSegment(null);
+    setResultado({semOtimizacao:true,economiaKm:0,economiaCusto:0});
+    setAposConclusao(false);
+    setRotaSalvaId(null);
+    setShowResumo(false);
+    setModoNavegacao(true);
+    setViewNav("mapa");
+  };
+
+  // V287 — linhas do resumo (economia oculta no modo "usar rota como está")
+  const detalheRows=useMemo(()=>{
+    if(!resultado)return[];
+    return[
+      resultado.kmOtimizado!=null&&{emoji:"📍",label:"Distância otimizada",valor:formatKmDecimal(resultado.kmOtimizado)},
+      resultado.tempoEstimado!=null&&{emoji:"⏱️",label:"Tempo estimado",valor:`~${resultado.tempoEstimado} min`},
+      resultado.custoTotal!=null&&{emoji:"⛽",label:"Custo combustível",valor:formatMoeda(resultado.custoTotal)},
+      !resultado.semOtimizacao&&{emoji:"✂️",label:"Distância economizada",valor:formatKmDecimal(resultado.economiaKm),cor:OTIMIZAR_AZUL},
+      !resultado.semOtimizacao&&{emoji:"💰",label:"Economia em R$",valor:formatMoeda(resultado.economiaCusto),cor:OTIMIZAR_AZUL},
+    ].filter(Boolean);
+  },[resultado]);
+
   // V235 — timeout de segurança do overlay (60s): fecha com aviso, nunca fica preso
   const handleOverlayTimeout=useCallback(()=>{
     setOverlayMsg("");
@@ -2594,29 +2631,52 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
             disabled={atingiuLimite||adicionandoManual}
           />
         </div>
-        <input
-          type="text"
-          value={novoDestinatario}
-          onChange={e=>setNovoDestinatario(e.target.value)}
-          placeholder="Nome do destinatário (opcional)"
-          autoComplete="off"
-          disabled={atingiuLimite||adicionandoManual}
-          style={{width:"100%",background:C.subtle,border:`1.5px solid ${C.border}`,borderRadius:10,color:C.text,padding:"10px 12px",fontSize:14,outline:"none",boxSizing:"border-box"}}
-        />
-        {pacotesExtrasNomes.map((nome,idx)=>(
+        <div style={{display:"flex",gap:8}}>
           <input
-            key={idx}
             type="text"
-            value={nome}
-            onChange={e=>setPacotesExtrasNomes(arr=>arr.map((v,i)=>i===idx?e.target.value:v))}
-            placeholder={`Nome do destinatário — pacote ${idx+2} (opcional)`}
+            value={novoDestinatario}
+            onChange={e=>setNovoDestinatario(e.target.value)}
+            placeholder="Nome do destinatário (opcional)"
             autoComplete="off"
             disabled={atingiuLimite||adicionandoManual}
-            style={{width:"100%",background:C.subtle,border:`1.5px solid ${C.border}`,borderRadius:10,color:C.text,padding:"10px 12px",fontSize:14,outline:"none",boxSizing:"border-box"}}
+            style={{flex:1,minWidth:0,background:C.subtle,border:`1.5px solid ${C.border}`,borderRadius:10,color:C.text,padding:"10px 12px",fontSize:14,outline:"none",boxSizing:"border-box"}}
           />
+          <input
+            type="text"
+            value={novoPacoteNum}
+            onChange={e=>setNovoPacoteNum(e.target.value)}
+            placeholder="Nº pacote"
+            autoComplete="off"
+            inputMode="numeric"
+            disabled={atingiuLimite||adicionandoManual}
+            style={{width:96,flexShrink:0,background:C.subtle,border:`1.5px solid ${C.border}`,borderRadius:10,color:C.text,padding:"10px 12px",fontSize:14,outline:"none",boxSizing:"border-box"}}
+          />
+        </div>
+        {pacotesExtrasNomes.map((nome,idx)=>(
+          <div key={idx} style={{display:"flex",gap:8}}>
+            <input
+              type="text"
+              value={nome}
+              onChange={e=>setPacotesExtrasNomes(arr=>arr.map((v,i)=>i===idx?e.target.value:v))}
+              placeholder={`Destinatário — pacote ${idx+2} (opcional)`}
+              autoComplete="off"
+              disabled={atingiuLimite||adicionandoManual}
+              style={{flex:1,minWidth:0,background:C.subtle,border:`1.5px solid ${C.border}`,borderRadius:10,color:C.text,padding:"10px 12px",fontSize:14,outline:"none",boxSizing:"border-box"}}
+            />
+            <input
+              type="text"
+              value={pacotesExtrasNums[idx]||""}
+              onChange={e=>setPacotesExtrasNums(arr=>{const next=[...arr];next[idx]=e.target.value;return next;})}
+              placeholder="Nº pacote"
+              autoComplete="off"
+              inputMode="numeric"
+              disabled={atingiuLimite||adicionandoManual}
+              style={{width:96,flexShrink:0,background:C.subtle,border:`1.5px solid ${C.border}`,borderRadius:10,color:C.text,padding:"10px 12px",fontSize:14,outline:"none",boxSizing:"border-box"}}
+            />
+          </div>
         ))}
         {!atingiuLimite&&(
-          <button type="button" onClick={()=>setPacotesExtrasNomes(arr=>[...arr,""])} disabled={adicionandoManual}
+          <button type="button" onClick={()=>{setPacotesExtrasNomes(arr=>[...arr,""]);setPacotesExtrasNums(arr=>[...arr,""]);}} disabled={adicionandoManual}
             style={{width:"100%",padding:"10px 12px",background:"#fff",border:`1.5px dashed ${OTIMIZAR_AZUL}`,borderRadius:10,cursor:"pointer",color:OTIMIZAR_AZUL,fontWeight:700,fontSize:13}}>
             + Adicionar outro pacote neste endereço
           </button>
@@ -2793,6 +2853,11 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
                   <div style={{color:getParadaStatus(p)!=="pendente"?"#64748B":C.text,fontSize:13,textDecoration:getParadaStatus(p)!=="pendente"?"line-through":"none",lineHeight:1.4}}>
                     {p.endereco}
                   </div>
+                  {pacotesNumerosLabel(p)&&(
+                    <div style={{display:"inline-block",marginTop:4,background:"#EEF4FF",border:`1px solid ${OTIMIZAR_AZUL}`,borderRadius:6,padding:"2px 7px",color:OTIMIZAR_AZUL,fontSize:11,fontWeight:800}}>
+                      📦 {pacotesNumerosLabel(p)}
+                    </div>
+                  )}
                   {getParadaStatus(p)==="concluida"&&<div style={{color:C.green,fontSize:11,marginTop:4}}>✅ Concluída · {p.horario||""}</div>}
                   {getParadaStatus(p)==="entregue"&&<div style={{color:C.green,fontSize:11,marginTop:4}}>✅ Entregue · {p.horario||""}</div>}
                   {getParadaStatus(p)==="nao_entregue"&&<div style={{color:C.red,fontSize:11,marginTop:4}}>❌ {p.motivo||"Não entregue"}</div>}
@@ -2864,14 +2929,20 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
 
       {/* Botão otimizar */}
       {paradas.length>=2&&!resultado&&(
-        <button onClick={handleOtimizarRota}
-          style={{width:"100%",padding:"15px",background:otimizando?"#94A3B8":`linear-gradient(135deg,${OTIMIZAR_AZUL},${OTIMIZAR_AZUL_MID})`,border:"none",borderRadius:14,cursor:otimizando?"not-allowed":"pointer",color:"#fff",fontWeight:800,fontSize:15,fontFamily:"'Sora',sans-serif",display:"flex",alignItems:"center",justifyContent:"center",gap:9,boxShadow:`0 4px 20px ${OTIMIZAR_AZUL}44`,marginBottom:14}}>
-          {otimizando
-            ?<><span style={{fontSize:16}}>⏳</span> Calculando rota perfeita...</>
-            :aposConclusao
-              ?<><RouteIcon size={18}/> Nova Rota</>
-              :<><ZapIcon size={18}/> Otimizar Rota Perfeita</>}
-        </button>
+        <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:14}}>
+          <button onClick={handleOtimizarRota}
+            style={{width:"100%",padding:"15px",background:otimizando?"#94A3B8":`linear-gradient(135deg,${OTIMIZAR_AZUL},${OTIMIZAR_AZUL_MID})`,border:"none",borderRadius:14,cursor:otimizando?"not-allowed":"pointer",color:"#fff",fontWeight:800,fontSize:15,fontFamily:"'Sora',sans-serif",display:"flex",alignItems:"center",justifyContent:"center",gap:9,boxShadow:`0 4px 20px ${OTIMIZAR_AZUL}44`}}>
+            {otimizando
+              ?<><span style={{fontSize:16}}>⏳</span> Calculando rota perfeita...</>
+              :aposConclusao
+                ?<><RouteIcon size={18}/> Nova Rota</>
+                :<><ZapIcon size={18}/> Otimizar Rota Perfeita</>}
+          </button>
+          <button onClick={handleUsarRotaComoEsta} disabled={otimizando}
+            style={{width:"100%",padding:"13px",background:"#fff",border:`1.5px solid ${OTIMIZAR_AZUL}`,borderRadius:14,cursor:otimizando?"not-allowed":"pointer",color:OTIMIZAR_AZUL,fontWeight:800,fontSize:14,fontFamily:"'Sora',sans-serif",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
+            📋 Usar rota como está
+          </button>
+        </div>
       )}
 
       {/* Resultado da otimização — V233: card de economia nunca fica mudo */}
@@ -2879,7 +2950,17 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
         <div ref={resultadoRef} style={{display:"flex",flexDirection:"column",gap:10,marginBottom:14}}>
           {/* Banner economia — > 0,1 km mostra ganho; senão "rota já ideal" */}
           <div style={{background:`linear-gradient(135deg,${OTIMIZAR_AZUL},${OTIMIZAR_AZUL_MID})`,borderRadius:16,padding:"18px 20px",textAlign:"center",boxShadow:`0 4px 16px ${OTIMIZAR_AZUL}44`}}>
-            {resultado.rotaJaIdeal||!(Number(resultado.economiaKm)>0)?(
+            {resultado.semOtimizacao?(
+              <>
+                <div style={{fontSize:32,marginBottom:6}}>📋</div>
+                <div style={{color:"#fff",fontWeight:900,fontSize:18,fontFamily:"'Sora',sans-serif",marginBottom:4}}>
+                  Rota na ordem que você adicionou
+                </div>
+                <div style={{color:"rgba(255,255,255,0.85)",fontSize:13}}>
+                  Sem otimização — as paradas seguem a ordem original
+                </div>
+              </>
+            ):resultado.rotaJaIdeal||!(Number(resultado.economiaKm)>0)?(
               <>
                 <div style={{fontSize:32,marginBottom:6}}>✅</div>
                 <div style={{color:"#fff",fontWeight:900,fontSize:18,fontFamily:"'Sora',sans-serif"}}>
@@ -2900,21 +2981,17 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
           </div>
 
           {/* Detalhes */}
-          <div style={{background:C.subtle,borderRadius:14,padding:"16px",display:"flex",flexDirection:"column",gap:10}}>
-            <div style={{color:C.navy,fontWeight:700,fontSize:13,marginBottom:4}}>📊 Resumo da Rota Otimizada</div>
-            {[
-              {emoji:"📍",label:"Distância otimizada",valor:formatKmDecimal(resultado.kmOtimizado)},
-              {emoji:"⏱️",label:"Tempo estimado",valor:`~${resultado.tempoEstimado} min`},
-              {emoji:"⛽",label:"Custo combustível",valor:formatMoeda(resultado.custoTotal)},
-              {emoji:"✂️",label:"Distância economizada",valor:formatKmDecimal(resultado.economiaKm),cor:OTIMIZAR_AZUL},
-              {emoji:"💰",label:"Economia em R$",valor:formatMoeda(resultado.economiaCusto),cor:OTIMIZAR_AZUL},
-            ].map((r,i)=>(
-              <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",borderBottom:i<4?`1px solid ${C.border}`:"none",paddingBottom:i<4?8:0}}>
-                <span style={{color:C.text2,fontSize:13}}>{r.emoji} {r.label}</span>
-                <span style={{color:r.cor||C.navy,fontWeight:700,fontSize:14}}>{r.valor}</span>
-              </div>
-            ))}
-          </div>
+          {detalheRows.length>0&&(
+            <div style={{background:C.subtle,borderRadius:14,padding:"16px",display:"flex",flexDirection:"column",gap:10}}>
+              <div style={{color:C.navy,fontWeight:700,fontSize:13,marginBottom:4}}>📊 Resumo da Rota{resultado.semOtimizacao?"":" Otimizada"}</div>
+              {detalheRows.map((r,i)=>(
+                <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",borderBottom:i<detalheRows.length-1?`1px solid ${C.border}`:"none",paddingBottom:i<detalheRows.length-1?8:0}}>
+                  <span style={{color:C.text2,fontSize:13}}>{r.emoji} {r.label}</span>
+                  <span style={{color:r.cor||C.navy,fontWeight:700,fontSize:14}}>{r.valor}</span>
+                </div>
+              ))}
+            </div>
+          )}
 
           {/* Iniciar navegação embutida */}
           <button onClick={iniciarNavegacao}
@@ -2922,10 +2999,16 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
             <NavigationIcon size={20}/> {pendentesCount<paradas.length?"Continuar Navegação":"Iniciar Navegação"}
           </button>
 
+          {/* V287 — ordem de carregamento (carregar o veículo) */}
+          <button onClick={()=>setShowOrdemCarga(true)}
+            style={{width:"100%",padding:"13px",background:"#EEF4FF",border:`1.5px solid ${OTIMIZAR_AZUL}`,borderRadius:12,cursor:"pointer",color:OTIMIZAR_AZUL,fontWeight:800,fontSize:14,display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
+            📦 Ordem de carregamento
+          </button>
+
           {/* Refazer */}
           <button onClick={()=>setConfirmNovaOtimizacao(true)}
             style={{width:"100%",padding:"12px",background:C.subtle,border:`1.5px solid ${C.border}`,borderRadius:12,cursor:"pointer",color:C.text2,fontWeight:600,fontSize:13}}>
-            🔄 Nova otimização
+            🔄 {resultado.semOtimizacao?"Recomeçar":"Nova otimização"}
           </button>
         </div>
       )}
@@ -3036,6 +3119,10 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
                     ➕ Nova parada
                   </button>
                 </div>
+                <button type="button" onClick={()=>setShowOrdemCarga(true)}
+                  style={{marginTop:8,width:"100%",padding:"10px",background:"#EEF4FF",border:`1.5px solid ${OTIMIZAR_AZUL}`,borderRadius:10,cursor:"pointer",color:OTIMIZAR_AZUL,fontWeight:800,fontSize:13}}>
+                  📦 Ordem de carregamento
+                </button>
               </div>
             </>
           ):(
@@ -3061,6 +3148,11 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
                     <span style={{width:24,height:24,borderRadius:"50%",background:paradaBolinhaCor(p,i,paradaAtualIdx,true),color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:800,flexShrink:0}}>{i+1}</span>
                     <div style={{flex:1}}>
                       <div style={{color:C.text,fontSize:13,lineHeight:1.4}}>{p.endereco}</div>
+                      {pacotesNumerosLabel(p)&&(
+                        <div style={{display:"inline-block",marginTop:4,background:"#EEF4FF",border:`1px solid ${OTIMIZAR_AZUL}`,borderRadius:6,padding:"2px 7px",color:OTIMIZAR_AZUL,fontSize:11,fontWeight:800}}>
+                          📦 {pacotesNumerosLabel(p)}
+                        </div>
+                      )}
                       <div style={{color:OTIMIZAR_AZUL,fontSize:11,fontWeight:700,marginTop:4}}>📦 {resumoPacotesLabel(p)}</div>
                       {st==="concluida"&&<div style={{color:C.green,fontSize:11,marginTop:4}}>✅ Concluída · {p.horario}</div>}
                       {st==="entregue"&&<div style={{color:C.green,fontSize:11,marginTop:4}}>✅ Entregue · {p.horario}</div>}
@@ -3111,6 +3203,52 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
             <button type="button" onClick={()=>setViewNav(v=>v==="mapa"?"lista":"mapa")}
               style={{padding:"14px 6px",background:"#fff",border:`2px solid ${OTIMIZAR_AZUL}`,borderRadius:14,cursor:"pointer",color:OTIMIZAR_AZUL,fontWeight:800,fontSize:13}}>
               📋 {viewNav==="mapa"?"Ver Lista":"Ver Mapa"}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* V287 — Ordem de carregamento (lista inversa da entrega) */}
+      {showOrdemCarga&&(
+        <div style={{position:"fixed",inset:0,zIndex:760,background:C.surface,display:"flex",flexDirection:"column"}}>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"16px",borderBottom:`1px solid ${C.border}`,flexShrink:0}}>
+            <div style={{color:C.navy,fontWeight:900,fontSize:18,fontFamily:"'Sora',sans-serif"}}>📦 Ordem de carregamento</div>
+            <button type="button" onClick={()=>setShowOrdemCarga(false)} aria-label="Fechar"
+              style={{background:C.subtle,border:`1px solid ${C.border}`,borderRadius:9,padding:8,cursor:"pointer",color:C.muted,display:"flex"}}>
+              <XIcon size={18}/>
+            </button>
+          </div>
+          <div style={{padding:"14px 16px",background:"#EEF4FF",borderBottom:`1px solid ${C.border}`,flexShrink:0}}>
+            <div style={{color:"#1E3A8A",fontSize:14,fontWeight:700,lineHeight:1.5}}>
+              Carregue nesta ordem: o pacote da última entrega entra primeiro e fica no fundo.
+            </div>
+          </div>
+          <div style={{flex:1,minHeight:0,overflowY:"auto",padding:"14px 16px"}}>
+            {[...paradasDedup].reverse().map((p,i)=>{
+              const entregaPos=paradasDedup.length-i;
+              const nums=pacotesNumerosLabel(p);
+              return(
+                <div key={`carga-${p.id}`} style={{display:"flex",alignItems:"center",gap:14,padding:"14px 12px",marginBottom:10,background:C.subtle,border:`1.5px solid ${C.border}`,borderRadius:14}}>
+                  <div style={{width:56,height:56,borderRadius:14,background:`linear-gradient(135deg,${OTIMIZAR_AZUL},${OTIMIZAR_AZUL_MID})`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                    <span style={{color:"#fff",fontWeight:900,fontSize:26,fontFamily:"'Sora',sans-serif"}}>{i+1}</span>
+                  </div>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{color:C.text,fontSize:15,fontWeight:700,lineHeight:1.35}}>{p.endereco}</div>
+                    {nums&&(
+                      <div style={{display:"inline-block",marginTop:6,background:"#EEF4FF",border:`1px solid ${OTIMIZAR_AZUL}`,borderRadius:6,padding:"2px 8px",color:OTIMIZAR_AZUL,fontSize:13,fontWeight:800}}>
+                        📦 {nums}
+                      </div>
+                    )}
+                    <div style={{color:C.muted,fontSize:12,marginTop:6}}>Entrega nº {entregaPos}</div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <div style={{padding:"12px 16px",paddingBottom:"max(12px, env(safe-area-inset-bottom))",borderTop:`1px solid ${C.border}`,flexShrink:0}}>
+            <button type="button" onClick={()=>setShowOrdemCarga(false)}
+              style={{width:"100%",padding:"14px",background:OTIMIZAR_AZUL,border:"none",borderRadius:12,cursor:"pointer",color:"#fff",fontWeight:800,fontSize:15}}>
+              Entendi
             </button>
           </div>
         </div>
@@ -7002,6 +7140,16 @@ export default function App(){
     return nav?.active?nav:null;
   });
   const[resumeNav,setResumeNav]=useState(false);
+  const[navBannerDragY,setNavBannerDragY]=useState(0);
+  // V287 — fechar o auxiliar "Navegação em andamento" arrastando pra baixo (~80px)
+  const navBannerSwipe=useSwipeable({
+    onSwiping:(e)=>{setNavBannerDragY(e.dir==="Down"?Math.abs(e.deltaY):0);},
+    onSwipedDown:(e)=>{if(Math.abs(e.deltaY)>=80)clearNavigationSession();setNavBannerDragY(0);},
+    onSwiped:()=>setNavBannerDragY(0),
+    trackTouch:true,
+    trackMouse:false,
+    preventScrollOnSwipe:true,
+  });
 
   useEffect(()=>{
     const handler=(e)=>{
@@ -7300,15 +7448,19 @@ export default function App(){
         onFalhaEnvio={handleAvaliacaoFalhaEnvio}
       />
 
-      {/* V233 — barra inteira clicável (volta ao mapa); botão mantido por affordance */}
+      {/* V233 — barra inteira clicável (volta ao mapa); V287 — arraste pra baixo fecha */}
       {showNavActiveBanner&&(
-        <div role="button" tabIndex={0} onClick={handleReturnToNavigation}
+        <div {...navBannerSwipe} role="button" tabIndex={0} onClick={handleReturnToNavigation}
           onKeyDown={e=>{if(e.key==="Enter"||e.key===" ")handleReturnToNavigation();}}
-          style={{position:"fixed",bottom:navBannerBottom,left:0,right:0,zIndex:880,background:"linear-gradient(135deg,#1E3A8A,#2563EB)",boxShadow:"0 -4px 20px #1E3A8A44",padding:"12px 14px",paddingBottom:navBannerBottom===0?"calc(12px + env(safe-area-inset-bottom))":"12px",cursor:"pointer"}}>
+          style={{position:"fixed",bottom:navBannerBottom,left:0,right:0,zIndex:880,background:"linear-gradient(135deg,#1E3A8A,#2563EB)",boxShadow:"0 -4px 20px #1E3A8A44",padding:"8px 14px 12px",paddingBottom:navBannerBottom===0?"calc(12px + env(safe-area-inset-bottom))":"12px",cursor:"pointer",transform:`translateY(${navBannerDragY}px)`,transition:navBannerDragY?"none":"transform .2s ease",touchAction:"none"}}>
+          <div style={{width:40,height:4,borderRadius:4,background:"rgba(255,255,255,0.55)",margin:"0 auto 8px"}}/>
           <div style={{maxWidth:820,margin:"0 auto",display:"flex",alignItems:"center",justifyContent:"space-between",gap:12}}>
             <div style={{flex:1,minWidth:0}}>
               <div style={{color:"#fff",fontWeight:800,fontSize:14,fontFamily:"'Sora',sans-serif"}}>
                 🧭 Navegação em andamento — Parada {(navBanner.paradaAtualIdx??0)+1} de {navBanner.totalParadas}
+              </div>
+              <div style={{color:"rgba(255,255,255,0.7)",fontSize:11,marginTop:2}}>
+                Arraste pra baixo para fechar
               </div>
             </div>
             <button type="button" onClick={e=>{e.stopPropagation();handleReturnToNavigation();}}

@@ -5,6 +5,7 @@ import {
   getParadaStatus,
   migrateParada,
   pacotesResumo,
+  pacotesNumerosLabel,
   resumoPacotesLabel,
 } from "./pacotesService.js";
 
@@ -165,10 +166,13 @@ export function buildStopInfoHtml({
   status,
   motivo,
   parada,
+  numerosLabel,
   expandId,
 }) {
   const s = statusInfo(status, motivo);
   const n = Number(pacotes) || 1;
+  const numeros =
+    numerosLabel != null ? numerosLabel : parada != null ? pacotesNumerosLabel(migrateParada(parada)) : "";
   const resumo =
     parada != null ? resumoPacotesLabel(migrateParada(parada)) : n === 1 ? "1 pacote" : `${n} pacotes`;
   const r = parada != null ? pacotesResumo(migrateParada(parada)) : null;
@@ -193,6 +197,7 @@ export function buildStopInfoHtml({
   return `<div style="font-family:system-ui,sans-serif;padding:4px 2px;line-height:1.45;max-width:260px">
     <div style="font-weight:800;font-size:13px;color:#1E3A8A;margin-bottom:4px">Parada ${paradaNum}</div>
     <div style="font-size:12px;color:#334155;margin-bottom:6px">${endereco || "—"}</div>
+    ${numeros ? `<div style="display:inline-block;font-size:11px;font-weight:800;color:#1E3A8A;background:#EEF4FF;border:1px solid #3B82F6;border-radius:6px;padding:2px 7px;margin-bottom:6px">📦 ${numeros}</div>` : ""}
     <div style="font-size:11px;color:#475569;margin-bottom:2px">📦 ${resumo}</div>
     ${resumoStatus ? `<div style="font-size:10px;color:#64748B;margin-bottom:4px">${resumoStatus}</div>` : ""}
     <div style="font-size:11px;font-weight:700;color:${s.color}">${s.label}</div>

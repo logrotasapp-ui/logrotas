@@ -3,7 +3,7 @@
  */
 
 import { geocodeAddressForDisplay } from "./routingService.js";
-import { countPacotes, getParadaStatus, migrateParada } from "./pacotesService.js";
+import { countPacotes, getParadaStatus, migrateParada, pacotesNumerosLabel } from "./pacotesService.js";
 
 function resolveParadaStatus(p) {
   return getParadaStatus(p);
@@ -56,6 +56,7 @@ export async function buildDeliveryMapFeatures(paradas) {
       order,
       endereco: p?.endereco || "",
       motivo: p?.motivo || "",
+      numeros: pacotesNumerosLabel(migrateParada(p)),
       pacotes: countPacotes(migrateParada(p)),
       status: resolveParadaStatus(p),
       entregue: resolveParadaStatus(p) === "entregue" || resolveParadaStatus(p) === "concluida",
@@ -87,6 +88,7 @@ export async function buildDeliveryMapFeatures(paradas) {
         order: pt.order,
         endereco: pt.endereco,
         motivo: pt.motivo,
+        numeros: pt.numeros,
         status: pt.status,
         entregue: pt.entregue,
       },

@@ -215,7 +215,7 @@ export default function DeliveryMap({
         );
 
         const markers = positioned.map(({ lng, lat, renderLng, renderLat, feature: f }) => {
-          const { packageCount, orders, status, endereco, motivo, order } = f.properties;
+          const { packageCount, orders, status, endereco, motivo, order, numeros } = f.properties;
           const marker = createNumberedMarker(renderLng, renderLat, order, status || "pendente");
           marker.__stopStatus = status || "pendente";
           marker.__deliveryData = { packageCount, orders };
@@ -233,6 +233,7 @@ export default function DeliveryMap({
                 pacotes: packageCount,
                 status,
                 motivo,
+                numerosLabel: numeros,
               })
             );
             infoWindowRef.current.open({ anchor: marker, map });
