@@ -101,7 +101,7 @@ import {
   dedupParadasPorId,
   countPacotes,
 } from "./src/services/pacotesService.js";
-import { OFFLINE_KEYS, AUTH_KEYS, readOfflineCache, writeOfflineCache, clearAllLogRotasStorage, clearVehiclesLocalCache, readVehiclesLocalCache, writeVehiclesLocalCache, activateProTrial, readProPlanActive, readProTrialDaysLeft, readPerfilLocalFallback, writePerfilLocalCache } from "./src/services/offlineStorage.js";
+import { OFFLINE_KEYS, AUTH_KEYS, readOfflineCache, writeOfflineCache, clearAllLogRotasStorage, clearVehiclesLocalCache, readVehiclesLocalCache, writeVehiclesLocalCache, activateProTrial, readProPlanActive, readProTrialDaysLeft, readPerfilLocalFallback, writePerfilLocalCache, readUiState, writeUiState, clearUiState } from "./src/services/offlineStorage.js";
 import { subscribeAuth, signInWithEmail, signUpWithEmail, signInWithGoogle, signOutUser, deleteCurrentUser, getAuthErrorMessage, sendPasswordResetEmail, getPasswordResetErrorMessage } from "./src/services/authService.js";
 import { saveUserProfile, loadUserProfile, ensureGoogleUserProfile, cadastroToFirestorePayload, firestoreToPerfil, perfilToFirestorePayload } from "./src/services/userProfileService.js";
 import { saveJornada } from "./src/services/jornadaService.js";
@@ -137,7 +137,7 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="v293";
+const APP_VERSION="v294";
 const PEDAGIO_AVISO_RESULTADO="Pedágio estimado pelo Google. Pode haver variação — confirme o valor da praça.";
 const BETA_HIDE_PLANOS=true;
 const PAGE_SWIPE_ORDER=["dashboard","financeiro","despesas","comparador","manutencao","documentos","perfil"];
@@ -7031,9 +7031,11 @@ const Perfil=({uid,metaMes,setMetaMes,faturamentoMes,saldoLiquidoMes,vehicles,se
 // ── MAIN APP — vehicles state lives here, shared to Combustivel & Calculator ──
 export default function App(){
   const[screen,setScreen]=useState("loading");
-  const[page,setPage]=useState("dashboard");
+  // V294 — restaura a aba em que o usuário estava (PWA morto em 2º plano volta do zero)
+  const[page,setPage]=useState(()=>readUiState()?.page||"dashboard");
   const[showCalc,setShowCalc]=useState(false);
   const[calcMode,setCalcMode]=useState(null);
+  const uiRestoredRef=useRef(false);
   const[plan,setPlan]=useState(()=>(readProPlanActive()?"pro":"free"));
   const[trialDias,setTrialDias]=useState(()=>(readProPlanActive()?readProTrialDaysLeft():0));
   const[refIndicacao]=useState(()=>lerRefIndicacao()); // lê ?ref= uma vez ao montar
@@ -7431,6 +7433,27 @@ export default function App(){
     }
   },[splashDone,authReady,firebaseUser]);
 
+  // V294 — restaura o modal de calculadora/fechamento aberto ao reabrir (uma vez, já no app)
+  useEffect(()=>{
+    if(screen!=="app"||uiRestoredRef.current)return;
+    uiRestoredRef.current=true;
+    const ui=readUiState();
+    if(!ui)return;
+    // Não reabrir o otimizador se há navegação ativa — o banner já cuida da retomada
+    const navAtiva=!!navBanner?.active;
+    if(ui.showCalc&&ui.calcMode&&!(ui.calcMode==="otimizar"&&navAtiva)){
+      setCalcMode(ui.calcMode);
+      setShowCalc(true);
+    }
+    if(ui.showFechamento)setShowFechamento(true);
+  },[screen]);
+
+  // V294 — persiste a tela ativa (aba + modal aberto) enquanto no app
+  useEffect(()=>{
+    if(screen!=="app")return;
+    writeUiState({page,showCalc,calcMode,showFechamento});
+  },[screen,page,showCalc,calcMode,showFechamento]);
+
   useEffect(()=>{
     if(screen!=="loading")return;
     const prevBody=document.body.style.overflow;
@@ -7453,6 +7476,13 @@ export default function App(){
     clearVehiclesLocalCache();
     setVehicles(DEFAULT_VEHICLES);
     setPerfil({nome:"",email:"",telefone:"",documento:"",tipo:"Motorista Autônomo",veiculo:""});
+    // V294 — não restaurar tela/modal antigos após trocar de conta
+    clearUiState();
+    uiRestoredRef.current=false;
+    setShowCalc(false);
+    setCalcMode(null);
+    setShowFechamento(false);
+    setPage("dashboard");
     setScreen("login");
   };
 
@@ -7865,13 +7895,17 @@ export default function App(){
                 }
                 try{await signOutUser();}catch{/* ignore */}
                 clearAllLogRotasStorage();
-                setHistoricoFretes([]);setManutencoes([]);setDespesas([]);setDocs([]);
+                setHistoricoFretes([]);setManutencoes([]);setDespesas([]);setJornadas([]);setDocs([]);
                 setMetaMes(8000);setValorKm("");setAdicionalFixo("");
                 setVehicles(DEFAULT_VEHICLES);
                 setPerfil({nome:"",email:"",telefone:"",documento:"",tipo:"Motorista Autônomo",veiculo:""});
                 setPlan("free");
                 setTrialDias(0);
                 setConfirmLimpar(false);
+                // V294 — zera estado de tela/modal para não restaurar nada após apagar tudo
+                clearUiState();
+                uiRestoredRef.current=false;
+                setShowCalc(false);setCalcMode(null);setShowFechamento(false);
                 setPage("dashboard");
                 setScreen("register");
               }} style={{flex:1,padding:"13px",background:C.red,border:"none",borderRadius:12,cursor:"pointer",color:"#fff",fontWeight:700,fontSize:14,display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>

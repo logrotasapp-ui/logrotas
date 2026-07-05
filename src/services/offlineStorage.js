@@ -10,7 +10,28 @@ export const OFFLINE_KEYS = {
   avaliacao: "logrotas_avaliacao_state",
   avaliacaoPendentes: "logrotas_avaliacao_pendentes",
   vehicles: "logrotas_vehicles",
+  uiState: "logrotas_ui_state",
 };
+
+/**
+ * Estado de navegação da UI (aba ativa + modal de calculadora aberto), para
+ * restaurar a tela em que o usuário estava quando o PWA é morto em 2º plano.
+ */
+export function readUiState() {
+  return readOfflineCache(OFFLINE_KEYS.uiState);
+}
+
+export function writeUiState(state) {
+  writeOfflineCache(OFFLINE_KEYS.uiState, state || {});
+}
+
+export function clearUiState() {
+  try {
+    localStorage.removeItem(OFFLINE_KEYS.uiState);
+  } catch {
+    /* quota / modo privado */
+  }
+}
 
 export const AUTH_KEYS = {
   session: "logrotas_auth_session",
