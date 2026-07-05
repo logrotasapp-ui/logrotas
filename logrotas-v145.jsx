@@ -104,6 +104,7 @@ import {
 import { OFFLINE_KEYS, AUTH_KEYS, readOfflineCache, writeOfflineCache, clearAllLogRotasStorage, clearVehiclesLocalCache, readVehiclesLocalCache, writeVehiclesLocalCache, activateProTrial, readProPlanActive, readProTrialDaysLeft, readPerfilLocalFallback, writePerfilLocalCache } from "./src/services/offlineStorage.js";
 import { subscribeAuth, signInWithEmail, signUpWithEmail, signInWithGoogle, signOutUser, deleteCurrentUser, getAuthErrorMessage, sendPasswordResetEmail, getPasswordResetErrorMessage } from "./src/services/authService.js";
 import { saveUserProfile, loadUserProfile, ensureGoogleUserProfile, cadastroToFirestorePayload, firestoreToPerfil, perfilToFirestorePayload } from "./src/services/userProfileService.js";
+import { saveJornada, calcularCombustivelJornada } from "./src/services/jornadaService.js";
 import { validateBetaCode, consumeBetaCode, normalizeBetaCode } from "./src/services/betaCodeService.js";
 import {
   loadUserHistory,
@@ -136,7 +137,7 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="V290";
+const APP_VERSION="v291";
 const PEDAGIO_AVISO_RESULTADO="Pedágio estimado pelo Google. Pode haver variação — confirme o valor da praça.";
 const BETA_HIDE_PLANOS=true;
 const PAGE_SWIPE_ORDER=["dashboard","financeiro","despesas","comparador","manutencao","documentos","perfil"];
@@ -4486,8 +4487,171 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
   );
 };
 
+// ── FECHAMENTO DO DIA (v291) ──────────────────────────────────────────────────
+const SERVICOS_BASE=["Uber","99","iFood"];
+const FechamentoDia=({uid,perfil,setPerfil,vehicles=[],onSalvar,onClose})=>{
+  const veic=vehicles.find(v=>v.id===perfil?.veiculo)||vehicles.find(v=>v.id==="carro")||vehicles[0]||null;
+  const isElec=!!veic?.electric;
+  const consumoVeic=isElec?(veic?.kwh||veic?.consumption||0):(veic?.consumption||12);
+
+  const servicosCustom=Array.isArray(perfil?.servicosFechamento)?perfil.servicosFechamento:[];
+  const servicos=[...SERVICOS_BASE,...servicosCustom.filter(s=>!SERVICOS_BASE.includes(s))];
+
+  const[servico,setServico]=useState(servicos[0]||"Uber");
+  const[showAddServ,setShowAddServ]=useState(false);
+  const[novoServ,setNovoServ]=useState("");
+  const[km,setKm]=useState("");
+  const[valor,setValor]=useState("");
+  const[pedagio,setPedagio]=useState("");
+  const[fuelPrice,setFuelPrice]=useState(perfil?.precoCombustivel?String(perfil.precoCombustivel):"");
+  const[salvando,setSalvando]=useState(false);
+  const[erro,setErro]=useState("");
+  const[veredito,setVeredito]=useState(null);
+
+  const combustivel=calcularCombustivelJornada({km,consumo:consumoVeic,preco:fuelPrice,isElec});
+  const pedagioNum=parseNumeroBR(pedagio)||0;
+  const valorNum=parseNumeroBR(valor)||0;
+  const kmNum=parseNumeroBR(km)||0;
+  const custoTotal=roundMoney(combustivel+pedagioNum);
+  const lucro=roundMoney(valorNum-custoTotal);
+
+  const adicionarServico=async()=>{
+    const nome=novoServ.trim();
+    if(!nome)return;
+    const existente=servicos.find(s=>s.toLowerCase()===nome.toLowerCase());
+    if(existente){setServico(existente);setNovoServ("");setShowAddServ(false);return;}
+    const novoPerfil={...perfil,servicosFechamento:[...servicosCustom,nome]};
+    setPerfil(novoPerfil);
+    setServico(nome);
+    setNovoServ("");
+    setShowAddServ(false);
+    if(uid){try{await saveUserProfile(uid,perfilToFirestorePayload(novoPerfil));}catch{/* offline: fica só no estado */}}
+  };
+
+  const salvar=async()=>{
+    setErro("");
+    if(kmNum<=0){setErro("Informe o km rodado hoje.");return;}
+    if(valorNum<=0){setErro("Informe o valor recebido.");return;}
+    if((parseNumeroBR(fuelPrice)||0)<=0){setErro(`Informe o preço do ${isElec?"kWh":"combustível"}.`);return;}
+    setSalvando(true);
+    try{
+      const dados={
+        data:formatNowBR().data,
+        servico,
+        km:kmNum,
+        valorRecebido:valorNum,
+        combustivelCalculado:combustivel,
+        pedagioOutros:pedagioNum,
+        custoTotal,
+        lucro,
+      };
+      await onSalvar?.(dados);
+      const precoStr=String(fuelPrice||"").trim();
+      if(precoStr&&precoStr!==String(perfil?.precoCombustivel||"")){
+        const np={...perfil,precoCombustivel:precoStr};
+        setPerfil(np);
+        if(uid){try{await saveUserProfile(uid,perfilToFirestorePayload(np));}catch{/* ignore */}}
+      }
+      setVeredito(dados);
+    }catch{
+      setErro("Não foi possível salvar. Tente novamente.");
+    }finally{setSalvando(false);}
+  };
+
+  if(veredito){
+    const rkm=veredito.km>0?roundMoney(veredito.lucro/veredito.km):0;
+    const positivo=veredito.lucro>=0;
+    return(
+      <ModalWrap maxW={460}>
+        <ModalHeader title="🌙 Dia fechado!" sub={`${veredito.servico} · ${veredito.data}`} onClose={onClose}/>
+        <div style={{display:"flex",flexDirection:"column",gap:14}}>
+          <div style={{background:positivo?"linear-gradient(135deg,#065F46,#059669)":"linear-gradient(135deg,#9F1239,#E11D48)",borderRadius:18,padding:"22px 20px",textAlign:"center",boxShadow:`0 8px 24px ${positivo?"#05966933":"#E11D4833"}`}}>
+            <div style={{color:"#ECFDF5",fontSize:12,fontWeight:700,letterSpacing:0.6,textTransform:"uppercase",marginBottom:6,opacity:.9}}>Ficou no seu bolso</div>
+            <div style={{color:"#fff",fontWeight:900,fontSize:38,fontFamily:"'Sora',sans-serif",lineHeight:1}}>{formatMoeda(veredito.lucro)}</div>
+            <div style={{color:"#ffffffcc",fontSize:12,marginTop:8}}>{positivo?"Bom trabalho hoje! 💪":"Atenção: o dia fechou no vermelho."}</div>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+            <Metric label="Lucro por km" value={formatMoeda(rkm)} sub={`${formatDecimal(veredito.km,1)} km`} icon={RouteIcon} color={C.navy} bg={C.navyLight}/>
+            <Metric label="Valor recebido" value={formatMoeda(veredito.valorRecebido)} sub={veredito.servico} icon={DollarSignIcon} color={C.green} bg={C.greenLight}/>
+            <Metric label="Combustível" value={formatMoeda(veredito.combustivelCalculado)} sub={isElec?"energia":"estimado"} icon={FuelIcon} color={C.orange} bg={C.orangeLight}/>
+            <Metric label="Custo total" value={formatMoeda(veredito.custoTotal)} sub={veredito.pedagioOutros>0?`+ ${formatMoeda(veredito.pedagioOutros)} extras`:"comb. + extras"} icon={CalculatorIcon} color={C.red} bg={C.redLight}/>
+          </div>
+          <div style={{background:C.subtle,border:`1px solid ${C.border}`,borderRadius:12,padding:"11px 14px",color:C.muted,fontSize:12,lineHeight:1.5}}>
+            ✅ Lançado no Financeiro: entrada de {formatMoeda(veredito.valorRecebido)} e saída de {formatMoeda(veredito.custoTotal)} em Despesas.
+          </div>
+          <PrimaryBtn onClick={onClose} variant="navy" style={{width:"100%"}}>Concluir</PrimaryBtn>
+        </div>
+      </ModalWrap>
+    );
+  }
+
+  return(
+    <ModalWrap maxW={460}>
+      <ModalHeader title="🌙 Fechar meu dia" sub="Registre a jornada e veja seu lucro real" icon={DollarSignIcon} iconColor={C.navy} onClose={onClose}/>
+      <ModalFormLayout footer={
+        <PrimaryBtn onClick={salvar} variant="navy" disabled={salvando} style={{width:"100%"}}>
+          {salvando?"Salvando…":"Fechar o dia →"}
+        </PrimaryBtn>
+      }>
+        <div style={{display:"flex",flexDirection:"column",gap:14}}>
+          {erro&&<div style={{background:"#FFF5F5",border:"1.5px solid #FCA5A5",borderRadius:10,padding:"10px 13px",color:"#DC2626",fontSize:13,fontWeight:600}}>⚠️ {erro}</div>}
+
+          <div style={{display:"flex",flexDirection:"column",gap:6}}>
+            <label style={{color:C.text2,fontSize:14,fontWeight:700,letterSpacing:0.4}}>Serviço</label>
+            <div style={{display:"flex",flexWrap:"wrap",gap:7}}>
+              {servicos.map(s=>(
+                <button key={s} type="button" onClick={()=>setServico(s)}
+                  style={{background:servico===s?C.navy:C.subtle,border:`1.5px solid ${servico===s?C.navy:C.border}`,borderRadius:20,padding:"7px 14px",cursor:"pointer",color:servico===s?"#fff":C.text2,fontSize:13,fontWeight:700}}>
+                  {s}
+                </button>
+              ))}
+              <button type="button" onClick={()=>setShowAddServ(v=>!v)}
+                style={{background:"#fff",border:`1.5px dashed ${C.orange}`,borderRadius:20,padding:"7px 14px",cursor:"pointer",color:C.orange,fontSize:13,fontWeight:700}}>
+                ＋ Adicionar serviço
+              </button>
+            </div>
+            {showAddServ&&(
+              <div style={{display:"flex",gap:8,marginTop:4}}>
+                <input value={novoServ} onChange={e=>setNovoServ(e.target.value)} placeholder="Ex: Rappi, Loggi, particular" autoComplete="off"
+                  onKeyDown={e=>{if(e.key==="Enter")adicionarServico();}}
+                  style={{flex:1,minWidth:0,background:C.subtle,border:`1.5px solid ${C.border}`,borderRadius:10,color:C.text,padding:"10px 12px",fontSize:14,outline:"none",boxSizing:"border-box"}}/>
+                <PrimaryBtn onClick={adicionarServico} small>Salvar</PrimaryBtn>
+              </div>
+            )}
+          </div>
+
+          <Field label="🚗 Km rodado hoje" value={km} onChange={setKm} placeholder="Ex: 180" suffix="km" calc/>
+          <Field label="💰 Valor recebido" value={valor} onChange={setValor} placeholder="Ex: 240,00" prefix="R$" calc/>
+          <Field label={isElec?"⚡ Energia (R$/kWh)":"⛽ Combustível (R$/L)"} value={fuelPrice} onChange={setFuelPrice} placeholder={isElec?"Ex: 1,85":"Ex: 5,89"} prefix="R$" calc/>
+          <Field label="🅿️ Pedágio / outros gastos (opcional)" value={pedagio} onChange={setPedagio} placeholder="Ex: 12,50" prefix="R$" calc/>
+
+          <div style={{background:C.orangeLight,border:`1px solid ${C.orange}33`,borderRadius:12,padding:"12px 15px"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <div style={{display:"flex",alignItems:"center",gap:8}}>
+                <FuelIcon size={15} color={C.orange}/>
+                <span style={{color:C.text2,fontSize:13,fontWeight:700}}>Combustível calculado</span>
+              </div>
+              <span style={{color:C.navy,fontWeight:900,fontSize:18,fontFamily:"'Sora',sans-serif"}}>{formatMoeda(combustivel)}</span>
+            </div>
+            <div style={{color:C.muted,fontSize:11,marginTop:6}}>
+              {kmNum>0?`${formatDecimal(kmNum,0)} km`:"km"} · {isElec?`${formatDecimal(consumoVeic,1)} kWh/100km`:formatConsumoKmL(consumoVeic)} · {veic?`${veic.emoji||"🚗"} ${veic.label||"veículo"}`:"veículo"}
+            </div>
+          </div>
+
+          {(valorNum>0||kmNum>0)&&(
+            <div style={{background:C.navyLight,border:`1px solid ${C.navy}22`,borderRadius:12,padding:"12px 15px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <span style={{color:C.text2,fontSize:13,fontWeight:700}}>Prévia do lucro</span>
+              <span style={{color:lucro>=0?C.green:C.red,fontWeight:900,fontSize:18,fontFamily:"'Sora',sans-serif"}}>{formatMoeda(lucro)}</span>
+            </div>
+          )}
+        </div>
+      </ModalFormLayout>
+    </ModalWrap>
+  );
+};
+
 // ── DASHBOARD ─────────────────────────────────────────────────────────────────
-const Dashboard=({onNav,setShowCalc,setCalcMode,historicoFretes,manutencoes,docs,despesas=[],perfil,onNovoChecklist,onUltimosChecklists,ultimosAvulsosCount=0})=>{
+const Dashboard=({onNav,setShowCalc,setCalcMode,historicoFretes,manutencoes,docs,despesas=[],perfil,onNovoChecklist,onUltimosChecklists,ultimosAvulsosCount=0,onFecharDia})=>{
   const[showReferralSoon,setShowReferralSoon]=useState(false);
   const hoje=new Date();hoje.setHours(0,0,0,0);
   const docsVencendo=(docs||[]).filter(d=>{
@@ -4568,6 +4732,16 @@ const Dashboard=({onNav,setShowCalc,setCalcMode,historicoFretes,manutencoes,docs
         <div style={{background:"#ffffff18",border:"1px solid #ffffff22",borderRadius:20,padding:"5px 18px"}}>
           <span style={{color:"#fff",fontSize:13,fontWeight:600}}>🧮 Toque para calcular agora</span>
         </div>
+      </button>
+
+      {/* V291 — Fechamento do Dia */}
+      <button onClick={()=>onFecharDia?.()} style={{background:"#fff",border:`1.5px solid ${C.orange}33`,borderRadius:16,padding:"15px 18px",cursor:"pointer",display:"flex",alignItems:"center",gap:13,width:"100%",boxShadow:"0 2px 10px #1E3A8A0D",textAlign:"left"}}>
+        <div style={{width:44,height:44,borderRadius:12,background:`linear-gradient(135deg,${C.navy},${C.navyMid})`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,fontSize:20}}>🌙</div>
+        <div style={{flex:1,minWidth:0}}>
+          <div style={{color:C.navy,fontWeight:800,fontSize:16,fontFamily:"'Sora',sans-serif"}}>Fechar meu dia</div>
+          <div style={{color:C.muted,fontSize:12,marginTop:2}}>Quanto realmente sobrou hoje depois do combustível</div>
+        </div>
+        <ArrowRightIcon size={16} color={C.orange}/>
       </button>
 
       {/* Alertas — documentos vencidos */}
@@ -5615,8 +5789,11 @@ const Documentos=({docs,onAddDocumento,onDeleteDocumento})=>{
 // ── FINANCEIRO ────────────────────────────────────────────────────────────────
 const MESES_PT=["Janeiro","Fevereiro","Março","Abril","Maio","Junho","Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"];
 
-const Financeiro=({historicoFretes,manutencoes,despesas=[]})=>{
+const Financeiro=({historicoFretes,manutencoes,despesas=[],jornadas=[]})=>{
   const hoje=new Date();
+  // V291 — jornadas (Fechamento do dia) usam campo `data`; normaliza p/ reusar filtros por `date`.
+  // A ENTRADA (valorRecebido) é somada aqui; a SAÍDA (combustível+pedágio) já entra via `despesas`.
+  const jornadasN=(jornadas||[]).map(j=>({...j,date:j.data||j.date||""}));
   const[mesSel,setMesSel]=useState(hoje.getMonth());
   const[anoSel,setAnoSel]=useState(hoje.getFullYear());
   const[periodoGraf,setPeriodoGraf]=useState("6");
@@ -5637,10 +5814,12 @@ const Financeiro=({historicoFretes,manutencoes,despesas=[]})=>{
     const fM=filtrarPorMes(historicoFretes,m,a);
     const mM=filtrarPorMes(manutencoes||[],m,a);
     const dM=filtrarPorMes(despesas||[],m,a);
+    const jM=filtrarPorMes(jornadasN,m,a);
     const lucro=roundMoney(fM.reduce((s,f)=>s+(f.lucro||0),0));
+    const jorn=roundMoney(jM.reduce((s,j)=>s+(j.valorRecebido||0),0));
     const maint=roundMoney(mM.reduce((s,mn)=>s+(mn.cost||0),0));
     const desp=roundMoney(dM.reduce((s,d)=>s+(d.valor||0),0));
-    return roundMoney(lucro-maint-desp);
+    return roundMoney(lucro+jorn-maint-desp);
   };
 
   // Filtrar fretes do mês selecionado
@@ -5652,11 +5831,16 @@ const Financeiro=({historicoFretes,manutencoes,despesas=[]})=>{
   // Filtrar despesas do mês
   const despMes=filtrarPorMes(despesas||[],mesSel,anoSel);
 
+  // Filtrar jornadas do mês (Fechamento do dia)
+  const jornadasMes=filtrarPorMes(jornadasN,mesSel,anoSel);
+  const totalJornadaReceita=roundMoney(jornadasMes.reduce((a,j)=>a+(j.valorRecebido||0),0));
+  const totalJornadaKm=jornadasMes.reduce((a,j)=>a+(j.km||0),0);
+
   // Cálculos reais (componentes já arredondados no save)
-  const totalReceita=roundMoney(fretesMes.reduce((a,f)=>a+(f.freteSugerido||0),0));
+  const totalReceita=roundMoney(fretesMes.reduce((a,f)=>a+(f.freteSugerido||0),0)+totalJornadaReceita);
   const totalCusto=roundMoney(fretesMes.reduce((a,f)=>a+(f.custoTotal||0),0));
-  const totalLucro=roundMoney(fretesMes.reduce((a,f)=>a+(f.lucro||0),0));
-  const totalKm=fretesMes.reduce((a,f)=>a+(f.distance||0),0);
+  const totalLucro=roundMoney(fretesMes.reduce((a,f)=>a+(f.lucro||0),0)+totalJornadaReceita);
+  const totalKm=fretesMes.reduce((a,f)=>a+(f.distance||0),0)+totalJornadaKm;
   const totalMaint=roundMoney(maintMes.reduce((a,m)=>a+(m.cost||0),0));
   const totalDesp=roundMoney(despMes.reduce((a,d)=>a+(d.valor||0),0));
   const saldoLiquido=roundMoney(totalLucro-totalMaint-totalDesp);
@@ -5666,7 +5850,7 @@ const Financeiro=({historicoFretes,manutencoes,despesas=[]})=>{
 
   const prevMesIdx=mesSel===0?11:mesSel-1;
   const prevAno=mesSel===0?anoSel-1:anoSel;
-  const hasPrevData=[historicoFretes,manutencoes||[],despesas||[]].some(arr=>filtrarPorMes(arr,prevMesIdx,prevAno).length>0);
+  const hasPrevData=[historicoFretes,manutencoes||[],despesas||[],jornadasN].some(arr=>filtrarPorMes(arr,prevMesIdx,prevAno).length>0);
   const saldoMesAnterior=calcSaldoMes(prevMesIdx,prevAno);
   const diffSaldo=roundMoney(saldoLiquido-saldoMesAnterior);
 
@@ -5697,7 +5881,8 @@ const Financeiro=({historicoFretes,manutencoes,despesas=[]})=>{
     const fM=historicoFretes.filter(f=>{if(!f.date)return false;const p=f.date.split("/");return p.length===3&&parseInt(p[1])-1===m&&parseInt(p[2])===y;});
     const mM=(manutencoes||[]).filter(mn=>{if(!mn.date)return false;const p=mn.date.split("/");return p.length===3&&parseInt(p[1])-1===m&&parseInt(p[2])===y;});
     const dM=(despesas||[]).filter(dep=>{if(!dep.date)return false;const p=dep.date.split("/");return p.length===3&&parseInt(p[1])-1===m&&parseInt(p[2])===y;});
-    const lucro=fM.reduce((a,f)=>a+(f.lucro||0),0)-mM.reduce((a,mn)=>a+(mn.cost||0),0)-dM.reduce((a,d)=>a+(d.valor||0),0);
+    const jMg=jornadasN.filter(jj=>{if(!jj.date)return false;const p=jj.date.split("/");return p.length===3&&parseInt(p[1])-1===m&&parseInt(p[2])===y;});
+    const lucro=fM.reduce((a,f)=>a+(f.lucro||0),0)+jMg.reduce((a,j)=>a+(j.valorRecebido||0),0)-mM.reduce((a,mn)=>a+(mn.cost||0),0)-dM.reduce((a,d)=>a+(d.valor||0),0);
     return{label:MESES_PT[m].slice(0,3),lucro,mes:m,ano:y,atual:m===mesSel&&y===anoSel};
   });
   const maxLucro=Math.max(...mesesGrafico.map(x=>Math.abs(x.lucro)),1);
@@ -6784,12 +6969,14 @@ export default function App(){
   const[historicoFretes,setHistoricoFretes]=useState([]);
   const[manutencoes,setManutencoes]=useState([]);
   const[despesas,setDespesas]=useState([]);
+  const[jornadas,setJornadas]=useState([]);
+  const[showFechamento,setShowFechamento]=useState(false);
   const[docs,setDocs]=useState([]);
   const hoje=new Date();
   const docsVencidos=(docs||[]).filter(d=>{if(!d.expiry)return false;const[dia,mes,ano]=d.expiry.split("/");return new Date(ano,mes-1,dia)<hoje;});
   const docsVencendo30=(docs||[]).filter(d=>{if(!d.expiry)return false;const[dia,mes,ano]=d.expiry.split("/");const dias=Math.ceil((new Date(ano,mes-1,dia)-hoje)/(1000*60*60*24));return dias<=30&&dias>=0;});
   const docsVencendo=(docs||[]).filter(d=>{if(!d.expiry)return false;const[dia,mes,ano]=d.expiry.split("/");const dias=Math.ceil((new Date(ano,mes-1,dia)-hoje)/(1000*60*60*24));return dias<=60&&dias>=0;});
-  const[perfil,setPerfil]=useState({nome:"",email:"",telefone:"",documento:"",tipo:"Motorista Autônomo",veiculo:""});
+  const[perfil,setPerfil]=useState({nome:"",email:"",telefone:"",documento:"",tipo:"Motorista Autônomo",veiculo:"",servicosFechamento:[],precoCombustivel:""});
   const[checklistScreen,setChecklistScreen]=useState(null);
   const[ultimosAvulsos,setUltimosAvulsos]=useState([]);
   const[showUltimosAvulsosModal,setShowUltimosAvulsosModal]=useState(false);
@@ -6880,6 +7067,7 @@ export default function App(){
       setHistoricoFretes([]);
       setManutencoes([]);
       setDespesas([]);
+      setJornadas([]);
       setDocs([]);
       return;
     }
@@ -6891,12 +7079,14 @@ export default function App(){
         setHistoricoFretes(data.fretes||[]);
         setManutencoes(data.manutencao||[]);
         setDespesas(data.despesas||[]);
+        setJornadas(data.jornadas||[]);
         setDocs(data.documentos||[]);
       }catch{
         if(!cancelled){
           setHistoricoFretes([]);
           setManutencoes([]);
           setDespesas([]);
+          setJornadas([]);
           setDocs([]);
         }
       }
@@ -7088,6 +7278,15 @@ export default function App(){
       const saved=await addDespesaWithFinanceiro(uid,item);
       setDespesas(d=>[saved,...d]);
     }catch{/* ignore */}
+  },[firebaseUser?.uid]);
+
+  // V291 — Fechamento do dia: grava jornada + saída em Despesas (sem duplicar no Financeiro)
+  const handleSaveJornada=useCallback(async(dados)=>{
+    const uid=firebaseUser?.uid;
+    if(!uid)throw new Error("Sem usuário");
+    const{jornada,despesa}=await saveJornada(uid,dados);
+    setJornadas(j=>[jornada,...j]);
+    if(despesa)setDespesas(d=>[despesa,...d]);
   },[firebaseUser?.uid]);
 
   const handleUpdateDespesa=useCallback(async(item)=>{
@@ -7392,8 +7591,8 @@ export default function App(){
         );})}
       </div>
       <div ref={contentSwipeRef} {...contentSwipeHandlers} style={{maxWidth:820,margin:"0 auto",padding:`20px 14px ${showNavActiveBanner?(plan==="free"?"168px":"128px"):plan==="free"?"120px":"80px"}`,touchAction:"pan-y pinch-zoom"}}>
-        {page==="dashboard"   &&<Dashboard onNav={setPage} setShowCalc={setShowCalc} setCalcMode={setCalcMode} historicoFretes={historicoFretes} manutencoes={manutencoes} docs={docs} despesas={despesas} perfil={perfil} onNovoChecklist={handleNovoChecklistAvulso} onUltimosChecklists={handleUltimosChecklists} ultimosAvulsosCount={ultimosAvulsos.length}/>}
-        {page==="financeiro"  &&<Financeiro historicoFretes={historicoFretes} manutencoes={manutencoes} despesas={despesas}/>}
+        {page==="dashboard"   &&<Dashboard onNav={setPage} setShowCalc={setShowCalc} setCalcMode={setCalcMode} historicoFretes={historicoFretes} manutencoes={manutencoes} docs={docs} despesas={despesas} perfil={perfil} onNovoChecklist={handleNovoChecklistAvulso} onUltimosChecklists={handleUltimosChecklists} ultimosAvulsosCount={ultimosAvulsos.length} onFecharDia={()=>setShowFechamento(true)}/>}
+        {page==="financeiro"  &&<Financeiro historicoFretes={historicoFretes} manutencoes={manutencoes} despesas={despesas} jornadas={jornadas}/>}
         {page==="despesas"    &&<Despesas despesas={despesas} onAddDespesa={handleAddDespesa} onUpdateDespesa={handleUpdateDespesa} onDeleteDespesa={handleDeleteDespesa}/>}
         {page==="comparador"  &&<Comparador historicoFretes={historicoFretes} onAddFrete={handleAddFrete} onUpdateFrete={handleUpdateFrete} onDeleteFrete={handleDeleteFrete} perfil={perfil} uid={firebaseUser?.uid} onOpenChecklist={handleOpenChecklist}/>}
         {page==="manutencao"  &&<Manutencao manutencoes={manutencoes} onAddManutencao={handleAddManutencao} onUpdateManutencao={handleUpdateManutencao} onDeleteManutencao={handleDeleteManutencao}/>}
@@ -7540,6 +7739,7 @@ export default function App(){
       {showCalc&&calcMode==="viagem"&&<TripCalcModal onClose={()=>handleCalcModalClose()} onConcluido={handleCalcConcluida} vehicles={vehicles}/>}
       {showCalc&&calcMode==="frete"&&<RouteCalcModal onClose={()=>handleCalcModalClose()} onConcluido={handleCalcConcluida} vehicles={vehicles} valorKmPadrao={valorKm} adicionalPadrao={adicionalFixo} onSalvarHistorico={handleAddFrete}/>}
       {showCalc&&calcMode==="otimizar"&&<OtimizarEntregasModal uid={firebaseUser?.uid} resumeNavigation={resumeNav} onNavigationResumed={()=>setResumeNav(false)} onClose={()=>handleCalcModalClose(()=>setResumeNav(false))} onConcluido={handleCalcConcluida} perfil={perfil} plan={plan} onUpgrade={()=>{setShowCalc(false);setCalcMode(null);setResumeNav(false);setPage("assinatura");}}/>}
+      {showFechamento&&<FechamentoDia uid={firebaseUser?.uid} perfil={perfil} setPerfil={setPerfil} vehicles={vehicles} onSalvar={handleSaveJornada} onClose={()=>setShowFechamento(false)}/>}
       <AvaliacaoAppModal
         open={!!showAvaliacaoModal}
         origem={showAvaliacaoModal?.origem}

@@ -18,6 +18,7 @@ export const HISTORY_COLLECTIONS = {
   manutencao: "manutencao",
   documentos: "documentos",
   financeiro: "financeiro",
+  jornadas: "jornadas",
 };
 
 function colRef(uid, name) {
@@ -49,6 +50,7 @@ export async function loadUserHistory(uid) {
     manutencao: [],
     documentos: [],
     financeiro: [],
+    jornadas: [],
   };
   if (!uid) return out;
 

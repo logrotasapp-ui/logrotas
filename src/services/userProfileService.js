@@ -28,6 +28,10 @@ export function firestoreToPerfil(data) {
     documento: data.documento || "",
     tipo: data.tipo || "Motorista Autônomo",
     veiculo: data.veiculo || "",
+    servicosFechamento: Array.isArray(data.servicosFechamento)
+      ? data.servicosFechamento
+      : [],
+    precoCombustivel: data.precoCombustivel || "",
   };
 }
 
@@ -39,6 +43,10 @@ export function perfilToFirestorePayload(perfil) {
     documento: perfil.documento?.trim() || "",
     tipo: perfil.tipo || "Motorista Autônomo",
     veiculo: perfil.veiculo || "",
+    servicosFechamento: Array.isArray(perfil.servicosFechamento)
+      ? perfil.servicosFechamento
+      : [],
+    precoCombustivel: perfil.precoCombustivel || "",
   };
 }
 

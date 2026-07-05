@@ -42,6 +42,11 @@ service cloud.firestore {
       match /entregas/{docId} {
         allow read, write: if isOwner(userId);
       }
+
+      // Fechamento do dia (jornadas do motorista)
+      match /jornadas/{docId} {
+        allow read, write: if isOwner(userId);
+      }
     }
 
     // ── Códigos beta (leitura autenticada; gravação só admin) ─────────────
