@@ -140,7 +140,7 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="v298";
+const APP_VERSION="v299";
 const PEDAGIO_AVISO_RESULTADO="Pedágio estimado pelo Google. Pode haver variação — confirme o valor da praça.";
 const BETA_HIDE_PLANOS=true;
 const PAGE_SWIPE_ORDER=["dashboard","financeiro","despesas","comparador","manutencao","documentos","perfil"];
@@ -5319,8 +5319,11 @@ const Comparador=({historicoFretes,jornadas=[],onAddFrete,onUpdateFrete,onDelete
               <button onClick={()=>setDetalhe(h)}
                 style={{width:"100%",background:"none",border:"none",cursor:"pointer",padding:"14px 16px",textAlign:"left",display:"block"}}>
                 <div style={{color:C.navy,fontWeight:700,fontSize:14,lineHeight:1.35,display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
-                  <span>🚚 {freteRuaResumida(h.origin)} → {freteRuaResumida(h.dest)}</span>
+                  <span>🚚</span>
                   <span style={{fontSize:10,fontWeight:700,color:C.navy,background:C.navyLight,borderRadius:6,padding:"2px 7px"}}>Frete</span>
+                </div>
+                <div style={{color:C.navy,fontWeight:700,fontSize:14,lineHeight:1.35,marginTop:4}}>
+                  {freteRuaResumida(h.origin)} → {freteRuaResumida(h.dest)}
                 </div>
                 <div style={{color:C.muted,fontSize:12,marginTop:4}}>
                   {freteDataHora(h)} · {h.distance||0} km{h.veiculo?` · ${h.veiculo}`:""}
