@@ -54,12 +54,19 @@ export async function loadUserHistory(uid) {
   };
   if (!uid) return out;
 
-  await Promise.all(
+  // Leitura resiliente: uma coleção que falhar (ex.: regra ainda não deployada)
+  // NÃO pode derrubar as demais. Cada coleção é lida isoladamente.
+  await Promise.allSettled(
     Object.values(HISTORY_COLLECTIONS).map(async (name) => {
-      const snap = await getDocs(colRef(uid, name));
-      out[name] = sortByDateDesc(
-        snap.docs.map((d) => ({ id: d.id, ...d.data() }))
-      );
+      try {
+        const snap = await getDocs(colRef(uid, name));
+        out[name] = sortByDateDesc(
+          snap.docs.map((d) => ({ id: d.id, ...d.data() }))
+        );
+      } catch (err) {
+        console.warn(`[LogRotas] Falha ao ler coleção "${name}":`, err?.code || err);
+        out[name] = [];
+      }
     })
   );
 
