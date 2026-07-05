@@ -120,6 +120,9 @@ import {
   addDocumento,
   deleteDocumento,
   clearAllUserHistory,
+  updateHistoryItem,
+  deleteHistoryItem,
+  HISTORY_COLLECTIONS,
 } from "./src/services/userHistoryService.js";
 import {
   CheckIcon, XIcon, ZapIcon, UsersIcon, StarIcon,
@@ -137,7 +140,7 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="v295";
+const APP_VERSION="v296";
 const PEDAGIO_AVISO_RESULTADO="Pedágio estimado pelo Google. Pode haver variação — confirme o valor da praça.";
 const BETA_HIDE_PLANOS=true;
 const PAGE_SWIPE_ORDER=["dashboard","financeiro","despesas","comparador","manutencao","documentos","perfil"];
@@ -5097,11 +5100,52 @@ const FreteDetRow=({label,value,valueStyle={},rowStyle={}})=>(
   </div>
 );
 const isPerfilGuincheiro=(perfil)=>perfil?.tipo==="Guincheiro"||perfil?.profile==="guincheiro";
-const Comparador=({historicoFretes,jornadas=[],onAddFrete,onUpdateFrete,onDeleteFrete,perfil,uid,onOpenChecklist})=>{
+const Comparador=({historicoFretes,jornadas=[],onAddFrete,onUpdateFrete,onDeleteFrete,onUpdateJornada,onDeleteJornada,perfil,uid,onOpenChecklist})=>{
   const[del,setDel]=useState(null);
   const[detalhe,setDetalhe]=useState(null);
   const[showAdd,setShowAdd]=useState(false);
   const[editItem,setEditItem]=useState(null);
+  // V296 — detalhe/edição/exclusão de jornada (Fechamento do dia)
+  const[detalheJornada,setDetalheJornada]=useState(null);
+  const[editJornada,setEditJornada]=useState(null);
+  const[delJornada,setDelJornada]=useState(null);
+  const[formJ,setFormJ]=useState({servico:"",date:"",km:"",valorRecebido:"",combustivel:"",pedagio:""});
+  const[savingJ,setSavingJ]=useState(false);
+  const abrirEditJornada=(j)=>{
+    setFormJ({
+      servico:j.servico||"",
+      date:j.date||j.data||"",
+      km:j.km!=null?String(j.km):"",
+      valorRecebido:j.valorRecebido!=null?String(j.valorRecebido):"",
+      combustivel:j.combustivelCalculado!=null?String(j.combustivelCalculado):"",
+      pedagio:j.pedagioOutros!=null?String(j.pedagioOutros):"",
+    });
+    setEditJornada(j);
+    setDetalheJornada(null);
+  };
+  const salvarEditJornada=async()=>{
+    if(!editJornada||savingJ)return;
+    const combustivel=roundMoney(parseNumeroBR(formJ.combustivel)||0);
+    const pedagio=roundMoney(parseNumeroBR(formJ.pedagio)||0);
+    const valorRecebido=roundMoney(parseNumeroBR(formJ.valorRecebido)||0);
+    const km=parseNumeroBR(formJ.km)||0;
+    const custoTotal=roundMoney(combustivel+pedagio);
+    const lucro=roundMoney(valorRecebido-custoTotal);
+    const dados={
+      servico:(formJ.servico||"").trim()||"Jornada",
+      data:formJ.date||editJornada.data||editJornada.date||"",
+      km,valorRecebido,
+      combustivelCalculado:combustivel,
+      pedagioOutros:pedagio,
+      custoTotal,lucro,
+    };
+    setSavingJ(true);
+    try{
+      await onUpdateJornada?.(editJornada.id,dados);
+      setEditJornada(null);
+    }catch{/* mantém modal aberto */}
+    finally{setSavingJ(false);}
+  };
   const hojeC=new Date();
   const[mesSel,setMesSel]=useState(hojeC.getMonth());
   const[anoSel,setAnoSel]=useState(hojeC.getFullYear());
@@ -5207,7 +5251,8 @@ const Comparador=({historicoFretes,jornadas=[],onAddFrete,onUpdateFrete,onDelete
             if(h._tipo==="jornada"){
               return(
                 <div key={h.id} style={{border:`1px solid ${C.border}`,borderRadius:12,background:C.surface,overflow:"hidden"}}>
-                  <div style={{padding:"14px 16px"}}>
+                  <button onClick={()=>setDetalheJornada(h)}
+                    style={{width:"100%",background:"none",border:"none",cursor:"pointer",padding:"14px 16px",textAlign:"left",display:"block"}}>
                     <div style={{color:C.navy,fontWeight:700,fontSize:14,lineHeight:1.35,display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
                       <span>{servicoEmoji(h.servico)} {h.servico||"Jornada"}</span>
                       <span style={{fontSize:10,fontWeight:700,color:C.green,background:C.greenLight,borderRadius:6,padding:"2px 7px"}}>Fechamento do dia</span>
@@ -5217,12 +5262,12 @@ const Comparador=({historicoFretes,jornadas=[],onAddFrete,onUpdateFrete,onDelete
                     </div>
                     <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginTop:8,gap:10}}>
                       <div style={{color:C.green,fontWeight:800,fontSize:15,fontFamily:"'Sora',sans-serif"}}>{freteMoeda(h.valorRecebido||0)}</div>
-                      <div style={{color:C.muted,fontSize:11,flexShrink:0}}>recebido</div>
+                      <div style={{color:C.muted,fontSize:11,flexShrink:0}}>Toque para detalhes →</div>
                     </div>
                     <div style={{color:lucro>=0?C.green:C.red,fontSize:12,fontWeight:600,marginTop:4}}>
                       Lucro: {freteMoeda(lucro)}
                     </div>
-                  </div>
+                  </button>
                 </div>
               );
             }
@@ -5435,6 +5480,83 @@ const Comparador=({historicoFretes,jornadas=[],onAddFrete,onUpdateFrete,onDelete
         </div>
         <PrimaryBtn onClick={saveEdit} style={{width:"100%",marginTop:16}}>✓ Salvar Alterações</PrimaryBtn>
       </ModalWrap>)}
+
+      {/* V296 — Detalhes do serviço (jornada / Fechamento do dia) */}
+      {detalheJornada&&(()=>{
+        const j=detalheJornada;
+        const lucro=j.lucro||0;
+        const km=j.km||0;
+        const lucroKmJ=km>0?roundMoney(lucro/km):0;
+        const pos=lucro>=0;
+        const dataJ=j.date||j.data||"—";
+        const msg=`${servicoEmoji(j.servico)} *${j.servico||"Jornada"}* — Fechamento do dia\n\n📅 ${dataJ}\n🛣️ ${km} km\n⛽ Combustível: ${freteMoeda(j.combustivelCalculado||0)}\n🅿️ Pedágio/outros: ${freteMoeda(j.pedagioOutros||0)}\n💸 Custo total: ${freteMoeda(j.custoTotal||0)}\n💰 Recebido: ${freteMoeda(j.valorRecebido||0)}\n🟢 Lucro: ${freteMoeda(lucro)}\n\n_Gerado pelo LogRotas_`;
+        return(
+          <ModalWrap maxW={440}>
+            <div style={{position:"relative",marginBottom:16}}>
+              <button onClick={()=>setDetalheJornada(null)} style={{position:"absolute",top:0,right:0,background:C.subtle,border:`1px solid ${C.border}`,borderRadius:9,padding:7,cursor:"pointer",color:C.muted,display:"flex",zIndex:1}}><XIcon size={15}/></button>
+              <div style={{textAlign:"center",padding:"0 36px"}}>
+                <span style={{fontSize:22,lineHeight:1}}>{servicoEmoji(j.servico)}</span>
+                <div style={{color:C.text,fontWeight:800,fontSize:16,fontFamily:"'Sora',sans-serif",marginTop:6}}>Detalhes do serviço</div>
+                <div style={{color:C.muted,fontSize:13,marginTop:2}}>{j.servico||"Jornada"} · {dataJ}</div>
+              </div>
+            </div>
+            <div>
+              <FreteDetRow label="Serviço" value={j.servico||"Jornada"}/>
+              <FreteDetRow label="Data" value={dataJ}/>
+              <FreteDetRow label="Km rodado" value={`${km} km`}/>
+              <FreteDetRow label="Combustível" value={freteMoeda(j.combustivelCalculado||0)}/>
+              <FreteDetRow label="Pedágio / outros" value={freteMoeda(j.pedagioOutros||0)}/>
+              <FreteDetRow label="Custo total" value={freteMoeda(j.custoTotal||0)} valueStyle={{color:C.red,fontWeight:"bold"}} rowStyle={FRETE_DET_HIGHLIGHT({background:C.redLight,marginTop:4})}/>
+              <FreteDetRow label="Valor recebido" value={freteMoeda(j.valorRecebido||0)} valueStyle={{color:C.navy}} rowStyle={FRETE_DET_HIGHLIGHT({background:C.navyLight,marginTop:12})}/>
+              <FreteDetRow label="🟢 Lucro" value={freteMoeda(lucro)} valueStyle={{color:pos?C.green:C.red,fontWeight:"bold"}} rowStyle={FRETE_DET_HIGHLIGHT({background:pos?C.greenLight:C.redLight,marginTop:8})}/>
+              <FreteDetRow label="Lucro por km" value={freteMoedaKm(lucroKmJ)} valueStyle={{color:pos?C.green:C.red}} rowStyle={FRETE_DET_HIGHLIGHT({background:pos?C.greenLight:C.redLight,marginTop:8})}/>
+            </div>
+            <div style={{display:"flex",gap:9,marginTop:16}}>
+              <button onClick={()=>{setDelJornada(j);setDetalheJornada(null);}}
+                style={{flex:1,minHeight:44,padding:"12px 8px",background:C.redLight,border:`1px solid ${C.red}33`,borderRadius:11,cursor:"pointer",color:C.red,fontWeight:700,fontSize:15,display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
+                <Trash2Icon size={13}/> Excluir
+              </button>
+              <button onClick={()=>abrirEditJornada(j)}
+                style={{flex:1,minHeight:44,padding:"12px 8px",background:C.navyLight,border:`1px solid ${C.navy}33`,borderRadius:11,cursor:"pointer",color:C.navy,fontWeight:700,fontSize:15,display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
+                <EditIcon size={13}/> Editar
+              </button>
+              <button onClick={()=>setDetalheJornada(null)}
+                style={{flex:1,minHeight:44,padding:"12px 8px",background:C.orange,border:"none",borderRadius:11,cursor:"pointer",color:"#fff",fontWeight:700,fontSize:15,display:"flex",alignItems:"center",justifyContent:"center",gap:6,boxShadow:`0 3px 10px ${C.orange}44`,fontFamily:"'Sora',sans-serif"}}>
+                Fechar
+              </button>
+            </div>
+            <a href={`https://wa.me/?text=${encodeURIComponent(msg)}`} target="_blank" rel="noreferrer"
+              style={{display:"flex",alignItems:"center",justifyContent:"center",gap:8,background:"#22C55E",borderRadius:11,padding:"11px 0",color:"#fff",fontWeight:700,fontSize:14,textDecoration:"none",marginTop:12}}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="white"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/><path d="M12 0C5.373 0 0 5.373 0 12c0 2.089.537 4.049 1.475 5.757L.057 23.928c-.046.228.13.445.362.445a.42.42 0 00.102-.013l6.345-1.646A11.94 11.94 0 0012 24c6.627 0 12-5.373 12-12S18.627 0 12 0zm0 21.75a9.712 9.712 0 01-4.943-1.349l-.354-.209-3.664.95.982-3.561-.231-.371A9.712 9.712 0 012.25 12C2.25 6.615 6.615 2.25 12 2.25S21.75 6.615 21.75 12 17.385 21.75 12 21.75z"/></svg>
+              Compartilhar pelo WhatsApp
+            </a>
+          </ModalWrap>
+        );
+      })()}
+
+      {/* V296 — Editar serviço (jornada) */}
+      {editJornada&&(()=>{
+        const lucroPrev=roundMoney((parseNumeroBR(formJ.valorRecebido)||0)-((parseNumeroBR(formJ.combustivel)||0)+(parseNumeroBR(formJ.pedagio)||0)));
+        return(
+          <ModalWrap><ModalHeader title="Editar serviço" sub={`${editJornada.servico||"Jornada"} · ${editJornada.date||editJornada.data||"—"}`} icon={EditIcon} iconColor={C.navy} onClose={()=>setEditJornada(null)}/>
+            <div style={{display:"flex",flexDirection:"column",gap:12}}>
+              <Field label="Serviço" value={formJ.servico} onChange={v=>setFormJ(f=>({...f,servico:v}))} placeholder="Uber, iFood, 99…"/>
+              <DatePicker label="Data" value={formJ.date} onChange={v=>setFormJ(f=>({...f,date:v}))}/>
+              <Field label="Km rodado" value={formJ.km} onChange={v=>setFormJ(f=>({...f,km:v}))} placeholder="Ex: 180" suffix="km"/>
+              <Field label="Valor recebido" value={formJ.valorRecebido} onChange={v=>setFormJ(f=>({...f,valorRecebido:v}))} placeholder="Ex: 240,00" prefix="R$"/>
+              <Field label="Combustível (valor total)" value={formJ.combustivel} onChange={v=>setFormJ(f=>({...f,combustivel:v}))} placeholder="Ex: 100,00" prefix="R$"/>
+              <Field label="Pedágio / outros" value={formJ.pedagio} onChange={v=>setFormJ(f=>({...f,pedagio:v}))} placeholder="Ex: 12,50" prefix="R$"/>
+              <div style={{background:C.navyLight,borderRadius:10,padding:"10px 14px",display:"flex",justifyContent:"space-between"}}>
+                <span style={{color:C.text2,fontSize:12}}>Lucro calculado</span>
+                <span style={{color:lucroPrev>=0?C.green:C.red,fontWeight:800,fontSize:14}}>{formatMoeda(lucroPrev)}</span>
+              </div>
+            </div>
+            <PrimaryBtn onClick={salvarEditJornada} style={{width:"100%",marginTop:16}}>{savingJ?"Salvando…":"✓ Salvar Alterações"}</PrimaryBtn>
+          </ModalWrap>
+        );
+      })()}
+
+      {delJornada&&<DeleteConfirm message={`Excluir o serviço "${delJornada.servico||"Jornada"}" de ${delJornada.date||delJornada.data||"—"}?`} onConfirm={async()=>{await onDeleteJornada?.(delJornada.id);setDelJornada(null);}} onCancel={()=>setDelJornada(null)}/>}
     </div>
   );
 };
@@ -7377,6 +7499,21 @@ export default function App(){
     setJornadas(j=>[jornada,...j]);
   },[firebaseUser?.uid]);
 
+  // V296 — editar / excluir jornada (Financeiro lê direto de `jornadas`, reflete sozinho)
+  const handleUpdateJornada=useCallback(async(id,dados)=>{
+    const uid=firebaseUser?.uid;
+    if(!uid)throw new Error("Sem usuário");
+    await updateHistoryItem(uid,HISTORY_COLLECTIONS.jornadas,id,dados);
+    setJornadas(js=>js.map(j=>j.id===id?{...j,...dados}:j));
+  },[firebaseUser?.uid]);
+
+  const handleDeleteJornada=useCallback(async(id)=>{
+    const uid=firebaseUser?.uid;
+    if(!uid)throw new Error("Sem usuário");
+    await deleteHistoryItem(uid,HISTORY_COLLECTIONS.jornadas,id);
+    setJornadas(js=>js.filter(j=>j.id!==id));
+  },[firebaseUser?.uid]);
+
   const handleUpdateDespesa=useCallback(async(item)=>{
     const uid=firebaseUser?.uid;
     if(!uid||!item?.id)return;
@@ -7710,7 +7847,7 @@ export default function App(){
         {page==="dashboard"   &&<Dashboard onNav={setPage} setShowCalc={setShowCalc} setCalcMode={setCalcMode} historicoFretes={historicoFretes} manutencoes={manutencoes} docs={docs} despesas={despesas} perfil={perfil} onNovoChecklist={handleNovoChecklistAvulso} onUltimosChecklists={handleUltimosChecklists} ultimosAvulsosCount={ultimosAvulsos.length} onFecharDia={()=>setShowFechamento(true)}/>}
         {page==="financeiro"  &&<Financeiro historicoFretes={historicoFretes} manutencoes={manutencoes} despesas={despesas} jornadas={jornadas}/>}
         {page==="despesas"    &&<Despesas despesas={despesas} onAddDespesa={handleAddDespesa} onUpdateDespesa={handleUpdateDespesa} onDeleteDespesa={handleDeleteDespesa}/>}
-        {page==="comparador"  &&<Comparador historicoFretes={historicoFretes} jornadas={jornadas} onAddFrete={handleAddFrete} onUpdateFrete={handleUpdateFrete} onDeleteFrete={handleDeleteFrete} perfil={perfil} uid={firebaseUser?.uid} onOpenChecklist={handleOpenChecklist}/>}
+        {page==="comparador"  &&<Comparador historicoFretes={historicoFretes} jornadas={jornadas} onAddFrete={handleAddFrete} onUpdateFrete={handleUpdateFrete} onDeleteFrete={handleDeleteFrete} onUpdateJornada={handleUpdateJornada} onDeleteJornada={handleDeleteJornada} perfil={perfil} uid={firebaseUser?.uid} onOpenChecklist={handleOpenChecklist}/>}
         {page==="manutencao"  &&<Manutencao manutencoes={manutencoes} onAddManutencao={handleAddManutencao} onUpdateManutencao={handleUpdateManutencao} onDeleteManutencao={handleDeleteManutencao}/>}
         {page==="documentos"  &&<Documentos docs={docs} onAddDocumento={handleAddDocumento} onDeleteDocumento={handleDeleteDocumento}/>}
         {page==="assinatura"  &&BETA_HIDE_PLANOS&&<PlanosBetaPlaceholder/>}
