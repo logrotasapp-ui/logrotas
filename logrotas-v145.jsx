@@ -140,7 +140,7 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="v300";
+const APP_VERSION="v303";
 const PEDAGIO_AVISO_RESULTADO="Pedágio estimado pelo Google. Pode haver variação — confirme o valor da praça.";
 const PAGE_SWIPE_ORDER=["dashboard","financeiro","despesas","comparador","manutencao","documentos","perfil"];
 const PAGE_SWIPE_MIN_PX=50;
@@ -368,32 +368,6 @@ const LogRotasLogo = ({size=32,showText=false}) => (
 
 // ── SHARED COMPONENTS ─────────────────────────────────────────────────────────
 const Tag=({label,color,bg})=><span style={{background:bg,color,padding:"3px 10px",borderRadius:20,fontSize:12,fontWeight:700}}>{label}</span>;
-const AdBanner=({plan})=>{
-  if(plan==="pro")return null;
-  const ads=[
-    {logo:"⛽",brand:"Posto Ipiranga",headline:"Km de Vantagens no abastecimento!",sub:"Acumule pontos e ganhe cashback em cada litro.",cta:"Ver oferta",ctaBg:"#fff",ctaColor:"#D97706",tag:"Patrocinado",bg:"linear-gradient(90deg,#1E3A5F,#2563EB)"},
-    {logo:"🛞",brand:"Borracharia Estrada",headline:"Pneus para caminhão com frete grátis",sub:"Melhores marcas, entrega rápida para todo Brasil.",cta:"Comprar",ctaBg:"#fff",ctaColor:"#15803D",tag:"Anúncio",bg:"linear-gradient(90deg,#14532D,#16A34A)"},
-    {logo:"🔧",brand:"Auto Peças BR",headline:"Peças para sua frota com desconto!",sub:"Filtros, óleo, freios e muito mais.",cta:"Ver peças",ctaBg:"#fff",ctaColor:"#7C3AED",tag:"Patrocinado",bg:"linear-gradient(90deg,#4C1D95,#7C3AED)"},
-  ];
-  const[ad]=useState(()=>ads[Math.floor(Math.random()*ads.length)]);
-  return(
-    <div style={{position:"fixed",bottom:0,left:0,right:0,zIndex:900,background:ad.bg,boxShadow:"0 -2px 12px #0003"}}>
-      <div style={{position:"absolute",top:3,left:10,color:"#ffffff66",fontSize:8,fontWeight:700,letterSpacing:0.6,textTransform:"uppercase"}}>{ad.tag}</div>
-      <div style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",maxWidth:820,margin:"0 auto"}}>
-        <div style={{fontSize:26,flexShrink:0}}>{ad.logo}</div>
-        <div style={{flex:1,minWidth:0}}>
-          <div style={{color:"#ffffffcc",fontSize:9,fontWeight:800,letterSpacing:0.8,textTransform:"uppercase",lineHeight:1}}>{ad.brand}</div>
-          <div style={{color:"#fff",fontWeight:800,fontSize:12,lineHeight:1.2,marginTop:1,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{ad.headline}</div>
-          <div style={{color:"#ffffffbb",fontSize:10,marginTop:1,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{ad.sub}</div>
-        </div>
-        <button onClick={()=>window.open("https://google.com","_blank")}
-          style={{flexShrink:0,background:ad.ctaBg,color:ad.ctaColor,border:"none",borderRadius:8,padding:"6px 11px",fontWeight:800,fontSize:11,cursor:"pointer",whiteSpace:"nowrap"}}>
-          {ad.cta}
-        </button>
-      </div>
-    </div>
-  );
-};
 const Card=({children,style={}})=><div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:16,overflow:"hidden",boxShadow:"0 2px 8px #1E3A8A08",...style}}>{children}</div>;
 const CardHeader=({title,action})=>(
   <div style={{padding:"15px 20px",borderBottom:`1px solid ${C.border}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
@@ -7514,7 +7488,6 @@ export default function App(){
   },[]);
 
   const showNavActiveBanner=navBanner?.active&&!navBanner?.modoNavegacao&&(navBanner?.totalParadas||0)>0;
-  const navBannerBottom=plan==="free"?72:0;
 
   const NAV=[
     {id:"dashboard",  label:"Início",     icon:HomeIcon},
@@ -7551,7 +7524,7 @@ export default function App(){
   });
 
   if(screen==="loading"){return(
-    <div style={{position:"fixed",inset:0,width:"100%",height:"100%",maxHeight:"100dvh",overflow:"hidden",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"flex-end",paddingBottom:"calc(env(safe-area-inset-bottom, 0px) + 168px)",boxSizing:"border-box"}}>
+    <div style={{position:"fixed",inset:0,width:"100%",height:"100%",maxHeight:"100dvh",overflow:"hidden",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"flex-end",paddingBottom:"calc(env(safe-area-inset-bottom, 0px) + 80px)",boxSizing:"border-box"}}>
       <link href="https://fonts.googleapis.com/css2?family=Sora:wght@700;800;900&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet"/>
       {/* Imagem de fundo cobrindo tela inteira */}
       <img src={SPLASH_B64} alt="LogRotas" style={{position:"absolute",inset:0,width:"100%",height:"100%",objectFit:"cover",objectPosition:"center"}}/>
@@ -7624,7 +7597,7 @@ export default function App(){
           </button>
         );})}
       </div>
-      <div ref={contentSwipeRef} {...contentSwipeHandlers} style={{maxWidth:820,margin:"0 auto",padding:`20px 14px ${showNavActiveBanner?(plan==="free"?"168px":"128px"):plan==="free"?"120px":"80px"}`,touchAction:"pan-y pinch-zoom"}}>
+      <div ref={contentSwipeRef} {...contentSwipeHandlers} style={{maxWidth:820,margin:"0 auto",padding:`20px 14px ${showNavActiveBanner?"128px":"80px"}`,touchAction:"pan-y pinch-zoom"}}>
         {page==="dashboard"   &&<Dashboard onNav={setPage} setShowCalc={setShowCalc} setCalcMode={setCalcMode} historicoFretes={historicoFretes} jornadas={jornadas} manutencoes={manutencoes} docs={docs} despesas={despesas} perfil={perfil} onNovoChecklist={handleNovoChecklistAvulso} onUltimosChecklists={handleUltimosChecklists} ultimosAvulsosCount={ultimosAvulsos.length} onFecharDia={()=>setShowFechamento(true)}/>}
         {page==="financeiro"  &&<Financeiro historicoFretes={historicoFretes} manutencoes={manutencoes} despesas={despesas} jornadas={jornadas}/>}
         {page==="despesas"    &&<Despesas despesas={despesas} onAddDespesa={handleAddDespesa} onUpdateDespesa={handleUpdateDespesa} onDeleteDespesa={handleDeleteDespesa}/>}
@@ -7786,7 +7759,7 @@ export default function App(){
       {showNavActiveBanner&&(
         <div {...navBannerSwipe} role="button" tabIndex={0} onClick={handleReturnToNavigation}
           onKeyDown={e=>{if(e.key==="Enter"||e.key===" ")handleReturnToNavigation();}}
-          style={{position:"fixed",bottom:navBannerBottom,left:0,right:0,zIndex:880,background:"linear-gradient(135deg,#1E3A8A,#2563EB)",boxShadow:"0 -4px 20px #1E3A8A44",padding:"8px 14px 12px",paddingBottom:navBannerBottom===0?"calc(12px + env(safe-area-inset-bottom))":"12px",cursor:"pointer",transform:`translateY(${navBannerDragY}px)`,transition:navBannerDragY?"none":"transform .2s ease",touchAction:"none"}}>
+          style={{position:"fixed",bottom:0,left:0,right:0,zIndex:880,background:"linear-gradient(135deg,#1E3A8A,#2563EB)",boxShadow:"0 -4px 20px #1E3A8A44",padding:"8px 14px calc(12px + env(safe-area-inset-bottom))",cursor:"pointer",transform:`translateY(${navBannerDragY}px)`,transition:navBannerDragY?"none":"transform .2s ease",touchAction:"none"}}>
           <div style={{width:40,height:4,borderRadius:4,background:"rgba(255,255,255,0.55)",margin:"0 auto 8px"}}/>
           <div style={{maxWidth:820,margin:"0 auto",display:"flex",alignItems:"center",justifyContent:"space-between",gap:12}}>
             <div style={{flex:1,minWidth:0}}>
@@ -7804,9 +7777,6 @@ export default function App(){
           </div>
         </div>
       )}
-
-      {/* Banner de anúncio */}
-      <AdBanner plan={plan}/>
 
       {showAdmin&&<AdminPanel onClose={()=>setShowAdmin(false)} historicoFretes={historicoFretes} docs={docs} perfil={perfil} despesas={despesas} manutencoes={manutencoes}/>}
       {confirmLimpar&&(
