@@ -140,7 +140,7 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="v296";
+const APP_VERSION="v297";
 const PEDAGIO_AVISO_RESULTADO="Pedágio estimado pelo Google. Pode haver variação — confirme o valor da praça.";
 const BETA_HIDE_PLANOS=true;
 const PAGE_SWIPE_ORDER=["dashboard","financeiro","despesas","comparador","manutencao","documentos","perfil"];
@@ -4554,8 +4554,10 @@ const FechamentoDia=({uid,perfil,setPerfil,vehicles=[],onSalvar,onClose})=>{
     if(valorNum<=0){setErro("Informe o valor recebido.");return;}
     setSalvando(true);
     try{
+      const agora=formatNowBR();
       const dados={
-        data:formatNowBR().data,
+        data:agora.data,
+        hora:agora.horario,
         servico,
         km:kmNum,
         valorRecebido:valorNum,
@@ -4659,7 +4661,7 @@ const FechamentoDia=({uid,perfil,setPerfil,vehicles=[],onSalvar,onClose})=>{
 };
 
 // ── DASHBOARD ─────────────────────────────────────────────────────────────────
-const Dashboard=({onNav,setShowCalc,setCalcMode,historicoFretes,manutencoes,docs,despesas=[],perfil,onNovoChecklist,onUltimosChecklists,ultimosAvulsosCount=0,onFecharDia})=>{
+const Dashboard=({onNav,setShowCalc,setCalcMode,historicoFretes,jornadas=[],manutencoes,docs,despesas=[],perfil,onNovoChecklist,onUltimosChecklists,ultimosAvulsosCount=0,onFecharDia})=>{
   const[showReferralSoon,setShowReferralSoon]=useState(false);
   const hoje=new Date();hoje.setHours(0,0,0,0);
   const docsVencendo=(docs||[]).filter(d=>{
@@ -4689,7 +4691,7 @@ const Dashboard=({onNav,setShowCalc,setCalcMode,historicoFretes,manutencoes,docs
   const totalManut=maintList.length;
   const totalFretes=historicoFretes?.length||0;
   const receitaTotal=roundMoney(historicoFretes?.reduce((a,f)=>a+(f.freteSugerido||0),0)||0);
-  const semDados=totalFretes===0;
+  const semDados=totalFretes===0&&(jornadas||[]).length===0;
   const nomeMotorista=perfil?.nome?perfil.nome.split(" ")[0]:"Motorista";
   const hora=new Date().getHours();
   const saudacao=hora<12?"Bom dia":hora<18?"Boa tarde":"Boa noite";
@@ -4702,15 +4704,26 @@ const Dashboard=({onNav,setShowCalc,setCalcMode,historicoFretes,manutencoes,docs
     return parseInt(parts[1])-1===mesAtual&&parseInt(parts[2])===anoAtual;
   });
   const faturamentoMes=roundMoney(fretesMesAtual.reduce((a,f)=>a+(f.freteSugerido||0),0));
+  // V297 — jornadas (Fechamento do dia) contam junto com fretes no mês
+  const jornadasMesAtual=(jornadas||[]).filter(j=>{
+    const dt=j.data||j.date;
+    if(!dt)return false;
+    const parts=dt.split("/");
+    if(parts.length<3)return false;
+    return parseInt(parts[1])-1===mesAtual&&parseInt(parts[2])===anoAtual;
+  });
+  const jornadasReceitaMes=roundMoney(jornadasMesAtual.reduce((a,j)=>a+(j.valorRecebido||0),0));
+  const viagensMesQtd=fretesMesAtual.length+jornadasMesAtual.length;
+  const receitaMes=roundMoney(faturamentoMes+jornadasReceitaMes);
 
   return(
     <div style={{display:"flex",flexDirection:"column",gap:18}}>
       <div>
         <div style={{color:C.navy,fontSize:20,fontWeight:800,fontFamily:"'Sora',sans-serif",marginBottom:6}}>{saudacao}, {nomeMotorista}! 👋</div>
         <div style={{color:C.text2,fontSize:14,fontWeight:600,lineHeight:1.45,marginBottom:12}}>
-          {fretesMesAtual.length===0
+          {viagensMesQtd===0
             ? "Nenhuma viagem este mês ainda"
-            : `${fretesMesAtual.length} ${fretesMesAtual.length===1?"viagem":"viagens"} este mês · ${formatMoeda(faturamentoMes)}`}
+            : `${viagensMesQtd} ${viagensMesQtd===1?"viagem":"viagens"} este mês · ${formatMoeda(receitaMes)}`}
         </div>
 
         {/* Botão indicação */}
@@ -4747,7 +4760,7 @@ const Dashboard=({onNav,setShowCalc,setCalcMode,historicoFretes,manutencoes,docs
         <div style={{width:44,height:44,borderRadius:12,background:`linear-gradient(135deg,${C.navy},${C.navyMid})`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,fontSize:20}}>🌙</div>
         <div style={{flex:1,minWidth:0}}>
           <div style={{color:C.navy,fontWeight:800,fontSize:16,fontFamily:"'Sora',sans-serif"}}>Fechar meu dia</div>
-          <div style={{color:C.muted,fontSize:12,marginTop:2}}>Quanto realmente sobrou hoje depois do combustível</div>
+          <div style={{color:C.muted,fontSize:12,marginTop:2}}>Registre seu dia e veja o lucro real</div>
         </div>
         <ArrowRightIcon size={16} color={C.orange}/>
       </button>
@@ -4827,8 +4840,8 @@ const Dashboard=({onNav,setShowCalc,setCalcMode,historicoFretes,manutencoes,docs
         </div>
       ):(
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:11}}>
-          <Metric label="Viagens salvas" value={String(totalFretes)} sub="no histórico" trend="up" icon={CalculatorIcon} color={C.green} bg={C.greenLight}/>
-          <Metric label="Receita total" value={formatMoeda(receitaTotal)} sub="todas as viagens" trend="up" icon={DollarSignIcon} color={C.orange} bg={C.orangeLight}/>
+          <Metric label="Viagens salvas" value={String(viagensMesQtd)} sub="este mês" trend="up" icon={CalculatorIcon} color={C.green} bg={C.greenLight}/>
+          <Metric label="Receita total" value={formatMoeda(receitaMes)} sub="este mês" trend="up" icon={DollarSignIcon} color={C.orange} bg={C.orangeLight}/>
         </div>
       )}
 
@@ -5084,6 +5097,27 @@ const freteDataHora=(f)=>{
   const d=f.date||"—";
   return f.hora?`${d} · ${f.hora}`:d;
 };
+// V297 — millis do createdAt (Firestore Timestamp / seconds / Date) p/ desempate de ordenação
+const createdAtMillis=(c)=>{
+  if(!c)return 0;
+  if(typeof c.toMillis==="function")return c.toMillis();
+  if(typeof c.seconds==="number")return c.seconds*1000;
+  const t=new Date(c).getTime();
+  return Number.isNaN(t)?0:t;
+};
+const horaFromCreatedAt=(c)=>{
+  const ms=createdAtMillis(c);
+  if(!ms)return "";
+  const d=new Date(ms);
+  const pad=(n)=>String(n).padStart(2,"0");
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+};
+// V297 — data · hora da jornada (usa hora salva; fallback no createdAt p/ jornadas antigas)
+const jornadaDataHora=(j)=>{
+  const d=j.date||j.data||"—";
+  const hora=j.hora||horaFromCreatedAt(j.createdAt);
+  return hora?`${d} · ${hora}`:d;
+};
 const freteDetalheRotas=(f)=>{
   const lines=[{label:"Origem",rua:freteRuaResumida(f.origin)}];
   (f.paradas||[]).forEach((p,i)=>lines.push({label:`Parada ${i+2}`,rua:freteRuaResumida(p)}));
@@ -5134,6 +5168,7 @@ const Comparador=({historicoFretes,jornadas=[],onAddFrete,onUpdateFrete,onDelete
     const dados={
       servico:(formJ.servico||"").trim()||"Jornada",
       data:formJ.date||editJornada.data||editJornada.date||"",
+      hora:editJornada.hora||horaFromCreatedAt(editJornada.createdAt)||formatNowBR().horario,
       km,valorRecebido,
       combustivelCalculado:combustivel,
       pedagioOutros:pedagio,
@@ -5160,9 +5195,16 @@ const Comparador=({historicoFretes,jornadas=[],onAddFrete,onUpdateFrete,onDelete
     ...(jornadas||[]).map(j=>({...j,date:j.data||j.date||"",_tipo:"jornada"})),
   ];
   const temAlgum=viagens.length>0;
+  // V297 — ordena por data/hora; jornadas antigas sem `hora` usam createdAt como desempate
+  const sortMillis=(v)=>{
+    const p=freteParseData(v);
+    let base=p?.ts||0;
+    if(!v.hora&&v.createdAt){const cm=createdAtMillis(v.createdAt);if(cm)base=cm;}
+    return base;
+  };
   const viagensMes=viagens
     .filter(v=>{const p=freteParseData(v);return p&&(p.mes-1)===mesSel&&p.ano===anoSel;})
-    .sort((a,b)=>{const pa=freteParseData(a),pb=freteParseData(b);return (pb?.ts||0)-(pa?.ts||0);});
+    .sort((a,b)=>sortMillis(b)-sortMillis(a));
   const totalFatMes=roundMoney(viagensMes.reduce((s,v)=>s+(v._tipo==="jornada"?(v.valorRecebido||0):(v.freteSugerido||0)),0));
   const totalLucroMes=roundMoney(viagensMes.reduce((s,v)=>s+(v.lucro||0),0));
   const qtdFretes=viagensMes.filter(v=>v._tipo==="frete").length;
@@ -5258,7 +5300,7 @@ const Comparador=({historicoFretes,jornadas=[],onAddFrete,onUpdateFrete,onDelete
                       <span style={{fontSize:10,fontWeight:700,color:C.green,background:C.greenLight,borderRadius:6,padding:"2px 7px"}}>Fechamento do dia</span>
                     </div>
                     <div style={{color:C.muted,fontSize:12,marginTop:4}}>
-                      {freteDataHora(h)} · {h.km||0} km
+                      {jornadaDataHora(h)} · {h.km||0} km
                     </div>
                     <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginTop:8,gap:10}}>
                       <div style={{color:C.green,fontWeight:800,fontSize:15,fontFamily:"'Sora',sans-serif"}}>{freteMoeda(h.valorRecebido||0)}</div>
@@ -5275,8 +5317,9 @@ const Comparador=({historicoFretes,jornadas=[],onAddFrete,onUpdateFrete,onDelete
               <div key={h.id} style={{border:`1px solid ${C.border}`,borderRadius:12,background:C.surface,overflow:"hidden"}}>
               <button onClick={()=>setDetalhe(h)}
                 style={{width:"100%",background:"none",border:"none",cursor:"pointer",padding:"14px 16px",textAlign:"left",display:"block"}}>
-                <div style={{color:C.navy,fontWeight:700,fontSize:14,lineHeight:1.35}}>
-                  👍 {freteRuaResumida(h.origin)} → {freteRuaResumida(h.dest)}
+                <div style={{color:C.navy,fontWeight:700,fontSize:14,lineHeight:1.35,display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+                  <span>🚚 {freteRuaResumida(h.origin)} → {freteRuaResumida(h.dest)}</span>
+                  <span style={{fontSize:10,fontWeight:700,color:C.navy,background:C.navyLight,borderRadius:6,padding:"2px 7px"}}>Frete</span>
                 </div>
                 <div style={{color:C.muted,fontSize:12,marginTop:4}}>
                   {freteDataHora(h)} · {h.distance||0} km{h.veiculo?` · ${h.veiculo}`:""}
@@ -5488,7 +5531,7 @@ const Comparador=({historicoFretes,jornadas=[],onAddFrete,onUpdateFrete,onDelete
         const km=j.km||0;
         const lucroKmJ=km>0?roundMoney(lucro/km):0;
         const pos=lucro>=0;
-        const dataJ=j.date||j.data||"—";
+        const dataJ=jornadaDataHora(j);
         const msg=`${servicoEmoji(j.servico)} *${j.servico||"Jornada"}* — Fechamento do dia\n\n📅 ${dataJ}\n🛣️ ${km} km\n⛽ Combustível: ${freteMoeda(j.combustivelCalculado||0)}\n🅿️ Pedágio/outros: ${freteMoeda(j.pedagioOutros||0)}\n💸 Custo total: ${freteMoeda(j.custoTotal||0)}\n💰 Recebido: ${freteMoeda(j.valorRecebido||0)}\n🟢 Lucro: ${freteMoeda(lucro)}\n\n_Gerado pelo LogRotas_`;
         return(
           <ModalWrap maxW={440}>
@@ -6291,18 +6334,21 @@ const Financeiro=({historicoFretes,manutencoes,despesas=[],jornadas=[]})=>{
             </div>
           </div>
 
-          {/* Viagens do mês — resumo */}
-          {fretesMes.length>0&&(
+          {/* Viagens do mês — resumo (fretes + jornadas) */}
+          {(fretesMes.length>0||jornadasMes.length>0)&&(()=>{
+            const totalViagens=fretesMes.length+jornadasMes.length;
+            return(
             <Card>
               <CardHeader title={`Viagens — ${MESES_PT[mesSel]}`}/>
               <div style={{padding:"16px 20px"}}>
                 <div style={{color:C.green,fontWeight:900,fontSize:22,fontFamily:"'Sora',sans-serif",lineHeight:1,whiteSpace:"nowrap"}}>
-                  {formatMoeda(roundMoney(fretesMes.reduce((a,f)=>a+(f.freteSugerido||0),0)))}
+                  {formatMoeda(totalReceita)}
                 </div>
-                <div style={{color:C.muted,fontSize:13,marginTop:6}}>{fretesMes.length} {fretesMes.length===1?"viagem":"viagens"}</div>
+                <div style={{color:C.muted,fontSize:13,marginTop:6}}>{totalViagens} {totalViagens===1?"viagem":"viagens"}</div>
               </div>
             </Card>
-          )}
+            );
+          })()}
         </>
       )}
 
@@ -7844,7 +7890,7 @@ export default function App(){
         );})}
       </div>
       <div ref={contentSwipeRef} {...contentSwipeHandlers} style={{maxWidth:820,margin:"0 auto",padding:`20px 14px ${showNavActiveBanner?(plan==="free"?"168px":"128px"):plan==="free"?"120px":"80px"}`,touchAction:"pan-y pinch-zoom"}}>
-        {page==="dashboard"   &&<Dashboard onNav={setPage} setShowCalc={setShowCalc} setCalcMode={setCalcMode} historicoFretes={historicoFretes} manutencoes={manutencoes} docs={docs} despesas={despesas} perfil={perfil} onNovoChecklist={handleNovoChecklistAvulso} onUltimosChecklists={handleUltimosChecklists} ultimosAvulsosCount={ultimosAvulsos.length} onFecharDia={()=>setShowFechamento(true)}/>}
+        {page==="dashboard"   &&<Dashboard onNav={setPage} setShowCalc={setShowCalc} setCalcMode={setCalcMode} historicoFretes={historicoFretes} jornadas={jornadas} manutencoes={manutencoes} docs={docs} despesas={despesas} perfil={perfil} onNovoChecklist={handleNovoChecklistAvulso} onUltimosChecklists={handleUltimosChecklists} ultimosAvulsosCount={ultimosAvulsos.length} onFecharDia={()=>setShowFechamento(true)}/>}
         {page==="financeiro"  &&<Financeiro historicoFretes={historicoFretes} manutencoes={manutencoes} despesas={despesas} jornadas={jornadas}/>}
         {page==="despesas"    &&<Despesas despesas={despesas} onAddDespesa={handleAddDespesa} onUpdateDespesa={handleUpdateDespesa} onDeleteDespesa={handleDeleteDespesa}/>}
         {page==="comparador"  &&<Comparador historicoFretes={historicoFretes} jornadas={jornadas} onAddFrete={handleAddFrete} onUpdateFrete={handleUpdateFrete} onDeleteFrete={handleDeleteFrete} onUpdateJornada={handleUpdateJornada} onDeleteJornada={handleDeleteJornada} perfil={perfil} uid={firebaseUser?.uid} onOpenChecklist={handleOpenChecklist}/>}
