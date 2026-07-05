@@ -134,8 +134,8 @@ export function formatGraficoLucro(lucro) {
 }
 
 export function pluralFretes(n) {
-  if (n === 0) return "Nenhum frete ainda";
-  return plural(n, "frete", "fretes");
+  if (n === 0) return "Nenhuma viagem ainda";
+  return plural(n, "viagem", "viagens");
 }
 
 export function pluralRegistros(n) {

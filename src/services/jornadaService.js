@@ -1,12 +1,13 @@
 /**
  * V291 — Fechamento do Dia ("jornadas").
- * Grava a jornada do motorista de app e alimenta Financeiro/Despesas sem duplicar:
- *  - o valor recebido entra como ENTRADA (somado no Financeiro a partir de `jornadas`);
- *  - combustível + pedágio/outros entram como SAÍDA (1 despesa vinculada por jornada).
+ * V293 — a jornada é autossuficiente no Financeiro (sem duplicar em Despesas):
+ *  - o valor recebido entra como RECEITA (somado a partir de `jornadas`);
+ *  - combustível + pedágio/outros entram no "Custo das viagens" (a partir de `jornadas`).
+ *  Não cria mais despesa vinculada — o custo é lido direto do registro da jornada.
  */
 import { addDoc, collection, serverTimestamp } from "firebase/firestore";
 import { db } from "../firebase.js";
-import { addDespesaWithFinanceiro, HISTORY_COLLECTIONS } from "./userHistoryService.js";
+import { HISTORY_COLLECTIONS } from "./userHistoryService.js";
 import { parseNumeroBR, roundMoney } from "./formatUtils.js";
 
 /**
@@ -25,8 +26,9 @@ export function calcularCombustivelJornada({ km, consumo, preco, isElec = false 
 }
 
 /**
- * Salva a jornada + a despesa vinculada (combustível + pedágio/outros).
- * @returns {{ jornada: object, despesa: object|null }}
+ * Salva a jornada (Fechamento do dia). O custo (combustível + pedágio/outros) fica
+ * no próprio registro (`custoTotal`) e é lido pelo Financeiro — não gera despesa.
+ * @returns {{ jornada: object }}
  */
 export async function saveJornada(uid, dados) {
   if (!uid) throw new Error("Usuário não autenticado.");
@@ -35,22 +37,6 @@ export async function saveJornada(uid, dados) {
     collection(db, "users", uid, HISTORY_COLLECTIONS.jornadas),
     { ...dados, createdAt: serverTimestamp(), updatedAt: serverTimestamp() }
   );
-  const jornadaId = jornadaRef.id;
 
-  const custoSaida = roundMoney(
-    (dados.combustivelCalculado || 0) + (dados.pedagioOutros || 0)
-  );
-
-  let despesa = null;
-  if (custoSaida > 0) {
-    despesa = await addDespesaWithFinanceiro(uid, {
-      categoria: "Combustível",
-      descricao: `Fechamento do dia · ${dados.servico || "Jornada"}`,
-      valor: custoSaida,
-      date: dados.data || "",
-      jornadaId,
-    });
-  }
-
-  return { jornada: { id: jornadaId, ...dados }, despesa };
+  return { jornada: { id: jornadaRef.id, ...dados } };
 }
