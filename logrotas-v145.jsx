@@ -136,7 +136,7 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="V289";
+const APP_VERSION="V290";
 const PEDAGIO_AVISO_RESULTADO="Pedágio estimado pelo Google. Pode haver variação — confirme o valor da praça.";
 const BETA_HIDE_PLANOS=true;
 const PAGE_SWIPE_ORDER=["dashboard","financeiro","despesas","comparador","manutencao","documentos","perfil"];
@@ -1797,6 +1797,18 @@ const HistoricoEntregasScreen=({
   );
 };
 
+// V290 — maior número de pacote (numérico) já usado na rota — base para a sequência automática
+function maxNumeroPacoteSeq(lista){
+  let mx=0;
+  for(const p of (lista||[])){
+    for(const pk of (migrateParada(p).pacotes||[])){
+      const n=parseInt(String(pk.numero||"").trim(),10);
+      if(Number.isFinite(n)&&n>mx)mx=n;
+    }
+  }
+  return mx;
+}
+
 // V289 — formulário compartilhado de endereço + pacotes (form principal e "Adicionar parada" na navegação)
 const EnderecoPacotesForm=({
   endereco,setEndereco,
@@ -1833,16 +1845,16 @@ const EnderecoPacotesForm=({
           <input type="text" value={extrasNums[idx]||""} onChange={e=>setExtrasNums(arr=>{const next=[...arr];next[idx]=e.target.value;return next;})} placeholder="Nº pacote" autoComplete="off" inputMode="numeric" disabled={disabled||submitting} style={numStyle}/>
         </div>
       ))}
+      <button onClick={onSubmit} disabled={disabled||submitting}
+        style={{width:"100%",background:disabled||submitting?"#94A3B8":OTIMIZAR_AZUL,border:"none",borderRadius:12,padding:"12px 20px",cursor:disabled||submitting?"not-allowed":"pointer",color:"#fff",fontWeight:800,fontSize:15,display:"flex",alignItems:"center",justifyContent:"center",gap:7,minHeight:48,boxShadow:disabled||submitting?"none":`0 4px 14px ${OTIMIZAR_AZUL}44`}}>
+        <PlusIcon size={18}/> {submitting?"…":submitLabel}
+      </button>
       {!disabled&&(
         <button type="button" onClick={addExtra} disabled={submitting}
           style={{width:"100%",padding:"10px 12px",background:"#fff",border:`1.5px dashed ${OTIMIZAR_AZUL}`,borderRadius:10,cursor:"pointer",color:OTIMIZAR_AZUL,fontWeight:700,fontSize:13}}>
           + Adicionar outro pacote neste endereço
         </button>
       )}
-      <button onClick={onSubmit} disabled={disabled||submitting}
-        style={{width:"100%",background:disabled||submitting?"#94A3B8":OTIMIZAR_AZUL,border:"none",borderRadius:12,padding:"12px 20px",cursor:disabled||submitting?"not-allowed":"pointer",color:"#fff",fontWeight:800,fontSize:15,display:"flex",alignItems:"center",justifyContent:"center",gap:7,minHeight:48,boxShadow:disabled||submitting?"none":`0 4px 14px ${OTIMIZAR_AZUL}44`}}>
-        <PlusIcon size={18}/> {submitting?"…":submitLabel}
-      </button>
     </div>
   );
 };
@@ -1912,6 +1924,8 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
   const[pacotesTelaParadaId,setPacotesTelaParadaId]=useState(null);
   const[motivoPacoteTarget,setMotivoPacoteTarget]=useState(null);
   const[editNumId,setEditNumId]=useState(null);
+  // V290 — contador monotônico da sequência de pacotes (por sessão de rota)
+  const seqRef=useRef(0);
 
   const isPro=plan==="pro";
   const LIMITE=isPro?Infinity:10;
@@ -1930,6 +1944,7 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
     const nav=readNavigationSession();
     if(nav?.paradas?.length){
       setParadas(migrateParadas(nav.paradas));
+      seqRef.current=nav.seq!=null?nav.seq:maxNumeroPacoteSeq(nav.paradas);
       if(nav.resultado)setResultado(nav.resultado);
       if(nav.posicaoMotorista)setPosicaoMotorista(nav.posicaoMotorista);
       if(nav.viewNav)setViewNav(nav.viewNav);
@@ -1941,6 +1956,7 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
       setTimeout(()=>setOfflineRestored(false),3500);
     }else if(cached?.paradas?.length){
       setParadas(migrateParadas(cached.paradas));
+      seqRef.current=cached.seq!=null?cached.seq:maxNumeroPacoteSeq(cached.paradas);
       setOfflineRestored(true);
       setTimeout(()=>setOfflineRestored(false),3500);
     }
@@ -1956,9 +1972,35 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
     onNavigationResumed?.();
   },[resumeNavigation,onNavigationResumed]);
 
+  // V290 — numeração automática, sequencial e FIXA: todo pacote sem número recebe o
+  // próximo da sequência (na ordem de entrada). Números já atribuídos nunca mudam.
   useEffect(()=>{
     if(!offlineHydrated)return;
-    writeOfflineCache(OFFLINE_KEYS.otimizar,{paradas:migrateParadas(paradas)});
+    let counter=seqRef.current;
+    let changed=false;
+    const next=paradas.map(p=>{
+      const m=migrateParada(p);
+      let pacChanged=false;
+      const pacotes=m.pacotes.map(pk=>{
+        if(String(pk.numero??"").trim()===""){
+          counter+=1;
+          pacChanged=true;
+          return{...pk,numero:String(counter)};
+        }
+        return pk;
+      });
+      if(pacChanged){changed=true;return{...m,pacotes};}
+      return p;
+    });
+    if(changed){
+      seqRef.current=counter;
+      setParadas(next);
+    }
+  },[offlineHydrated,paradas]);
+
+  useEffect(()=>{
+    if(!offlineHydrated)return;
+    writeOfflineCache(OFFLINE_KEYS.otimizar,{paradas:migrateParadas(paradas),seq:seqRef.current});
   },[offlineHydrated,paradas]);
 
   const paradasDedup=useMemo(()=>dedupParadasPorId(paradas),[paradas]);
@@ -2035,6 +2077,7 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
         resultado,
         posicaoMotorista,
         viewNav,
+        seq:seqRef.current,
       });
     }else if(pendentesCount>0&&readNavigationSession()?.active){
       // V232 — contador sincronizado: adicionar/remover parada zera `resultado`,
@@ -2047,6 +2090,7 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
         resultado,
         posicaoMotorista,
         viewNav,
+        seq:seqRef.current,
       });
     }
   },[offlineHydrated,modoNavegacao,paradas,resultado,posicaoMotorista,viewNav,pendentesCount,showResumo]);
@@ -2092,8 +2136,9 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
     setParadas([]);
     setResultado(null);
     setAposConclusao(true);
+    seqRef.current=0;
     clearNavigationSession();
-    writeOfflineCache(OFFLINE_KEYS.otimizar,{paradas:[]});
+    writeOfflineCache(OFFLINE_KEYS.otimizar,{paradas:[],seq:0});
     setShowResumo(true);
 
     if(!uid){
@@ -2232,8 +2277,9 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
     setRotaSalvaId(null);
     setConfirmNovaOtimizacao(false);
     setAposConclusao(true);
+    seqRef.current=0;
     clearNavigationSession();
-    writeOfflineCache(OFFLINE_KEYS.otimizar,{paradas:[]});
+    writeOfflineCache(OFFLINE_KEYS.otimizar,{paradas:[],seq:0});
   };
 
   const pausarNavegacao=()=>{
@@ -3503,7 +3549,7 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
           message={`Tem certeza? Todas as ${paradas.length} paradas serão apagadas.`}
           confirmLabel="Limpar tudo"
           onCancel={()=>setConfirmLimpar(false)}
-          onConfirm={()=>{setParadas([]);setResultado(null);setConfirmLimpar(false);}}
+          onConfirm={()=>{seqRef.current=0;setParadas([]);setResultado(null);setConfirmLimpar(false);}}
         />
       )}
     </ModalWrap>
