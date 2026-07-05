@@ -23,6 +23,7 @@ export function cadastroToFirestorePayload(data) {
 export function firestoreToPerfil(data) {
   return {
     nome: data.nome || "",
+    empresa: data.empresa || "",
     email: data.email || "",
     telefone: data.telefone || "",
     documento: data.documento || "",
@@ -38,6 +39,7 @@ export function firestoreToPerfil(data) {
 export function perfilToFirestorePayload(perfil) {
   return {
     nome: perfil.nome?.trim() || "",
+    empresa: perfil.empresa?.trim() || "",
     email: perfil.email?.trim() || "",
     telefone: perfil.telefone?.trim() || "",
     documento: perfil.documento?.trim() || "",

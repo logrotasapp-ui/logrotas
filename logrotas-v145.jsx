@@ -140,7 +140,7 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="v297";
+const APP_VERSION="v298";
 const PEDAGIO_AVISO_RESULTADO="Pedágio estimado pelo Google. Pode haver variação — confirme o valor da praça.";
 const BETA_HIDE_PLANOS=true;
 const PAGE_SWIPE_ORDER=["dashboard","financeiro","despesas","comparador","manutencao","documentos","perfil"];
@@ -3913,7 +3913,7 @@ const TripCalcModal=({onClose,vehicles,onConcluido})=>{
   );
 };
 
-const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHistorico,onConcluido})=>{
+const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHistorico,onConcluido,perfil})=>{
   const[stops,setStops]=useState([{id:1,v:"",coords:null},{id:2,v:"",coords:null}]);
   const[vehicleId,setVehicleId]=useState("carro");
   const[fuelPrice,setFuelPrice]=useState("");
@@ -4428,7 +4428,8 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
                 const origem=stops[0]?.v||"Origem";
                 const destino=stops[stops.length-1]?.v||"Destino";
                 const paradasMid=stops.slice(1,-1).map(s=>s.v).filter(Boolean);
-                const msg=`🚛 *Orçamento de Frete*\n\n`+`📍 *Origem:* ${origem}\n`+(paradasMid.length>0?`🔀 *Paradas:* ${paradasMid.join(" → ")}\n`:"")+`🏁 *Destino:* ${destino}\n`+`📏 *Distância:* ${result.tot} km\n`+`💰 *Valor do frete:* R$ ${freteSug.toFixed(2)}\n`+(observacao?`📝 *Obs:* ${observacao}\n`:"")+`\n_Cotação gerada pelo LogRotas_`;
+                const empresaTopo=(perfil?.empresa||"").trim();
+                const msg=(empresaTopo?`*${empresaTopo}*\n\n`:"")+`🚛 *Orçamento de Frete*\n\n`+`📍 *Origem:* ${origem}\n`+(paradasMid.length>0?`🔀 *Paradas:* ${paradasMid.join(" → ")}\n`:"")+`🏁 *Destino:* ${destino}\n`+`📏 *Distância:* ${result.tot} km\n`+`💰 *Valor do frete:* R$ ${freteSug.toFixed(2)}\n`+(observacao?`📝 *Obs:* ${observacao}\n`:"")+`\n_Cotação gerada pelo app LogRotas_`;
                 const wppUrl=`https://wa.me/?text=${encodeURIComponent(msg)}`;
                 return(
                   <div style={{position:"fixed",inset:0,background:"#00000066",zIndex:600,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
@@ -5457,7 +5458,8 @@ const Comparador=({historicoFretes,jornadas=[],onAddFrete,onUpdateFrete,onDelete
           </div>
           {/* Compartilhar pelo WhatsApp */}
           {(()=>{
-            const msg=`🚛 *Orçamento de Frete*\n\n📍 *Origem:* ${detalhe.origin||""}\n🏁 *Destino:* ${detalhe.dest||""}\n📏 *Distância:* ${detalhe.distance||0} km\n💰 *Valor do frete:* ${freteMoeda(detalhe.freteSugerido)}\n`+(detalhe.observacao?`📝 *Obs:* ${detalhe.observacao}\n`:"")+`\n_Cotação gerada pelo LogRotas_`;
+            const empresaTopo=(perfil?.empresa||"").trim();
+            const msg=(empresaTopo?`*${empresaTopo}*\n\n`:"")+`🚛 *Orçamento de Frete*\n\n📍 *Origem:* ${detalhe.origin||""}\n🏁 *Destino:* ${detalhe.dest||""}\n📏 *Distância:* ${detalhe.distance||0} km\n💰 *Valor do frete:* ${freteMoeda(detalhe.freteSugerido)}\n`+(detalhe.observacao?`📝 *Obs:* ${detalhe.observacao}\n`:"")+`\n_Cotação gerada pelo app LogRotas_`;
             return(
               <a href={`https://wa.me/?text=${encodeURIComponent(msg)}`} target="_blank" rel="noreferrer"
                 style={{display:"flex",alignItems:"center",justifyContent:"center",gap:8,background:"#22C55E",borderRadius:11,padding:"11px 0",color:"#fff",fontWeight:700,fontSize:14,textDecoration:"none",marginTop:4}}>
@@ -7087,6 +7089,7 @@ const Perfil=({uid,metaMes,setMetaMes,faturamentoMes,saldoLiquidoMes,vehicles,se
             <span style={{color:C.navy,fontSize:12}}>Dados sincronizados com sua conta. Edite quando quiser.</span>
           </div>
           <Field label="Meu Nome" value={perfil.nome} onChange={v=>setPerfil(p=>({...p,nome:v}))} placeholder="Ex: João Silva" readOnly={!editMode}/>
+          <Field label="Nome da empresa (opcional)" value={perfil.empresa||""} onChange={v=>setPerfil(p=>({...p,empresa:v}))} placeholder="Ex: Transportes Silva" readOnly={!editMode}/>
           <Field label="E-mail" value={perfil.email} onChange={v=>setPerfil(p=>({...p,email:v}))} placeholder="Ex: joao@email.com" readOnly={!editMode}/>
           <Field label="WhatsApp / Telefone" value={perfil.telefone} onChange={v=>setPerfil(p=>({...p,telefone:v}))} placeholder="Ex: (11) 99999-9999" readOnly={!editMode}/>
           <Field label="Documento (CPF/RG/CNH)" value={perfil.documento||""} onChange={v=>setPerfil(p=>({...p,documento:v}))} placeholder="Ex: 000.000.000-00 ou RG" readOnly={!editMode}/>
@@ -7237,7 +7240,7 @@ export default function App(){
   const docsVencidos=(docs||[]).filter(d=>{if(!d.expiry)return false;const[dia,mes,ano]=d.expiry.split("/");return new Date(ano,mes-1,dia)<hoje;});
   const docsVencendo30=(docs||[]).filter(d=>{if(!d.expiry)return false;const[dia,mes,ano]=d.expiry.split("/");const dias=Math.ceil((new Date(ano,mes-1,dia)-hoje)/(1000*60*60*24));return dias<=30&&dias>=0;});
   const docsVencendo=(docs||[]).filter(d=>{if(!d.expiry)return false;const[dia,mes,ano]=d.expiry.split("/");const dias=Math.ceil((new Date(ano,mes-1,dia)-hoje)/(1000*60*60*24));return dias<=60&&dias>=0;});
-  const[perfil,setPerfil]=useState({nome:"",email:"",telefone:"",documento:"",tipo:"Motorista Autônomo",veiculo:"",servicosFechamento:[],precoCombustivel:""});
+  const[perfil,setPerfil]=useState({nome:"",empresa:"",email:"",telefone:"",documento:"",tipo:"Motorista Autônomo",veiculo:"",servicosFechamento:[],precoCombustivel:""});
   const[checklistScreen,setChecklistScreen]=useState(null);
   const[ultimosAvulsos,setUltimosAvulsos]=useState([]);
   const[showUltimosAvulsosModal,setShowUltimosAvulsosModal]=useState(false);
@@ -7674,7 +7677,7 @@ export default function App(){
     }catch{/* ignore */}
     clearVehiclesLocalCache();
     setVehicles(DEFAULT_VEHICLES);
-    setPerfil({nome:"",email:"",telefone:"",documento:"",tipo:"Motorista Autônomo",veiculo:""});
+    setPerfil({nome:"",empresa:"",email:"",telefone:"",documento:"",tipo:"Motorista Autônomo",veiculo:""});
     // V294 — não restaurar tela/modal antigos após trocar de conta
     clearUiState();
     uiRestoredRef.current=false;
@@ -8036,7 +8039,7 @@ export default function App(){
         onOtimizar={()=>setCalcMode("otimizar")}
         onClose={()=>handleCalcModalClose()}/>}
       {showCalc&&calcMode==="viagem"&&<TripCalcModal onClose={()=>handleCalcModalClose()} onConcluido={handleCalcConcluida} vehicles={vehicles}/>}
-      {showCalc&&calcMode==="frete"&&<RouteCalcModal onClose={()=>handleCalcModalClose()} onConcluido={handleCalcConcluida} vehicles={vehicles} valorKmPadrao={valorKm} adicionalPadrao={adicionalFixo} onSalvarHistorico={handleAddFrete}/>}
+      {showCalc&&calcMode==="frete"&&<RouteCalcModal onClose={()=>handleCalcModalClose()} onConcluido={handleCalcConcluida} vehicles={vehicles} valorKmPadrao={valorKm} adicionalPadrao={adicionalFixo} onSalvarHistorico={handleAddFrete} perfil={perfil}/>}
       {showCalc&&calcMode==="otimizar"&&<OtimizarEntregasModal uid={firebaseUser?.uid} resumeNavigation={resumeNav} onNavigationResumed={()=>setResumeNav(false)} onClose={()=>handleCalcModalClose(()=>setResumeNav(false))} onConcluido={handleCalcConcluida} perfil={perfil} plan={plan} onUpgrade={()=>{setShowCalc(false);setCalcMode(null);setResumeNav(false);setPage("assinatura");}}/>}
       {showFechamento&&<FechamentoDia uid={firebaseUser?.uid} perfil={perfil} setPerfil={setPerfil} vehicles={vehicles} onSalvar={handleSaveJornada} onClose={()=>setShowFechamento(false)}/>}
       <AvaliacaoAppModal
@@ -8097,7 +8100,7 @@ export default function App(){
                 setHistoricoFretes([]);setManutencoes([]);setDespesas([]);setJornadas([]);setDocs([]);
                 setMetaMes(8000);setValorKm("");setAdicionalFixo("");
                 setVehicles(DEFAULT_VEHICLES);
-                setPerfil({nome:"",email:"",telefone:"",documento:"",tipo:"Motorista Autônomo",veiculo:""});
+                setPerfil({nome:"",empresa:"",email:"",telefone:"",documento:"",tipo:"Motorista Autônomo",veiculo:""});
                 setPlan("free");
                 setTrialDias(0);
                 setConfirmLimpar(false);
