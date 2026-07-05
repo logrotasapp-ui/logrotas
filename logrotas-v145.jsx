@@ -137,7 +137,7 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="v294";
+const APP_VERSION="v295";
 const PEDAGIO_AVISO_RESULTADO="Pedágio estimado pelo Google. Pode haver variação — confirme o valor da praça.";
 const BETA_HIDE_PLANOS=true;
 const PAGE_SWIPE_ORDER=["dashboard","financeiro","despesas","comparador","manutencao","documentos","perfil"];
@@ -5097,17 +5097,32 @@ const FreteDetRow=({label,value,valueStyle={},rowStyle={}})=>(
   </div>
 );
 const isPerfilGuincheiro=(perfil)=>perfil?.tipo==="Guincheiro"||perfil?.profile==="guincheiro";
-const Comparador=({historicoFretes,onAddFrete,onUpdateFrete,onDeleteFrete,perfil,uid,onOpenChecklist})=>{
+const Comparador=({historicoFretes,jornadas=[],onAddFrete,onUpdateFrete,onDeleteFrete,perfil,uid,onOpenChecklist})=>{
   const[del,setDel]=useState(null);
   const[detalhe,setDetalhe]=useState(null);
   const[showAdd,setShowAdd]=useState(false);
   const[editItem,setEditItem]=useState(null);
-  const[filtroPeriodo,setFiltroPeriodo]=useState("este");
+  const hojeC=new Date();
+  const[mesSel,setMesSel]=useState(hojeC.getMonth());
+  const[anoSel,setAnoSel]=useState(hojeC.getFullYear());
+  const prevMes=()=>{if(mesSel===0){setMesSel(11);setAnoSel(a=>a-1);}else setMesSel(m=>m-1);};
+  const nextMes=()=>{if(mesSel===11){setMesSel(0);setAnoSel(a=>a+1);}else setMesSel(m=>m+1);};
   const[checklistFrete,setChecklistFrete]=useState(null);
   const[checklistLoading,setChecklistLoading]=useState(false);
   const[form,setForm]=useState({origin:"",dest:"",date:"",distance:"",freteSugerido:"",custoTotal:"",lucro:"",vkm:"",adicional:"",veiculo:"",cargo:""});
-  const fretesFiltrados=freteFiltrarPeriodo(historicoFretes,filtroPeriodo);
-  const gruposMes=freteAgruparPorMes(fretesFiltrados);
+  // V295 — fretes + jornadas (Fechamento do dia) convivem na mesma lista de Viagens
+  const viagens=[
+    ...(historicoFretes||[]).map(f=>({...f,_tipo:"frete"})),
+    ...(jornadas||[]).map(j=>({...j,date:j.data||j.date||"",_tipo:"jornada"})),
+  ];
+  const temAlgum=viagens.length>0;
+  const viagensMes=viagens
+    .filter(v=>{const p=freteParseData(v);return p&&(p.mes-1)===mesSel&&p.ano===anoSel;})
+    .sort((a,b)=>{const pa=freteParseData(a),pb=freteParseData(b);return (pb?.ts||0)-(pa?.ts||0);});
+  const totalFatMes=roundMoney(viagensMes.reduce((s,v)=>s+(v._tipo==="jornada"?(v.valorRecebido||0):(v.freteSugerido||0)),0));
+  const totalLucroMes=roundMoney(viagensMes.reduce((s,v)=>s+(v.lucro||0),0));
+  const qtdFretes=viagensMes.filter(v=>v._tipo==="frete").length;
+  const qtdJornadas=viagensMes.filter(v=>v._tipo==="jornada").length;
   const guincheiro=isPerfilGuincheiro(perfil);
 
   useEffect(()=>{
@@ -5162,75 +5177,76 @@ const Comparador=({historicoFretes,onAddFrete,onUpdateFrete,onDeleteFrete,perfil
         <h1 style={{color:C.navy,fontSize:22,fontWeight:900,fontFamily:"'Sora',sans-serif",margin:0}}>Histórico de Viagens</h1>
       </div>
 
-      {historicoFretes.length>0&&(
-        <div style={{display:"flex",gap:8,justifyContent:"center",flexWrap:"wrap"}}>
-          {FRETE_FILTRO_OPTS.map(opt=>{
-            const ativo=filtroPeriodo===opt.id;
-            return(
-              <button key={opt.id} type="button" onClick={()=>setFiltroPeriodo(opt.id)}
-                style={{padding:"8px 16px",borderRadius:20,border:ativo?"none":`1.5px solid ${C.border}`,background:ativo?C.orange:C.surface,cursor:"pointer",color:ativo?"#fff":C.text2,fontWeight:700,fontSize:13,fontFamily:"'Sora',sans-serif",boxShadow:ativo?`0 2px 8px ${C.orange}44`:"none"}}>
-                {opt.label}
-              </button>
-            );
-          })}
-        </div>
-      )}
+      <MonthNav mes={mesSel} ano={anoSel} onPrev={prevMes} onNext={nextMes}/>
 
-      {historicoFretes.length===0&&(
+      {!temAlgum&&(
         <div style={{background:`linear-gradient(135deg,${C.navy}06,${C.orange}04)`,border:`1.5px dashed ${C.orange}44`,borderRadius:16,padding:"36px 20px",textAlign:"center"}}>
           <div style={{fontSize:44,marginBottom:12}}>🚛</div>
           <div style={{color:C.navy,fontWeight:800,fontSize:15,fontFamily:"'Sora',sans-serif",marginBottom:6}}>Nenhuma viagem ainda</div>
-          <div style={{color:C.muted,fontSize:14,lineHeight:1.6,marginBottom:16}}>Calcule uma rota na tela inicial, salve como "Já foi realizado" e ela aparece aqui automaticamente.</div>
+          <div style={{color:C.muted,fontSize:14,lineHeight:1.6,marginBottom:16}}>Calcule uma rota na tela inicial, salve como "Já foi realizado" ou feche seu dia — e aparece aqui automaticamente.</div>
           <div style={{display:"inline-block",background:C.orange,borderRadius:20,padding:"6px 16px"}}>
             <span style={{color:"#fff",fontSize:12,fontWeight:700}}>💡 Dica: salve sua primeira viagem e veja o financeiro ganhar vida</span>
           </div>
         </div>
       )}
 
-      {historicoFretes.length>0&&fretesFiltrados.length===0&&(
+      {temAlgum&&viagensMes.length===0&&(
         <div style={{background:C.subtle,border:`1px solid ${C.border}`,borderRadius:16,padding:"36px 20px",textAlign:"center"}}>
           <div style={{fontSize:36,marginBottom:10,opacity:0.7}}>📭</div>
-          <div style={{color:C.text2,fontWeight:700,fontSize:15,fontFamily:"'Sora',sans-serif"}}>Nenhuma viagem neste período</div>
+          <div style={{color:C.text2,fontWeight:700,fontSize:15,fontFamily:"'Sora',sans-serif"}}>Nenhuma viagem em {MESES_PT[mesSel]}</div>
         </div>
       )}
 
-      {historicoFretes.length>0&&fretesFiltrados.length>0&&(
-        <div style={{display:"flex",flexDirection:"column",gap:20}}>
-        {gruposMes.map(grupo=>(
-          <div key={grupo.key}>
-            <div style={{marginBottom:10}}>
-              <div style={{color:C.navy,fontWeight:800,fontSize:14,fontFamily:"'Sora',sans-serif",letterSpacing:0.6,paddingBottom:8,borderBottom:`1px solid ${C.border}`}}>{grupo.label}</div>
-              <div style={{color:"#374151",fontSize:13,fontWeight:600,marginTop:8,lineHeight:1.45}}>
-                {grupo.qtd} {grupo.qtd!==1?"viagens":"viagem"} · Faturamento {formatMoeda(grupo.totalFat)} · Lucro {formatMoeda(grupo.totalLucro)}
-              </div>
-            </div>
-            <div style={{display:"flex",flexDirection:"column",gap:10}}>
-            {grupo.items.map(h=>{
-              const lucro=h.lucro||0;
+      {viagensMes.length>0&&(
+        <div style={{display:"flex",flexDirection:"column",gap:12}}>
+          <div style={{color:"#374151",fontSize:13,fontWeight:600,lineHeight:1.45,paddingBottom:8,borderBottom:`1px solid ${C.border}`}}>
+            {qtdFretes>0?`${qtdFretes} ${qtdFretes===1?"viagem":"viagens"}`:""}{qtdFretes>0&&qtdJornadas>0?" · ":""}{qtdJornadas>0?`${qtdJornadas} ${qtdJornadas===1?"jornada":"jornadas"}`:""} · Faturamento {formatMoeda(totalFatMes)} · Lucro {formatMoeda(totalLucroMes)}
+          </div>
+          {viagensMes.map(h=>{
+            const lucro=h.lucro||0;
+            if(h._tipo==="jornada"){
               return(
                 <div key={h.id} style={{border:`1px solid ${C.border}`,borderRadius:12,background:C.surface,overflow:"hidden"}}>
-                <button onClick={()=>setDetalhe(h)}
-                  style={{width:"100%",background:"none",border:"none",cursor:"pointer",padding:"14px 16px",textAlign:"left",display:"block"}}>
-                  <div style={{color:C.navy,fontWeight:700,fontSize:14,lineHeight:1.35}}>
-                    👍 {freteRuaResumida(h.origin)} → {freteRuaResumida(h.dest)}
+                  <div style={{padding:"14px 16px"}}>
+                    <div style={{color:C.navy,fontWeight:700,fontSize:14,lineHeight:1.35,display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+                      <span>{servicoEmoji(h.servico)} {h.servico||"Jornada"}</span>
+                      <span style={{fontSize:10,fontWeight:700,color:C.green,background:C.greenLight,borderRadius:6,padding:"2px 7px"}}>Fechamento do dia</span>
+                    </div>
+                    <div style={{color:C.muted,fontSize:12,marginTop:4}}>
+                      {freteDataHora(h)} · {h.km||0} km
+                    </div>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginTop:8,gap:10}}>
+                      <div style={{color:C.green,fontWeight:800,fontSize:15,fontFamily:"'Sora',sans-serif"}}>{freteMoeda(h.valorRecebido||0)}</div>
+                      <div style={{color:C.muted,fontSize:11,flexShrink:0}}>recebido</div>
+                    </div>
+                    <div style={{color:lucro>=0?C.green:C.red,fontSize:12,fontWeight:600,marginTop:4}}>
+                      Lucro: {freteMoeda(lucro)}
+                    </div>
                   </div>
-                  <div style={{color:C.muted,fontSize:12,marginTop:4}}>
-                    {freteDataHora(h)} · {h.distance||0} km{h.veiculo?` · ${h.veiculo}`:""}
-                  </div>
-                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginTop:8,gap:10}}>
-                    <div style={{color:C.green,fontWeight:800,fontSize:15,fontFamily:"'Sora',sans-serif"}}>{freteMoeda(h.freteSugerido)}</div>
-                    <div style={{color:C.muted,fontSize:11,flexShrink:0}}>Toque para detalhes →</div>
-                  </div>
-                  <div style={{color:lucro>=0?C.green:C.red,fontSize:12,fontWeight:600,marginTop:4}}>
-                    Lucro: {freteMoeda(lucro)}
-                  </div>
-                </button>
                 </div>
               );
-            })}
-            </div>
-          </div>
-        ))}
+            }
+            return(
+              <div key={h.id} style={{border:`1px solid ${C.border}`,borderRadius:12,background:C.surface,overflow:"hidden"}}>
+              <button onClick={()=>setDetalhe(h)}
+                style={{width:"100%",background:"none",border:"none",cursor:"pointer",padding:"14px 16px",textAlign:"left",display:"block"}}>
+                <div style={{color:C.navy,fontWeight:700,fontSize:14,lineHeight:1.35}}>
+                  👍 {freteRuaResumida(h.origin)} → {freteRuaResumida(h.dest)}
+                </div>
+                <div style={{color:C.muted,fontSize:12,marginTop:4}}>
+                  {freteDataHora(h)} · {h.distance||0} km{h.veiculo?` · ${h.veiculo}`:""}
+                </div>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginTop:8,gap:10}}>
+                  <div style={{color:C.green,fontWeight:800,fontSize:15,fontFamily:"'Sora',sans-serif"}}>{freteMoeda(h.freteSugerido)}</div>
+                  <div style={{color:C.muted,fontSize:11,flexShrink:0}}>Toque para detalhes →</div>
+                </div>
+                <div style={{color:lucro>=0?C.green:C.red,fontSize:12,fontWeight:600,marginTop:4}}>
+                  Lucro: {freteMoeda(lucro)}
+                </div>
+              </button>
+              </div>
+            );
+          })}
         </div>
       )}
 
@@ -7694,7 +7710,7 @@ export default function App(){
         {page==="dashboard"   &&<Dashboard onNav={setPage} setShowCalc={setShowCalc} setCalcMode={setCalcMode} historicoFretes={historicoFretes} manutencoes={manutencoes} docs={docs} despesas={despesas} perfil={perfil} onNovoChecklist={handleNovoChecklistAvulso} onUltimosChecklists={handleUltimosChecklists} ultimosAvulsosCount={ultimosAvulsos.length} onFecharDia={()=>setShowFechamento(true)}/>}
         {page==="financeiro"  &&<Financeiro historicoFretes={historicoFretes} manutencoes={manutencoes} despesas={despesas} jornadas={jornadas}/>}
         {page==="despesas"    &&<Despesas despesas={despesas} onAddDespesa={handleAddDespesa} onUpdateDespesa={handleUpdateDespesa} onDeleteDespesa={handleDeleteDespesa}/>}
-        {page==="comparador"  &&<Comparador historicoFretes={historicoFretes} onAddFrete={handleAddFrete} onUpdateFrete={handleUpdateFrete} onDeleteFrete={handleDeleteFrete} perfil={perfil} uid={firebaseUser?.uid} onOpenChecklist={handleOpenChecklist}/>}
+        {page==="comparador"  &&<Comparador historicoFretes={historicoFretes} jornadas={jornadas} onAddFrete={handleAddFrete} onUpdateFrete={handleUpdateFrete} onDeleteFrete={handleDeleteFrete} perfil={perfil} uid={firebaseUser?.uid} onOpenChecklist={handleOpenChecklist}/>}
         {page==="manutencao"  &&<Manutencao manutencoes={manutencoes} onAddManutencao={handleAddManutencao} onUpdateManutencao={handleUpdateManutencao} onDeleteManutencao={handleDeleteManutencao}/>}
         {page==="documentos"  &&<Documentos docs={docs} onAddDocumento={handleAddDocumento} onDeleteDocumento={handleDeleteDocumento}/>}
         {page==="assinatura"  &&BETA_HIDE_PLANOS&&<PlanosBetaPlaceholder/>}
