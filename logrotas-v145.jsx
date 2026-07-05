@@ -140,7 +140,7 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="v303";
+const APP_VERSION="v304";
 const PEDAGIO_AVISO_RESULTADO="Pedágio estimado pelo Google. Pode haver variação — confirme o valor da praça.";
 const PAGE_SWIPE_ORDER=["dashboard","financeiro","despesas","comparador","manutencao","documentos","perfil"];
 const PAGE_SWIPE_MIN_PX=50;
@@ -5942,11 +5942,27 @@ const servicoEmoji=(s="")=>{
   return"💼";
 };
 
+// V304 — saldo líquido mensal compartilhado (Financeiro + Perfil)
+const normalizarJornadasDate=(jornadas)=>(jornadas||[]).map(j=>({...j,date:j.data||j.date||""}));
+
+const calcSaldoMes=(historicoFretes,manutencoes,despesas,jornadas,m,a)=>{
+  const jornadasN=normalizarJornadasDate(jornadas);
+  const despesasBase=(despesas||[]).filter(d=>!d.jornadaId);
+  const fM=filtrarPorMesData(historicoFretes,m,a);
+  const mM=filtrarPorMesData(manutencoes,m,a);
+  const dM=filtrarPorMesData(despesasBase,m,a);
+  const jM=filtrarPorMesData(jornadasN,m,a);
+  const receita=roundMoney(fM.reduce((s,f)=>s+(f.freteSugerido||0),0)+jM.reduce((s,j)=>s+(j.valorRecebido||0),0));
+  const custo=roundMoney(fM.reduce((s,f)=>s+(f.custoTotal||0),0)+jM.reduce((s,j)=>s+(j.custoTotal||0),0));
+  const maint=roundMoney(mM.reduce((s,mn)=>s+(mn.cost||0),0));
+  const desp=roundMoney(dM.reduce((s,d)=>s+(d.valor||0),0));
+  return roundMoney(receita-custo-maint-desp);
+};
+
 const Financeiro=({historicoFretes,manutencoes,despesas=[],jornadas=[]})=>{
   const hoje=new Date();
   // V291 — jornadas (Fechamento do dia) usam campo `data`; normaliza p/ reusar filtros por `date`.
-  // A ENTRADA (valorRecebido) é somada aqui; a SAÍDA (combustível+pedágio) já entra via `despesas`.
-  const jornadasN=(jornadas||[]).map(j=>({...j,date:j.data||j.date||""}));
+  const jornadasN=normalizarJornadasDate(jornadas);
   // V293 — despesas vinculadas a jornada (jornadaId) não entram mais em "Despesas":
   // o custo da jornada passa a ser contado em "Custo das viagens".
   const despesasBase=(despesas||[]).filter(d=>!d.jornadaId);
@@ -5957,38 +5973,19 @@ const Financeiro=({historicoFretes,manutencoes,despesas=[],jornadas=[]})=>{
   const[dataFim,setDataFim]=useState("");
 
   const prevMes=()=>{if(mesSel===0){setMesSel(11);setAnoSel(a=>a-1);}else setMesSel(m=>m-1);};
-  const nextMes=()=>{if(mesSel===11){setMesSel(0);setAnoSel(a=>a+1);}else setMesSel(m=>m+1);}
-
-  const filtrarPorMes=(arr,m,a)=>arr.filter(x=>{
-    if(!x.date)return false;
-    const parts=x.date.split("/");
-    if(parts.length<3)return false;
-    return parseInt(parts[1])-1===m&&parseInt(parts[2])===a;
-  });
-
-  const calcSaldoMes=(m,a)=>{
-    const fM=filtrarPorMes(historicoFretes,m,a);
-    const mM=filtrarPorMes(manutencoes||[],m,a);
-    const dM=filtrarPorMes(despesasBase,m,a);
-    const jM=filtrarPorMes(jornadasN,m,a);
-    const receita=roundMoney(fM.reduce((s,f)=>s+(f.freteSugerido||0),0)+jM.reduce((s,j)=>s+(j.valorRecebido||0),0));
-    const custo=roundMoney(fM.reduce((s,f)=>s+(f.custoTotal||0),0)+jM.reduce((s,j)=>s+(j.custoTotal||0),0));
-    const maint=roundMoney(mM.reduce((s,mn)=>s+(mn.cost||0),0));
-    const desp=roundMoney(dM.reduce((s,d)=>s+(d.valor||0),0));
-    return roundMoney(receita-custo-maint-desp);
-  };
+  const nextMes=()=>{if(mesSel===11){setMesSel(0);setAnoSel(a=>a+1);}else setMesSel(m=>m+1);};
 
   // Filtrar fretes do mês selecionado
-  const fretesMes=filtrarPorMes(historicoFretes,mesSel,anoSel);
+  const fretesMes=filtrarPorMesData(historicoFretes,mesSel,anoSel);
 
   // Filtrar manutenções do mês
-  const maintMes=filtrarPorMes(manutencoes||[],mesSel,anoSel);
+  const maintMes=filtrarPorMesData(manutencoes,mesSel,anoSel);
 
   // Filtrar despesas do mês (sem as despesas vinculadas a jornada)
-  const despMes=filtrarPorMes(despesasBase,mesSel,anoSel);
+  const despMes=filtrarPorMesData(despesasBase,mesSel,anoSel);
 
   // Filtrar jornadas do mês (Fechamento do dia)
-  const jornadasMes=filtrarPorMes(jornadasN,mesSel,anoSel);
+  const jornadasMes=filtrarPorMesData(jornadasN,mesSel,anoSel);
   const totalJornadaReceita=roundMoney(jornadasMes.reduce((a,j)=>a+(j.valorRecebido||0),0));
   const totalJornadaCusto=roundMoney(jornadasMes.reduce((a,j)=>a+(j.custoTotal||0),0));
   const totalJornadaKm=jornadasMes.reduce((a,j)=>a+(j.km||0),0);
@@ -6038,8 +6035,8 @@ const Financeiro=({historicoFretes,manutencoes,despesas=[],jornadas=[]})=>{
 
   const prevMesIdx=mesSel===0?11:mesSel-1;
   const prevAno=mesSel===0?anoSel-1:anoSel;
-  const hasPrevData=[historicoFretes,manutencoes||[],despesasBase,jornadasN].some(arr=>filtrarPorMes(arr,prevMesIdx,prevAno).length>0);
-  const saldoMesAnterior=calcSaldoMes(prevMesIdx,prevAno);
+  const hasPrevData=[historicoFretes,manutencoes||[],despesasBase,jornadasN].some(arr=>filtrarPorMesData(arr,prevMesIdx,prevAno).length>0);
+  const saldoMesAnterior=calcSaldoMes(historicoFretes,manutencoes,despesas,jornadas,prevMesIdx,prevAno);
   const diffSaldo=roundMoney(saldoLiquido-saldoMesAnterior);
 
   // Gráfico — período escolhido pelo usuário
@@ -6751,7 +6748,7 @@ const Perfil=({uid,metaMes,setMetaMes,faturamentoMes,saldoLiquidoMes,vehicles,se
           )}
         </div>
         <div style={{color:"#93C5FD",fontSize:12,marginTop:10}}>
-          {pct.toLocaleString("pt-BR",{maximumFractionDigits:0})}% da meta concluída · Baseado no faturamento dos fretes salvos
+          {pct.toLocaleString("pt-BR",{maximumFractionDigits:0})}% da meta concluída · Baseado no faturamento de fretes e jornadas
         </div>
         <div style={{color:"#E0F2FE",fontSize:12,marginTop:6}}>
           {saldoLiquidoMes>=0
@@ -6997,10 +6994,7 @@ export default function App(){
     fretesMesAtual.reduce((a,f)=>a+(f.freteSugerido||0),0)+
     jornadasMesAtual.reduce((a,j)=>a+(j.valorRecebido||0),0)
   );
-  const lucroMesAtual=roundMoney(fretesMesAtual.reduce((a,f)=>a+(f.lucro||0),0));
-  const maintMesAtual=roundMoney(filtrarMesAtual(manutencoes).reduce((a,m)=>a+(m.cost||0),0));
-  const despMesAtual=roundMoney(filtrarMesAtual(despesas).reduce((a,d)=>a+(d.valor||0),0));
-  const saldoLiquidoMes=roundMoney(lucroMesAtual-maintMesAtual-despMesAtual);
+  const saldoLiquidoMes=calcSaldoMes(historicoFretes,manutencoes,despesas,jornadas,hoje.getMonth(),hoje.getFullYear());
 
   useEffect(()=>{
     const t=setTimeout(()=>{
