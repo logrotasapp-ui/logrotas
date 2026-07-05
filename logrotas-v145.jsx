@@ -101,7 +101,7 @@ import {
   dedupParadasPorId,
   countPacotes,
 } from "./src/services/pacotesService.js";
-import { OFFLINE_KEYS, AUTH_KEYS, readOfflineCache, writeOfflineCache, clearAllLogRotasStorage, clearVehiclesLocalCache, readVehiclesLocalCache, writeVehiclesLocalCache, activateProTrial, readProPlanActive, readProTrialDaysLeft, readPerfilLocalFallback, writePerfilLocalCache, readUiState, writeUiState, clearUiState } from "./src/services/offlineStorage.js";
+import { OFFLINE_KEYS, AUTH_KEYS, readOfflineCache, writeOfflineCache, clearAllLogRotasStorage, clearVehiclesLocalCache, readVehiclesLocalCache, writeVehiclesLocalCache, readProPlanActive, readProTrialDaysLeft, readPerfilLocalFallback, writePerfilLocalCache, readUiState, writeUiState, clearUiState } from "./src/services/offlineStorage.js";
 import { subscribeAuth, signInWithEmail, signUpWithEmail, signInWithGoogle, signOutUser, deleteCurrentUser, getAuthErrorMessage, sendPasswordResetEmail, getPasswordResetErrorMessage } from "./src/services/authService.js";
 import { saveUserProfile, loadUserProfile, ensureGoogleUserProfile, cadastroToFirestorePayload, firestoreToPerfil, perfilToFirestorePayload } from "./src/services/userProfileService.js";
 import { saveJornada } from "./src/services/jornadaService.js";
@@ -126,7 +126,7 @@ import {
 } from "./src/services/userHistoryService.js";
 import {
   CheckIcon, XIcon, ZapIcon, UsersIcon, StarIcon,
-  ArrowRightIcon, ArrowLeftIcon, CrownIcon, LockIcon, PhoneIcon,
+  ArrowRightIcon, ArrowLeftIcon, LockIcon, PhoneIcon,
   HomeIcon, WrenchIcon, CalendarIcon, FileTextIcon, AlertTriangleIcon,
   BellIcon, PlusIcon, Trash2Icon, PlusCircleIcon,
   NavigationIcon, CalculatorIcon, BarChart3Icon, FuelIcon,
@@ -140,9 +140,8 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="v299";
+const APP_VERSION="v300";
 const PEDAGIO_AVISO_RESULTADO="Pedágio estimado pelo Google. Pode haver variação — confirme o valor da praça.";
-const BETA_HIDE_PLANOS=true;
 const PAGE_SWIPE_ORDER=["dashboard","financeiro","despesas","comparador","manutencao","documentos","perfil"];
 const PAGE_SWIPE_MIN_PX=50;
 
@@ -170,39 +169,13 @@ const REFERRAL_ENABLED=false;
 //         optimizeWaypoints da Directions API, código preservado).
 const USE_HYBRID_OPTIMIZER=true;
 
-// Abre WhatsApp com a frase oficial de indicação
+// Abre WhatsApp com convite simples (sem menção a plano/benefício)
 const compartilharIndicacao=(perfil)=>{
   const link=montarLinkIndicacao(perfil.telefone||perfil.nome||"amigo");
   const frase=
-    `🚛 🪝🚀 Ei! Tô usando o LogRotas para calcular minhas rotas e dar preço aos meus clientes. `+
-    `O app é muito bom para calcular ⛽️ combustível, pedágio por eixo e ver o lucro 💰 real na hora!\n\n`+
-    `Baixa pelo meu link e você já ganha 7 dias de acesso Pro grátis para testar no próximo frete: `+
-    `${link}`;
+    `Fala parceiro! Tô usando o LogRotas, um app que calcula frete, combustível e pedágio e ajuda a organizar a rotina na estrada. Dá uma olhada: ${link}`;
   window.open(`https://wa.me/?text=${encodeURIComponent(frase)}`,"_blank");
 };
-
-// Lê o parâmetro ?ref= da URL ao abrir o app
-// Retorna o ID do padrinho ou null
-const lerRefIndicacao=()=>{
-  try{
-    const params=new URLSearchParams(window.location.search);
-    return params.get("ref")||null;
-  }catch(e){return null;}
-};
-
-// Aplica 7 dias Pro ao novo usuário indicado (visual — persistência real requer Firebase)
-const aplicarBonusIndicado=(setPlano,setPeriodoTrial)=>{
-  activateProTrial(7);
-  setPlano("pro");
-  if(setPeriodoTrial)setPeriodoTrial(7);
-};
-
-// ── ESTRUTURA FIREBASE (implementar quando integrar) ──────────────────────────
-// Quando tiver Firebase, criar arquivo separado firebase-indicacao.js com:
-// registrarIndicacao(refId, novoUserId) → salva padrinho + agenda bônus
-// verificarBonusPadrinho(userId) → libera 1 mês grátis acumulado
-// ─────────────────────────────────────────────────────────────────────────────
-
 
 // SEGURANÇA: Em produção, mova esta chave para um backend Node.js/Firebase Function.
 // Fluxo seguro: App → POST /api/geocode (seu servidor) → ORS API → resposta de volta.
@@ -395,8 +368,8 @@ const LogRotasLogo = ({size=32,showText=false}) => (
 
 // ── SHARED COMPONENTS ─────────────────────────────────────────────────────────
 const Tag=({label,color,bg})=><span style={{background:bg,color,padding:"3px 10px",borderRadius:20,fontSize:12,fontWeight:700}}>{label}</span>;
-const AdBanner=({plan,onUpgrade})=>{
-  if(BETA_HIDE_PLANOS||plan==="pro")return null;
+const AdBanner=({plan})=>{
+  if(plan==="pro")return null;
   const ads=[
     {logo:"⛽",brand:"Posto Ipiranga",headline:"Km de Vantagens no abastecimento!",sub:"Acumule pontos e ganhe cashback em cada litro.",cta:"Ver oferta",ctaBg:"#fff",ctaColor:"#D97706",tag:"Patrocinado",bg:"linear-gradient(90deg,#1E3A5F,#2563EB)"},
     {logo:"🛞",brand:"Borracharia Estrada",headline:"Pneus para caminhão com frete grátis",sub:"Melhores marcas, entrega rápida para todo Brasil.",cta:"Comprar",ctaBg:"#fff",ctaColor:"#15803D",tag:"Anúncio",bg:"linear-gradient(90deg,#14532D,#16A34A)"},
@@ -406,10 +379,6 @@ const AdBanner=({plan,onUpgrade})=>{
   return(
     <div style={{position:"fixed",bottom:0,left:0,right:0,zIndex:900,background:ad.bg,boxShadow:"0 -2px 12px #0003"}}>
       <div style={{position:"absolute",top:3,left:10,color:"#ffffff66",fontSize:8,fontWeight:700,letterSpacing:0.6,textTransform:"uppercase"}}>{ad.tag}</div>
-      <button onClick={onUpgrade} title="Remover anúncios com o Plano Pro"
-        style={{position:"absolute",top:4,right:8,background:"#ffffff33",border:"none",borderRadius:4,padding:"2px 7px",fontSize:9,color:"#fff",fontWeight:700,cursor:"pointer",letterSpacing:0.4}}>
-        ✕ PRO
-      </button>
       <div style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",maxWidth:820,margin:"0 auto"}}>
         <div style={{fontSize:26,flexShrink:0}}>{ad.logo}</div>
         <div style={{flex:1,minWidth:0}}>
@@ -712,11 +681,6 @@ const INIT_MAINT=[];
 const INIT_DOCS=[];
 const INIT_SCHED=[];
 const INIT_STYPE=["Troca de Óleo","Filtro de Ar","Filtro de Combustível","Troca de Pneu","Revisão Geral","Troca de Correia","Alinhamento","Balanceamento","Troca de Freios","Outros"];
-const PLANS=[
-  {id:"free", name:"Gratuito",price:{m:0,    y:0    },color:C.muted, icon:ZapIcon,  badge:null,      cta:"Plano gratuito"},
-  {id:"pro",  name:"Pro",     price:{m:29.90,y:22.90},color:C.orange,icon:StarIcon, badge:"POPULAR", cta:"Assinar Pro"},
-  {id:"frota",name:"Frota",   price:{m:99.90,y:74.90},color:C.navy,  icon:UsersIcon,badge:"COMPLETO",cta:"Assinar Frota"},
-];
 const routeSt={"concluída":{bg:C.greenLight,color:C.green,label:"Concluída"},"em andamento":{bg:C.orangeLight,color:C.orange,label:"Em Andamento"},"planejada":{bg:C.amberLight,color:C.amber,label:"Planejada"}};
 const docSt={ok:{bg:C.greenLight,color:C.green,label:"✓ Válido"},vencendo:{bg:C.amberLight,color:C.amber,label:"⚠ Vencendo"},vencido:{bg:C.redLight,color:C.red,label:"✕ Vencido"}};
 const schedSt={confirmada:{bg:C.greenLight,color:C.green,label:"Confirmada"},pendente:{bg:C.amberLight,color:C.amber,label:"Pendente"}};
@@ -1344,7 +1308,7 @@ const RegisterFlow=({onDone,onBack})=>{
                 {titulo:"1. Sobre o LogRotas",texto:"O LogRotas é um aplicativo de gestão de rotas e fretes desenvolvido para motoristas autônomos, transportadoras e entregadores. O app está em fase de desenvolvimento e os dados são armazenados localmente no dispositivo."},
                 {titulo:"2. Uso dos seus dados",texto:"As informações que você cadastra (nome, e-mail, fretes, despesas) ficam salvas apenas no seu celular enquanto o app estiver aberto. Não coletamos, vendemos ou compartilhamos seus dados com terceiros."},
                 {titulo:"3. Responsabilidade dos cálculos",texto:"Os valores de pedágio, combustível e frete são estimativas baseadas nos dados que você fornece. O LogRotas não se responsabiliza por decisões financeiras tomadas com base nesses cálculos."},
-                {titulo:"4. Uso gratuito",texto:"O LogRotas é oferecido gratuitamente durante o período de testes. Funcionalidades adicionais poderão ser oferecidas em planos pagos futuramente."},
+                {titulo:"4. Uso gratuito",texto:"O LogRotas é oferecido gratuitamente durante o período de testes do aplicativo."},
                 {titulo:"5. Contato",texto:"Dúvidas ou sugestões podem ser enviadas pelo WhatsApp disponível no app. Faremos o possível para responder em até 48 horas."},
               ].map((t,i)=>(
                 <div key={i}>
@@ -1882,7 +1846,7 @@ const EnderecoPacotesForm=({
   );
 };
 
-const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation=false,onNavigationResumed,onConcluido})=>{
+const OtimizarEntregasModal=({onClose,perfil,plan,uid,resumeNavigation=false,onNavigationResumed,onConcluido})=>{
   const[paradas,setParadas]=useState([]);
   const[novoEndereco,setNovoEndereco]=useState("");
   const[processandoFoto,setProcessandoFoto]=useState(false);
@@ -2780,18 +2744,14 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
         />
       </div>
 
-      {/* Banner limite atingido — free */}
+      {/* Banner limite atingido */}
       {atingiuLimite&&!isPro&&(
         <div style={{background:"linear-gradient(135deg,#FFF7ED,#FFEDD5)",border:"1.5px solid #FED7AA",borderRadius:13,padding:"14px 16px",marginBottom:14,display:"flex",alignItems:"center",gap:12}}>
           <span style={{fontSize:24}}>🔒</span>
           <div style={{flex:1}}>
             <div style={{color:"#92400E",fontWeight:800,fontSize:13}}>Limite de 10 paradas atingido</div>
-            <div style={{color:"#B45309",fontSize:12,marginTop:2,lineHeight:1.4}}>Faça upgrade para o <b>Pro</b> e tenha paradas ilimitadas!</div>
+            <div style={{color:"#B45309",fontSize:12,marginTop:2,lineHeight:1.4}}>Remova uma parada para adicionar outra.</div>
           </div>
-          <button onClick={onUpgrade}
-            style={{background:C.orange,border:"none",borderRadius:10,padding:"8px 12px",cursor:"pointer",color:"#fff",fontWeight:700,fontSize:12,whiteSpace:"nowrap"}}>
-            Ver Pro ⭐
-          </button>
         </div>
       )}
 
@@ -2922,7 +2882,7 @@ const OtimizarEntregasModal=({onClose,perfil,plan,onUpgrade,uid,resumeNavigation
             <div style={{display:"flex",alignItems:"center",gap:8}}>
               {!isPro&&(
                 <span style={{color:atingiuLimite?C.red:C.muted,fontSize:11,fontWeight:600}}>
-                  {paradas.length}/10 {isPro?"":"(free)"}
+                  {paradas.length}/10
                 </span>
               )}
               <button onClick={()=>setConfirmLimpar(true)}
@@ -4735,8 +4695,8 @@ const Dashboard=({onNav,setShowCalc,setCalcMode,historicoFretes,jornadas=[],manu
               <span style={{fontSize:16}}>👥</span>
             </div>
             <div>
-              <div style={{color:"#fff",fontWeight:700,fontSize:13,fontFamily:"'Sora',sans-serif"}}>Indique e ganhe 1 mês grátis</div>
-              <div style={{color:"#BFDBFE",fontSize:11,marginTop:1}}>Seu amigo ganha 7 dias Pro · Você ganha 1 mês grátis</div>
+              <div style={{color:"#fff",fontWeight:700,fontSize:13,fontFamily:"'Sora',sans-serif"}}>Indique um parceiro de estrada</div>
+              <div style={{color:"#BFDBFE",fontSize:11,marginTop:1}}>Convide pelo WhatsApp</div>
             </div>
           </div>
           <div style={{width:28,height:28,borderRadius:"50%",background:`linear-gradient(135deg,${C.orange},#FF9800)`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
@@ -6075,6 +6035,21 @@ const Financeiro=({historicoFretes,manutencoes,despesas=[],jornadas=[]})=>{
       .sort((a,b)=>b.receita-a.receita);
   })();
 
+  // V300 — agrupa fretes + jornadas por fonte (Frete + apps) p/ o card de ganhos
+  const ganhosPorFonte=(()=>{
+    const items=[];
+    if(fretesMes.length>0){
+      const receita=roundMoney(fretesMes.reduce((a,f)=>a+(f.freteSugerido||0),0));
+      const custo=roundMoney(fretesMes.reduce((a,f)=>a+(f.custoTotal||0),0));
+      const km=fretesMes.reduce((a,f)=>a+(f.distance||0),0);
+      items.push({servico:"Frete",emoji:"🚚",receita,custo,km,qtd:fretesMes.length,liquido:roundMoney(receita-custo),tipo:"frete"});
+    }
+    jornadasPorServico.forEach(g=>{
+      items.push({...g,emoji:servicoEmoji(g.servico),tipo:"app"});
+    });
+    return items.sort((a,b)=>b.receita-a.receita);
+  })();
+
   // Cálculos reais (componentes já arredondados no save)
   // Receita = fretes + jornadas · Custo das viagens = custo dos fretes + custo das jornadas
   const totalReceita=roundMoney(fretesMes.reduce((a,f)=>a+(f.freteSugerido||0),0)+totalJornadaReceita);
@@ -6303,17 +6278,17 @@ const Financeiro=({historicoFretes,manutencoes,despesas=[],jornadas=[]})=>{
             </div>
           )}
 
-          {/* V293 — Ganhos por app (Fechamento do dia), identificados por serviço */}
-          {jornadasMes.length>0&&(
+          {/* V300 — Ganhos por App / Frete (fretes + jornadas por fonte) */}
+          {ganhosPorFonte.length>0&&(
             <Card>
-              <CardHeader title={`Ganhos por app — ${MESES_PT[mesSel]}`}/>
+              <CardHeader title={`Ganhos por App / Frete — ${MESES_PT[mesSel]}`}/>
               <div>
-                {jornadasPorServico.map((g,i)=>(
-                  <div key={g.servico} style={{padding:"13px 20px",borderBottom:i<jornadasPorServico.length-1?`1px solid ${C.border}`:"none",display:"flex",alignItems:"center",gap:11}}>
-                    <div style={{width:38,height:38,borderRadius:10,background:C.greenLight,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,fontSize:18}}>{servicoEmoji(g.servico)}</div>
+                {ganhosPorFonte.map((g,i)=>(
+                  <div key={g.servico} style={{padding:"13px 20px",borderBottom:i<ganhosPorFonte.length-1?`1px solid ${C.border}`:"none",display:"flex",alignItems:"center",gap:11}}>
+                    <div style={{width:38,height:38,borderRadius:10,background:C.greenLight,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,fontSize:18}}>{g.emoji}</div>
                     <div style={{flex:1,minWidth:0}}>
                       <div style={{color:C.navy,fontWeight:700,fontSize:14}}>{g.servico}</div>
-                      <div style={{color:C.muted,fontSize:12,marginTop:2}}>{g.qtd} {g.qtd===1?"jornada":"jornadas"} · {formatKm(g.km)} km · custo {formatMoeda(g.custo)}</div>
+                      <div style={{color:C.muted,fontSize:12,marginTop:2}}>{g.tipo==="frete"?`${g.qtd} ${g.qtd===1?"viagem":"viagens"}`:`${g.qtd} ${g.qtd===1?"jornada":"jornadas"}`} · {formatKm(g.km)} km · custo {formatMoeda(g.custo)}</div>
                     </div>
                     <div style={{textAlign:"right",flexShrink:0}}>
                       <div style={{color:C.green,fontWeight:800,fontSize:15,fontFamily:"'Sora',sans-serif",whiteSpace:"nowrap"}}>{formatMoeda(g.receita)}</div>
@@ -6674,221 +6649,6 @@ const AdminPanel=({onClose,historicoFretes,docs,perfil,despesas,manutencoes})=>{
   );
 };
 
-const PlanosBetaPlaceholder=()=>(
-  <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",minHeight:"50vh",padding:"32px 20px",textAlign:"center",gap:14}}>
-    <div style={{fontSize:44}}>🚀</div>
-    <p style={{color:C.navy,fontSize:17,fontWeight:800,fontFamily:"'Sora',sans-serif",margin:0,lineHeight:1.5}}>
-      Em breve — planos serão ativados após o período beta
-    </p>
-  </div>
-);
-
-const Assinatura=({plan:cur,onChangePlan})=>{
-  const[billing,setBilling]=useState("monthly");
-  const[confirm,setConfirm]=useState(null);
-
-  const PLANOS=[
-    {
-      id:"free",
-      nome:"Gratuito",
-      preco:{mensal:0,semestral:0,anual:0},
-      cor:C.muted,
-      bg:C.subtle,
-      icone:"🚗",
-      badge:null,
-      trial:false,
-      recursos:[
-        {ok:true, txt:"5 cálculos de rota por mês"},
-        {ok:true, txt:"Histórico de até 10 fretes"},
-        {ok:true, txt:"Controle de despesas básico"},
-        {ok:false,txt:"Financeiro completo"},
-        {ok:false,txt:"Gráfico de evolução"},
-        {ok:false,txt:"Histórico ilimitado"},
-        {ok:false,txt:"Suporte via WhatsApp"},
-      ],
-    },
-    {
-      id:"pro",
-      nome:"Pro",
-      preco:{mensal:9.90,semestral:8.30,anual:7.49},
-      cor:C.orange,
-      bg:C.orangeLight,
-      icone:"🚛",
-      badge:"MAIS POPULAR",
-      trial:true,
-      recursos:[
-        {ok:true, txt:"Cálculos ilimitados de rota"},
-        {ok:true, txt:"Histórico ilimitado de fretes"},
-        {ok:true, txt:"Financeiro completo + gráficos"},
-        {ok:true, txt:"Controle de documentos e manutenção"},
-        {ok:true, txt:"Compartilhar orçamento pelo WhatsApp"},
-        {ok:true, txt:"Suporte prioritário via WhatsApp"},
-        {ok:true, txt:"14 dias grátis para testar"},
-      ],
-    },
-  ];
-
-  const getPreco=(p)=>{
-    if(billing==="semestral")return p.preco.semestral;
-    if(billing==="anual")return p.preco.anual;
-    return p.preco.mensal;
-  };
-
-  const getDesconto=(p)=>{
-    if(p.preco.mensal===0)return null;
-    if(billing==="semestral")return Math.round((1-p.preco.semestral/p.preco.mensal)*100);
-    if(billing==="anual")return Math.round((1-p.preco.anual/p.preco.mensal)*100);
-    return null;
-  };
-
-  return(
-    <div style={{display:"flex",flexDirection:"column",gap:20}}>
-
-      {/* Header */}
-      <div style={{textAlign:"center"}}>
-        <div style={{display:"flex",justifyContent:"center",marginBottom:12}}><LogRotasLogo size={44} showText/></div>
-        <h1 style={{color:C.navy,fontSize:22,fontWeight:900,fontFamily:"'Sora',sans-serif",margin:"0 0 6px"}}>Escolha seu plano</h1>
-        <p style={{color:C.muted,fontSize:14,margin:0}}>Cancele quando quiser · Sem cobrança surpresa</p>
-      </div>
-
-      {/* Aviso pagamento */}
-      <div style={{background:"#FFF8F4",border:`1.5px solid ${C.orange}33`,borderRadius:12,padding:"11px 14px",display:"flex",gap:8,alignItems:"center"}}>
-        <InfoIcon size={14} color={C.orange} style={{flexShrink:0}}/>
-        <span style={{color:"#92400E",fontSize:12,lineHeight:1.5}}>O sistema de pagamento será ativado em breve. Por enquanto explore o app gratuitamente!</span>
-      </div>
-
-      {/* Trial destaque */}
-      <div style={{background:`linear-gradient(135deg,${C.orange}18,${C.orange}08)`,border:`1.5px solid ${C.orange}44`,borderRadius:14,padding:"12px 16px",display:"flex",alignItems:"center",gap:10}}>
-        <span style={{fontSize:22}}>🎁</span>
-        <div>
-          <div style={{color:C.orange,fontWeight:700,fontSize:14}}>14 dias grátis em qualquer plano pago</div>
-          <div style={{color:C.muted,fontSize:12,marginTop:2}}>A partir de R$ 9,90/mês · Cancele quando quiser</div>
-        </div>
-      </div>
-
-      {/* Seletor de período */}
-      <div style={{background:C.subtle,borderRadius:14,padding:4,display:"flex",gap:4}}>
-        {[
-          {id:"monthly",label:"Mensal",desc:null},
-          {id:"semestral",label:"Semestral",desc:"-16%"},
-          {id:"anual",label:"Anual",desc:"-24%"},
-        ].map(b=>(
-          <button key={b.id} onClick={()=>setBilling(b.id)}
-            style={{flex:1,padding:"9px 4px",borderRadius:11,border:"none",cursor:"pointer",background:billing===b.id?"#fff":"transparent",boxShadow:billing===b.id?"0 2px 8px #1E3A8A14":"none",transition:"all .2s",display:"flex",flexDirection:"column",alignItems:"center",gap:2}}>
-            <span style={{color:billing===b.id?C.navy:C.muted,fontWeight:billing===b.id?700:400,fontSize:12}}>{b.label}</span>
-            {b.desc&&<span style={{background:billing===b.id?C.green:C.border,color:billing===b.id?"#fff":C.muted,fontSize:9,fontWeight:800,padding:"1px 6px",borderRadius:20}}>{b.desc}</span>}
-          </button>
-        ))}
-      </div>
-
-      {/* Cards de planos */}
-      <div style={{display:"flex",flexDirection:"column",gap:12}}>
-        {PLANOS.map(p=>{
-          const preco=getPreco(p);
-          const desconto=getDesconto(p);
-          const isCur=cur===p.id;
-          return(
-            <div key={p.id} style={{background:p.id==="pro"?`linear-gradient(135deg,${C.orange}0A,${C.orange}04)`:C.card,border:`2px solid ${isCur?p.cor:p.id==="pro"?C.orange+"44":C.border}`,borderRadius:18,padding:"18px 20px",position:"relative",boxShadow:p.id==="pro"?`0 4px 20px ${C.orange}18`:"none"}}>
-
-              {/* Badge */}
-              {p.badge&&(
-                <div style={{position:"absolute",top:-11,left:"50%",transform:"translateX(-50%)",background:p.cor,color:"#fff",fontSize:9,fontWeight:900,padding:"3px 12px",borderRadius:20,whiteSpace:"nowrap",boxShadow:`0 2px 8px ${p.cor}55`}}>
-                  {p.badge}
-                </div>
-              )}
-
-              {/* Topo do card */}
-              <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",marginBottom:14}}>
-                <div style={{display:"flex",alignItems:"center",gap:10}}>
-                  <div style={{width:42,height:42,borderRadius:12,background:p.cor+"18",display:"flex",alignItems:"center",justifyContent:"center",fontSize:22}}>{p.icone}</div>
-                  <div>
-                    <div style={{color:p.cor,fontWeight:800,fontSize:15,fontFamily:"'Sora',sans-serif"}}>{p.nome}</div>
-                    {p.trial&&<div style={{color:C.green,fontSize:10,fontWeight:600,marginTop:1}}>✓ 14 dias grátis</div>}
-                  </div>
-                </div>
-                <div style={{textAlign:"right"}}>
-                  {preco===0?(
-                    <div style={{color:C.navy,fontWeight:900,fontSize:22,fontFamily:"'Sora',sans-serif"}}>Grátis</div>
-                  ):(
-                    <>
-                      <div style={{display:"flex",alignItems:"baseline",gap:2,justifyContent:"flex-end"}}>
-                        <span style={{color:C.muted,fontSize:12}}>R$</span>
-                        <span style={{color:C.navy,fontWeight:900,fontSize:26,fontFamily:"'Sora',sans-serif",lineHeight:1}}>{preco.toFixed(2).replace(".",",")}</span>
-                        <span style={{color:C.muted,fontSize:11}}>/mês</span>
-                      </div>
-                      {billing!=="monthly"&&(
-                        <div style={{color:C.muted,fontSize:10,textDecoration:"line-through"}}>R$ {p.preco.mensal.toFixed(2).replace(".",",")}/mês</div>
-                      )}
-                      {desconto&&<div style={{color:C.green,fontSize:10,fontWeight:700}}>Economia de {desconto}%</div>}
-                    </>
-                  )}
-                </div>
-              </div>
-
-              {/* Recursos */}
-              <div style={{display:"flex",flexDirection:"column",gap:7,marginBottom:14}}>
-                {p.recursos.map((r,i)=>(
-                  <div key={i} style={{display:"flex",alignItems:"center",gap:8}}>
-                    <div style={{width:16,height:16,borderRadius:"50%",background:r.ok?C.green+"18":"#F1F5F9",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
-                      {r.ok?<CheckIcon size={9} color={C.green}/>:<XIcon size={9} color={C.muted}/>}
-                    </div>
-                    <span style={{color:r.ok?C.text:C.muted,fontSize:12,lineHeight:1.3}}>{r.txt}</span>
-                  </div>
-                ))}
-              </div>
-
-              {/* Botão */}
-              <button onClick={()=>{if(!isCur&&p.id!=="free")setConfirm(p);}}
-                style={{width:"100%",padding:"12px 0",background:isCur?p.cor:p.id==="free"?"transparent":p.id==="pro"?`linear-gradient(135deg,${C.orange},#FF9800)`:C.navy,border:`2px solid ${isCur?p.cor:p.id==="free"?C.border:p.cor}`,borderRadius:12,cursor:isCur||p.id==="free"?"default":"pointer",color:isCur?"#fff":p.id==="free"?C.muted:"#fff",fontWeight:700,fontSize:14,fontFamily:"'Sora',sans-serif",display:"flex",alignItems:"center",justifyContent:"center",gap:6,boxShadow:(!isCur&&p.id==="pro")?`0 4px 16px ${C.orange}44`:"none",transition:"all .2s"}}>
-                {isCur?<><CheckIcon size={13}/> Plano Atual</>:p.id==="free"?"Plano atual (gratuito)":<>Começar 14 dias grátis <ArrowRightIcon size={12}/></>}
-              </button>
-            </div>
-          );
-        })}
-      </div>
-
-      {/* Indicação */}
-      <a href={`https://wa.me/?text=${encodeURIComponent("🚛 Ei! Tô usando o LogRotas para calcular minhas rotas e controlar meus fretes. É grátis e muito bom!\n\nBaixa aqui: https://logrotas.vercel.app\n\n💡 Com o LogRotas você calcula combustível, pedágio, frete e ainda acompanha seu lucro mês a mês!")}`}
-        target="_blank" rel="noreferrer"
-        style={{display:"flex",alignItems:"center",justifyContent:"space-between",background:C.navyLight,border:`1.5px solid ${C.navy}22`,borderRadius:14,padding:"14px 18px",cursor:"pointer",textDecoration:"none"}}>
-        <div style={{display:"flex",alignItems:"center",gap:12}}>
-          <div style={{width:40,height:40,borderRadius:10,background:C.navy,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
-            <span style={{fontSize:20}}>👥</span>
-          </div>
-          <div>
-            <div style={{color:C.navy,fontWeight:700,fontSize:14}}>Indique e ganhe 1 mês grátis</div>
-            <div style={{color:C.muted,fontSize:11,marginTop:2}}>Compartilhe pelo WhatsApp com outros motoristas</div>
-          </div>
-        </div>
-        <ArrowRightIcon size={15} color={C.navy}/>
-      </a>
-
-      {/* Modal de confirmação */}
-      {confirm&&(
-        <div style={{position:"fixed",inset:0,background:"#1E3A8A44",zIndex:500,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
-          <div style={{background:C.surface,borderRadius:22,width:"100%",maxWidth:360,padding:28,textAlign:"center",boxShadow:"0 20px 60px #1E3A8A22"}}>
-            <div style={{fontSize:40,marginBottom:12}}>{confirm.icone}</div>
-            <div style={{color:C.navy,fontWeight:800,fontSize:18,fontFamily:"'Sora',sans-serif",marginBottom:6}}>Assinar plano {confirm.nome}?</div>
-            <div style={{color:C.green,fontSize:14,fontWeight:700,marginBottom:4}}>🎁 14 dias grátis — sem cobrança agora</div>
-            <div style={{color:C.muted,fontSize:12,marginBottom:6}}>
-              Depois: R$ {getPreco(confirm).toFixed(2).replace(".",",")} /mês
-              {billing==="semestral"?` · R$ ${(getPreco(confirm)*6).toFixed(2).replace(".",",")} cobrado a cada 6 meses`:billing==="anual"?` · R$ ${(getPreco(confirm)*12).toFixed(2).replace(".",",")} cobrado anualmente`:""}
-            </div>
-            <div style={{color:C.muted,fontSize:12,marginBottom:22}}>Cancele quando quiser. Sem multa.</div>
-            <div style={{display:"flex",gap:9}}>
-              <button onClick={()=>setConfirm(null)} style={{flex:1,padding:"12px 0",background:C.subtle,border:`1px solid ${C.border}`,borderRadius:11,color:C.text2,fontWeight:600,fontSize:14,cursor:"pointer"}}>Cancelar</button>
-              <button onClick={()=>{onChangePlan(confirm.id);setConfirm(null);}}
-                style={{flex:2,padding:"12px 0",background:confirm.id==="pro"?`linear-gradient(135deg,${C.orange},#FF9800)`:C.navy,border:"none",borderRadius:11,color:"#fff",fontWeight:700,fontSize:14,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:6,boxShadow:confirm.id==="pro"?`0 4px 16px ${C.orange}44`:`0 4px 16px ${C.navy}33`}}>
-                <CheckIcon size={13}/> Começar grátis
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-};
-
 // ── PERFIL ────────────────────────────────────────────────────────────────────
 const Perfil=({uid,metaMes,setMetaMes,faturamentoMes,saldoLiquidoMes,vehicles,setVehicles,perfil,setPerfil,onLimpar,onAdmin})=>{
   const[editMode,setEditMode]=useState(false);
@@ -7124,10 +6884,6 @@ const Perfil=({uid,metaMes,setMetaMes,faturamentoMes,saldoLiquidoMes,vehicles,se
               </span>
             )}
           </div>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderTop:`1px solid ${C.border}`}}>
-            <span style={{color:C.muted,fontSize:12}}>Plano atual</span>
-            <span style={{color:C.orange,fontWeight:700,fontSize:14}}>Gratuito</span>
-          </div>
         </div>
       </Card>
 
@@ -7144,7 +6900,7 @@ const Perfil=({uid,metaMes,setMetaMes,faturamentoMes,saldoLiquidoMes,vehicles,se
               </div>
               <div style={{textAlign:"left"}}>
                 <div style={{color:C.navy,fontWeight:700,fontSize:14}}>Ajuda & Perguntas Frequentes</div>
-                <div style={{color:C.muted,fontSize:11,marginTop:1}}>11 perguntas respondidas</div>
+                <div style={{color:C.muted,fontSize:11,marginTop:1}}>8 perguntas respondidas</div>
               </div>
             </div>
             <ArrowRightIcon size={15} color={C.navy}/>
@@ -7168,14 +6924,8 @@ const Perfil=({uid,metaMes,setMetaMes,faturamentoMes,saldoLiquidoMes,vehicles,se
                     {p:"Como recuperar minha senha?",r:"Na tela de login toque em 'Esqueci minha senha' e escolha recuperar pelo WhatsApp. Nossa equipe irá te atender e redefinir o acesso."},
                     {p:"Como alterar meus dados?",r:"Acesse a aba Perfil e role até 'Dados do Perfil'. Toque em qualquer campo para editar e salve as alterações."},
                   ]},
-                  {cat:"💳 Planos",perguntas:[
-                    {p:"O que inclui o plano gratuito?",r:"5 cálculos por mês, histórico de até 10 fretes e controle de despesas básico. Para uso ilimitado assine o plano Pro."},
-                    {p:"Como funciona o trial de 14 dias?",r:"Ao assinar qualquer plano pago você tem 14 dias completamente grátis. Não é cobrado nada durante esse período."},
-                    {p:"Quando o pagamento estará disponível?",r:"O sistema de pagamento estará disponível em breve. Por enquanto explore o app gratuitamente!"},
-                  ]},
                   {cat:"📲 Suporte",perguntas:[
                     {p:"Como falar com o suporte?",r:"Entre em contato pelo WhatsApp de recuperação de senha na tela de login. Nossa equipe responde em até 24 horas nos dias úteis."},
-                    {p:"Como indicar e ganhar 1 mês grátis?",r:"Na tela inicial toque no botão 'Indique e ganhe 1 mês grátis'. Uma mensagem pronta será aberta no WhatsApp para compartilhar com outros motoristas."},
                   ]},
                 ].map((cat,ci)=>(
                   <div key={ci}>
@@ -7228,7 +6978,6 @@ export default function App(){
   const uiRestoredRef=useRef(false);
   const[plan,setPlan]=useState(()=>(readProPlanActive()?"pro":"free"));
   const[trialDias,setTrialDias]=useState(()=>(readProPlanActive()?readProTrialDaysLeft():0));
-  const[refIndicacao]=useState(()=>lerRefIndicacao()); // lê ?ref= uma vez ao montar
   const[vehicles,setVehicles]=useState(()=>readVehiclesLocalCache(DEFAULT_VEHICLES));
   const[metaMes,setMetaMes]=useState(8000);
   const[valorKm,setValorKm]=useState("");
@@ -7261,14 +7010,19 @@ export default function App(){
     const m=hoje.getMonth();
     const y=hoje.getFullYear();
     return (arr||[]).filter(x=>{
-      if(!x.date)return false;
-      const p=x.date.split("/");
+      const dt=x.date||x.data;
+      if(!dt)return false;
+      const p=dt.split("/");
       if(p.length<3)return false;
       return parseInt(p[1])-1===m&&parseInt(p[2])===y;
     });
   };
   const fretesMesAtual=filtrarMesAtual(historicoFretes);
-  const faturamentoMes=roundMoney(fretesMesAtual.reduce((a,f)=>a+(f.freteSugerido||0),0));
+  const jornadasMesAtual=filtrarMesAtual(jornadas);
+  const faturamentoMes=roundMoney(
+    fretesMesAtual.reduce((a,f)=>a+(f.freteSugerido||0),0)+
+    jornadasMesAtual.reduce((a,j)=>a+(j.valorRecebido||0),0)
+  );
   const lucroMesAtual=roundMoney(fretesMesAtual.reduce((a,f)=>a+(f.lucro||0),0));
   const maintMesAtual=roundMoney(filtrarMesAtual(manutencoes).reduce((a,m)=>a+(m.cost||0),0));
   const despMesAtual=roundMoney(filtrarMesAtual(despesas).reduce((a,d)=>a+(d.valor||0),0));
@@ -7720,21 +7474,7 @@ export default function App(){
       const veh=DEFAULT_VEHICLES.find(v=>v.id===dadosCadastro.vehicle);
       if(veh) setVehicles(DEFAULT_VEHICLES);
     }
-    // Se veio por link de indicação → ativa 7 dias Pro grátis
-    if(refIndicacao){
-      aplicarBonusIndicado(setPlan,setTrialDias);
-    }
     setScreen("app");
-  };
-
-  const handleChangePlan=(newPlan)=>{
-    if(newPlan==="pro"){
-      activateProTrial(14);
-      setPlan("pro");
-      setTrialDias(14);
-    }else{
-      setPlan(newPlan);
-    }
   };
 
   const limparTudo=()=>{setConfirmLimpar(true);};
@@ -7783,9 +7523,8 @@ export default function App(){
     {id:"comparador", label:"Viagens",     icon:CalculatorIcon},
     {id:"manutencao", label:"Manutenção",  icon:WrenchIcon},
     {id:"documentos", label:"Documentos",  icon:FileTextIcon},
-    {id:"assinatura", label:"Planos",      icon:CrownIcon},
     {id:"perfil",     label:"Perfil",      icon:SettingsIcon},
-  ].filter(n=>!(BETA_HIDE_PLANOS&&n.id==="assinatura"));
+  ];
 
   const goSwipePage=useCallback((dir)=>{
     setPage(cur=>{
@@ -7849,16 +7588,6 @@ export default function App(){
                 <span style={{fontFamily:"'Sora',sans-serif",fontWeight:900,fontSize:28,color:C.orange}}>Rotas</span>
               </div>
               <div style={{color:"#93C5FD",fontSize:12,marginTop:4}}>Crie sua conta grátis</div>
-              {/* Banner de bônus para usuário indicado */}
-              {refIndicacao&&(
-                <div style={{background:`linear-gradient(135deg,${C.orange},#FF9800)`,borderRadius:14,padding:"10px 16px",marginTop:14,display:"flex",alignItems:"center",gap:10}}>
-                  <span style={{fontSize:20}}>🎁</span>
-                  <div>
-                    <div style={{color:"#fff",fontWeight:700,fontSize:13}}>Você foi indicado!</div>
-                    <div style={{color:"#FFF3E0",fontSize:11,marginTop:1}}>Crie sua conta e ganhe 7 dias do plano Pro grátis</div>
-                  </div>
-                </div>
-              )}
             </div>
             <div style={{background:"#fff",border:`1.5px solid ${C.orange}33`,borderRadius:24,padding:"24px 20px",boxShadow:`0 12px 40px #00000044, 0 0 0 1px ${C.orange}18`}}>
               <RegisterFlow onDone={handleCadastroConcluido} onBack={()=>setScreen("login")}/>
@@ -7902,8 +7631,6 @@ export default function App(){
         {page==="comparador"  &&<Comparador historicoFretes={historicoFretes} jornadas={jornadas} onAddFrete={handleAddFrete} onUpdateFrete={handleUpdateFrete} onDeleteFrete={handleDeleteFrete} onUpdateJornada={handleUpdateJornada} onDeleteJornada={handleDeleteJornada} perfil={perfil} uid={firebaseUser?.uid} onOpenChecklist={handleOpenChecklist}/>}
         {page==="manutencao"  &&<Manutencao manutencoes={manutencoes} onAddManutencao={handleAddManutencao} onUpdateManutencao={handleUpdateManutencao} onDeleteManutencao={handleDeleteManutencao}/>}
         {page==="documentos"  &&<Documentos docs={docs} onAddDocumento={handleAddDocumento} onDeleteDocumento={handleDeleteDocumento}/>}
-        {page==="assinatura"  &&BETA_HIDE_PLANOS&&<PlanosBetaPlaceholder/>}
-        {page==="assinatura"  &&!BETA_HIDE_PLANOS&&<Assinatura plan={plan} onChangePlan={handleChangePlan}/>}
         {page==="perfil"      &&<Perfil uid={firebaseUser?.uid} metaMes={metaMes} setMetaMes={setMetaMes} faturamentoMes={faturamentoMes} saldoLiquidoMes={saldoLiquidoMes} vehicles={vehicles} setVehicles={setVehicles} perfil={perfil} setPerfil={setPerfil} onLimpar={limparTudo} onAdmin={()=>setShowAdmin(true)}/>}
       </div>
       {page!=="dashboard"&&(<button onClick={()=>{setCalcMode(null);setShowCalc(true);}} style={{position:"fixed",bottom:22,right:18,width:52,height:52,borderRadius:"50%",background:C.orange,border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",boxShadow:`0 4px 20px ${C.orange}55`,zIndex:90}}><RouteIcon size={22} color="#fff"/></button>)}
@@ -8043,7 +7770,7 @@ export default function App(){
         onClose={()=>handleCalcModalClose()}/>}
       {showCalc&&calcMode==="viagem"&&<TripCalcModal onClose={()=>handleCalcModalClose()} onConcluido={handleCalcConcluida} vehicles={vehicles}/>}
       {showCalc&&calcMode==="frete"&&<RouteCalcModal onClose={()=>handleCalcModalClose()} onConcluido={handleCalcConcluida} vehicles={vehicles} valorKmPadrao={valorKm} adicionalPadrao={adicionalFixo} onSalvarHistorico={handleAddFrete} perfil={perfil}/>}
-      {showCalc&&calcMode==="otimizar"&&<OtimizarEntregasModal uid={firebaseUser?.uid} resumeNavigation={resumeNav} onNavigationResumed={()=>setResumeNav(false)} onClose={()=>handleCalcModalClose(()=>setResumeNav(false))} onConcluido={handleCalcConcluida} perfil={perfil} plan={plan} onUpgrade={()=>{setShowCalc(false);setCalcMode(null);setResumeNav(false);setPage("assinatura");}}/>}
+      {showCalc&&calcMode==="otimizar"&&<OtimizarEntregasModal uid={firebaseUser?.uid} resumeNavigation={resumeNav} onNavigationResumed={()=>setResumeNav(false)} onClose={()=>handleCalcModalClose(()=>setResumeNav(false))} onConcluido={handleCalcConcluida} perfil={perfil} plan={plan}/>}
       {showFechamento&&<FechamentoDia uid={firebaseUser?.uid} perfil={perfil} setPerfil={setPerfil} vehicles={vehicles} onSalvar={handleSaveJornada} onClose={()=>setShowFechamento(false)}/>}
       <AvaliacaoAppModal
         open={!!showAvaliacaoModal}
@@ -8079,7 +7806,7 @@ export default function App(){
       )}
 
       {/* Banner de anúncio */}
-      <AdBanner plan={plan} onUpgrade={()=>setPage("assinatura")}/>
+      <AdBanner plan={plan}/>
 
       {showAdmin&&<AdminPanel onClose={()=>setShowAdmin(false)} historicoFretes={historicoFretes} docs={docs} perfil={perfil} despesas={despesas} manutencoes={manutencoes}/>}
       {confirmLimpar&&(
