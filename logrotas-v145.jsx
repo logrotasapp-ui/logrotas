@@ -139,8 +139,7 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="v307";
-const SUPORTE_WHATSAPP=""; // DDI+DDD+número sem símbolos, ex: "5511987654321"
+const APP_VERSION="v308";
 const SUPORTE_EMAIL="suporte@logrotas.com.br";
 const PEDAGIO_AVISO_RESULTADO="Pedágio estimado pelo Google. Pode haver variação — confirme o valor da praça.";
 const PAGE_SWIPE_ORDER=["dashboard","financeiro","despesas","comparador","manutencao","documentos","perfil"];
@@ -157,13 +156,6 @@ const OfflineRestoredBanner=({show})=>show?(
 const montarLinkIndicacao=(whatsappOuId)=>{
   const id=String(whatsappOuId).replace(/\D/g,"")||"usuario";
   return `${BASE_URL}?ref=${id}`;
-};
-
-const montarLinkSuporteWhatsApp=()=>{
-  const texto=`Olá! Preciso de ajuda no LogRotas. (Versão: ${APP_VERSION})`;
-  const num=String(SUPORTE_WHATSAPP||"").replace(/\D/g,"");
-  if(num)return `https://wa.me/${num}?text=${encodeURIComponent(texto)}`;
-  return `https://wa.me/?text=${encodeURIComponent(texto)}`;
 };
 
 // Desative para exibir aviso "Em breve" no banner da tela Início (reativar após beta)
@@ -6603,18 +6595,12 @@ const Perfil=({uid,metaMes,setMetaMes,faturamentoMes,saldoLiquidoMes,vehicles,se
                   </div>
                 ))}
 
-                <div style={{padding:"16px",background:C.greenLight,border:`1.5px solid ${C.green}33`,borderRadius:13}}>
-                  <div style={{color:C.navy,fontWeight:700,fontSize:14,marginBottom:4}}>📱 Falar com o suporte</div>
-                  <div style={{color:C.muted,fontSize:12,marginBottom:12,lineHeight:1.5}}>Não encontrou sua resposta? Entre em contato com nossa equipe.</div>
-                  <a href={montarLinkSuporteWhatsApp()} target="_blank" rel="noopener noreferrer"
-                    style={{display:"flex",alignItems:"center",justifyContent:"center",gap:8,width:"100%",padding:"12px 16px",marginBottom:10,background:"#25D366",border:"none",borderRadius:12,cursor:"pointer",color:"#fff",fontWeight:700,fontSize:14,textDecoration:"none",boxShadow:"0 4px 12px #25D36644"}}>
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="#fff" aria-hidden="true"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/><path d="M12 0C5.373 0 0 5.373 0 12c0 2.089.537 4.049 1.475 5.757L.057 23.928c-.046.228.13.445.362.445a.42.42 0 00.102-.013l6.345-1.646A11.94 11.94 0 0012 24c6.627 0 12-5.373 12-12S18.627 0 12 0zm0 21.75a9.712 9.712 0 01-4.943-1.349l-.354-.209-3.664.95.982-3.561-.231-.371A9.712 9.712 0 012.25 12C2.25 6.615 6.615 2.25 12 2.25S21.75 6.615 21.75 12 17.385 21.75 12 21.75z"/></svg>
-                    Falar no WhatsApp
-                  </a>
-                  <div style={{textAlign:"center",fontSize:13,color:C.muted}}>
-                    ou envie um e-mail para{" "}
-                    <a href={`mailto:${SUPORTE_EMAIL}`} style={{color:C.orange,fontWeight:600,textDecoration:"underline",textUnderlineOffset:2}}>{SUPORTE_EMAIL}</a>
+                <div style={{padding:"18px 16px",background:C.navyLight,border:`1.5px solid ${C.navy}22`,borderRadius:13,textAlign:"center"}}>
+                  <div style={{color:C.navy,fontWeight:700,fontSize:14,marginBottom:8}}>📱 Falar com o suporte</div>
+                  <div style={{color:C.muted,fontSize:13,lineHeight:1.55,marginBottom:12}}>
+                    Não encontrou sua resposta? Envie um e-mail para nossa equipe:
                   </div>
+                  <a href={`mailto:${SUPORTE_EMAIL}`} style={{color:C.orange,fontWeight:700,fontSize:15,textDecoration:"underline",textUnderlineOffset:3}}>{SUPORTE_EMAIL}</a>
                 </div>
               </div>
             </ModalWrap>
