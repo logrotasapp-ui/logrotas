@@ -37,6 +37,7 @@ export const AUTH_KEYS = {
   session: "logrotas_auth_session",
   registerPrefs: "logrotas_register_prefs",
   registerStep1: "logrotas_register_step1",
+  googleSemConta: "logrotas_google_sem_conta",
 };
 
 export const PROFILE_KEYS = {

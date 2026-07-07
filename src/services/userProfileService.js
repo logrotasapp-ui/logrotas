@@ -72,20 +72,7 @@ export async function loadUserProfile(uid) {
   return snap.data();
 }
 
+/** Login social: só lê perfil existente — não cria conta nova no app. */
 export async function ensureGoogleUserProfile(user) {
-  const existing = await loadUserProfile(user.uid);
-  if (existing) return existing;
-
-  const payload = {
-    nome: user.displayName || "",
-    email: user.email || "",
-    telefone: "",
-    documento: "",
-    profile: "",
-    tipo: "Motorista Autônomo",
-    veiculo: "",
-    authProvider: "google",
-  };
-  await saveUserProfile(user.uid, payload);
-  return payload;
+  return loadUserProfile(user.uid);
 }

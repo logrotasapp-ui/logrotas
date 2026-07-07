@@ -102,8 +102,8 @@ import {
   countPacotes,
 } from "./src/services/pacotesService.js";
 import { OFFLINE_KEYS, AUTH_KEYS, readOfflineCache, writeOfflineCache, clearAllLogRotasStorage, clearVehiclesLocalCache, readVehiclesLocalCache, writeVehiclesLocalCache, readProPlanActive, readProTrialDaysLeft, readPerfilLocalFallback, writePerfilLocalCache, readUiState, writeUiState, clearUiState } from "./src/services/offlineStorage.js";
-import { subscribeAuth, signInWithEmail, signOutUser, getAuthErrorMessage, sendPasswordResetEmail, getPasswordResetErrorMessage } from "./src/services/authService.js";
-import { saveUserProfile, loadUserProfile, ensureGoogleUserProfile, firestoreToPerfil, perfilToFirestorePayload } from "./src/services/userProfileService.js";
+import { subscribeAuth, signInWithEmail, signInWithGoogle, signOutUser, getAuthErrorMessage, sendPasswordResetEmail, getPasswordResetErrorMessage } from "./src/services/authService.js";
+import { saveUserProfile, loadUserProfile, firestoreToPerfil, perfilToFirestorePayload } from "./src/services/userProfileService.js";
 import { saveJornada } from "./src/services/jornadaService.js";
 import {
   loadUserHistory,
@@ -139,7 +139,7 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="v305";
+const APP_VERSION="v306";
 const PEDAGIO_AVISO_RESULTADO="Pedágio estimado pelo Google. Pode haver variação — confirme o valor da praça.";
 const PAGE_SWIPE_ORDER=["dashboard","financeiro","despesas","comparador","manutencao","documentos","perfil"];
 const PAGE_SWIPE_MIN_PX=50;
@@ -671,12 +671,17 @@ const LoginScreen=()=>{
   const[recuperarLoading,setRecuperarLoading]=useState(false);
   const[recuperarErro,setRecuperarErro]=useState("");
   const[recuperarOk,setRecuperarOk]=useState(false);
+  const[semContaGoogle,setSemContaGoogle]=useState(false);
 
   useEffect(()=>{
     const session=readOfflineCache(AUTH_KEYS.session);
     if(session?.remember&&session?.email){
       setEmail(session.email);
       setRememberMe(true);
+    }
+    if(readOfflineCache(AUTH_KEYS.googleSemConta)){
+      try{localStorage.removeItem(AUTH_KEYS.googleSemConta);}catch{/* ignore */}
+      setSemContaGoogle(true);
     }
   },[]);
 
@@ -696,6 +701,35 @@ const LoginScreen=()=>{
       persistRememberEmail();
     }catch(e){
       setErro(getAuthErrorMessage(e?.code));
+    }finally{
+      setLoading(false);
+    }
+  };
+
+  const marcarSemContaGoogle=()=>{
+    writeOfflineCache(AUTH_KEYS.googleSemConta,true);
+    setSemContaGoogle(true);
+  };
+
+  const loginGoogle=async()=>{
+    setLoading(true);
+    setErro("");
+    setSemContaGoogle(false);
+    try{
+      const cred=await signInWithGoogle();
+      const profile=await loadUserProfile(cred.user.uid);
+      if(!profile){
+        marcarSemContaGoogle();
+        await signOutUser();
+        return;
+      }
+      if(rememberMe&&cred.user.email){
+        writeOfflineCache(AUTH_KEYS.session,{remember:true,email:cred.user.email});
+      }
+    }catch(e){
+      if(e?.code!=="auth/popup-closed-by-user"&&e?.code!=="auth/cancelled-popup-request"){
+        setErro(getAuthErrorMessage(e?.code));
+      }
     }finally{
       setLoading(false);
     }
@@ -891,13 +925,32 @@ const LoginScreen=()=>{
 
         {erro&&<div style={{background:C.redLight,border:`1px solid ${C.red}33`,borderRadius:10,padding:"10px 13px",marginBottom:14,color:C.red,fontSize:13,fontWeight:600}}>{erro}</div>}
 
+        {semContaGoogle&&(
+          <div style={{background:"#FFF8F4",border:`1px solid ${C.orange}44`,borderRadius:10,padding:"10px 13px",marginBottom:14,color:"#64748B",fontSize:13,lineHeight:1.55,textAlign:"center"}}>
+            Você ainda não tem conta. Crie gratuitamente em{" "}
+            <a href="https://logrotas.com.br/cadastro" target="_blank" rel="noopener noreferrer" style={{color:C.orange,fontWeight:600,textDecoration:"underline",textUnderlineOffset:2}}>logrotas.com.br</a>
+          </div>
+        )}
+
         {/* Botão Entrar */}
-        <button onClick={go} disabled={!email||!pass}
-          style={{width:"100%",padding:"15px",background:!email||!pass?"#F1F5F9":`linear-gradient(135deg,${C.orange},#FF9800)`,border:`1.5px solid ${!email||!pass?"#E2E8F0":C.orange}`,borderRadius:14,cursor:!email||!pass?"not-allowed":"pointer",color:!email||!pass?"#B0BEC5":"#fff",fontWeight:700,fontSize:15,fontFamily:"'Sora',sans-serif",display:"flex",alignItems:"center",justifyContent:"center",gap:8,boxShadow:!email||!pass?"none":`0 6px 20px ${C.orange}44`,transition:"all .2s"}}>
+        <button onClick={go} disabled={!email||!pass||loading}
+          style={{width:"100%",padding:"15px",background:!email||!pass||loading?"#F1F5F9":`linear-gradient(135deg,${C.orange},#FF9800)`,border:`1.5px solid ${!email||!pass||loading?"#E2E8F0":C.orange}`,borderRadius:14,cursor:!email||!pass||loading?"not-allowed":"pointer",color:!email||!pass||loading?"#B0BEC5":"#fff",fontWeight:700,fontSize:15,fontFamily:"'Sora',sans-serif",display:"flex",alignItems:"center",justifyContent:"center",gap:8,boxShadow:!email||!pass||loading?"none":`0 6px 20px ${C.orange}44`,transition:"all .2s"}}>
           {loading?"Entrando...":<><span>Entrar</span><ArrowRightIcon size={15}/></>}
         </button>
 
-        <p style={{marginTop:16,marginBottom:0,textAlign:"center",color:"#94A3B8",fontSize:13,lineHeight:1.55}}>
+        <div style={{display:"flex",alignItems:"center",gap:10,marginTop:16,marginBottom:16}}>
+          <div style={{flex:1,height:1,background:"#F0F4F8"}}/>
+          <span style={{color:"#B0BEC5",fontSize:12}}>ou</span>
+          <div style={{flex:1,height:1,background:"#F0F4F8"}}/>
+        </div>
+
+        <button type="button" onClick={loginGoogle} disabled={loading}
+          style={{width:"100%",padding:"13px",background:"#fff",border:`1.5px solid ${C.orange}33`,borderRadius:14,cursor:loading?"not-allowed":"pointer",color:"#334155",fontWeight:600,fontSize:13,display:"flex",alignItems:"center",justifyContent:"center",gap:7,boxShadow:"0 1px 4px #00000008",opacity:loading?0.6:1,marginBottom:16}}>
+          <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
+          Entrar com Google
+        </button>
+
+        <p style={{marginTop:0,marginBottom:0,textAlign:"center",color:"#94A3B8",fontSize:13,lineHeight:1.55}}>
           Ainda não tem conta? Crie gratuitamente em{" "}
           <a href="https://logrotas.com.br/cadastro" target="_blank" rel="noopener noreferrer" style={{color:C.orange,fontWeight:600,textDecoration:"underline",textUnderlineOffset:2}}>logrotas.com.br</a>
         </p>
@@ -6582,6 +6635,7 @@ export default function App(){
   const avaliacaoPendenteRef=useRef(null);
   const[authReady,setAuthReady]=useState(false);
   const[firebaseUser,setFirebaseUser]=useState(null);
+  const[profileGateOk,setProfileGateOk]=useState(false);
   const[splashDone,setSplashDone]=useState(false);
   const filtrarMesAtual=(arr)=>{
     const m=hoje.getMonth();
@@ -6621,16 +6675,25 @@ export default function App(){
   },[]);
 
   useEffect(()=>{
-    if(!firebaseUser?.uid)return;
+    if(!firebaseUser?.uid){
+      setProfileGateOk(false);
+      return;
+    }
+    setProfileGateOk(false);
     let cancelled=false;
     (async()=>{
       try{
-        let profile=await loadUserProfile(firebaseUser.uid);
-        if(!profile){
-          const isGoogle=firebaseUser.providerData?.some(p=>p.providerId==="google.com");
-          if(isGoogle)profile=await ensureGoogleUserProfile(firebaseUser);
+        const profile=await loadUserProfile(firebaseUser.uid);
+        const isGoogle=firebaseUser.providerData?.some(p=>p.providerId==="google.com");
+        if(isGoogle&&!profile){
+          if(!cancelled){
+            writeOfflineCache(AUTH_KEYS.googleSemConta,true);
+            await signOutUser();
+          }
+          return;
         }
         if(cancelled)return;
+        setProfileGateOk(true);
         if(profile){
           const p=firestoreToPerfil(profile);
           setPerfil(p);
@@ -6645,6 +6708,7 @@ export default function App(){
         }
       }catch{
         if(!cancelled){
+          setProfileGateOk(true);
           const local=readPerfilLocalFallback();
           setPerfil({
             ...local,
@@ -6960,11 +7024,11 @@ export default function App(){
   useEffect(()=>{
     if(!splashDone||!authReady)return;
     if(firebaseUser){
-      setScreen("app");
+      if(profileGateOk)setScreen("app");
     }else{
       setScreen("login");
     }
-  },[splashDone,authReady,firebaseUser]);
+  },[splashDone,authReady,firebaseUser,profileGateOk]);
 
   // V294 — restaura o modal de calculadora/fechamento aberto ao reabrir (uma vez, já no app)
   useEffect(()=>{
