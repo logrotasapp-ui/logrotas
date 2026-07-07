@@ -102,10 +102,9 @@ import {
   countPacotes,
 } from "./src/services/pacotesService.js";
 import { OFFLINE_KEYS, AUTH_KEYS, readOfflineCache, writeOfflineCache, clearAllLogRotasStorage, clearVehiclesLocalCache, readVehiclesLocalCache, writeVehiclesLocalCache, readProPlanActive, readProTrialDaysLeft, readPerfilLocalFallback, writePerfilLocalCache, readUiState, writeUiState, clearUiState } from "./src/services/offlineStorage.js";
-import { subscribeAuth, signInWithEmail, signUpWithEmail, signInWithGoogle, signOutUser, deleteCurrentUser, getAuthErrorMessage, sendPasswordResetEmail, getPasswordResetErrorMessage } from "./src/services/authService.js";
-import { saveUserProfile, loadUserProfile, ensureGoogleUserProfile, cadastroToFirestorePayload, firestoreToPerfil, perfilToFirestorePayload } from "./src/services/userProfileService.js";
+import { subscribeAuth, signInWithEmail, signOutUser, getAuthErrorMessage, sendPasswordResetEmail, getPasswordResetErrorMessage } from "./src/services/authService.js";
+import { saveUserProfile, loadUserProfile, ensureGoogleUserProfile, firestoreToPerfil, perfilToFirestorePayload } from "./src/services/userProfileService.js";
 import { saveJornada } from "./src/services/jornadaService.js";
-import { validateBetaCode, consumeBetaCode, normalizeBetaCode } from "./src/services/betaCodeService.js";
 import {
   loadUserHistory,
   addFreteWithFinanceiro,
@@ -126,12 +125,12 @@ import {
 } from "./src/services/userHistoryService.js";
 import {
   CheckIcon, XIcon, ZapIcon, UsersIcon, StarIcon,
-  ArrowRightIcon, ArrowLeftIcon, LockIcon, PhoneIcon,
+  ArrowRightIcon, ArrowLeftIcon, LockIcon,
   HomeIcon, WrenchIcon, CalendarIcon, FileTextIcon, AlertTriangleIcon,
   BellIcon, PlusIcon, Trash2Icon, PlusCircleIcon,
   NavigationIcon, CalculatorIcon, BarChart3Icon, FuelIcon,
   TrendingUpIcon, TrendingDownIcon, DollarSignIcon, MapPinIcon,
-  EyeIcon, EyeOffIcon, UserIcon, MailIcon, RouteIcon, InfoIcon, KeyIcon,
+  EyeIcon, EyeOffIcon, MailIcon, RouteIcon, InfoIcon,
   LogOutIcon, EditIcon, PenLineIcon, SaveIcon, ChevronLeftIcon, ChevronRightIcon,
   ThumbsUpIcon, ThumbsDownIcon, SettingsIcon,
 } from "lucide-react";
@@ -140,7 +139,7 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="v304";
+const APP_VERSION="v305";
 const PEDAGIO_AVISO_RESULTADO="Pedágio estimado pelo Google. Pode haver variação — confirme o valor da praça.";
 const PAGE_SWIPE_ORDER=["dashboard","financeiro","despesas","comparador","manutencao","documentos","perfil"];
 const PAGE_SWIPE_MIN_PX=50;
@@ -660,22 +659,7 @@ const docSt={ok:{bg:C.greenLight,color:C.green,label:"✓ Válido"},vencendo:{bg
 const schedSt={confirmada:{bg:C.greenLight,color:C.green,label:"Confirmada"},pendente:{bg:C.amberLight,color:C.amber,label:"Pendente"}};
 
 // ── AUTH ──────────────────────────────────────────────────────────────────────
-const FloatInput=({label,value,onChange,type="text",placeholder,icon:Icon,suffix})=>{
-  const[f,setF]=useState(false);const act=f||value;
-  return(
-    <div><div style={{display:"flex",alignItems:"center",background:f?C.surface:C.subtle,border:`1.5px solid ${f?C.orange:C.border}`,borderRadius:12,overflow:"hidden",transition:"all .2s",boxShadow:f?`0 0 0 3px ${C.orange}18`:"none"}}>
-      {Icon&&<div style={{padding:"0 0 0 14px",color:f?C.orange:C.muted}}><Icon size={16}/></div>}
-      <div style={{flex:1,position:"relative",padding:"17px 13px 5px"}}>
-        <label style={{position:"absolute",left:0,top:act?5:14,fontSize:act?10:14,color:f?C.orange:C.muted,fontWeight:act?700:400,transition:"all .2s",pointerEvents:"none",textTransform:act?"uppercase":"none",letterSpacing:act?0.5:0}}>{label}</label>
-        <input type={type} value={value} onChange={e=>onChange(e.target.value)} onFocus={()=>setF(true)} onBlur={()=>setF(false)} placeholder={f?placeholder:""}
-          style={{background:"transparent",border:"none",outline:"none",color:C.text,fontSize:14,width:"100%",paddingTop:9}}/>
-      </div>
-      {suffix&&<div style={{padding:"0 12px 0 0"}}>{suffix}</div>}
-    </div></div>
-  );
-};
-
-const LoginScreen=({onRegister})=>{
+const LoginScreen=()=>{
   const[email,setEmail]=useState("");
   const[pass,setPass]=useState("");
   const[rememberMe,setRememberMe]=useState(false);
@@ -687,7 +671,6 @@ const LoginScreen=({onRegister})=>{
   const[recuperarLoading,setRecuperarLoading]=useState(false);
   const[recuperarErro,setRecuperarErro]=useState("");
   const[recuperarOk,setRecuperarOk]=useState(false);
-  const[showApple,setShowApple]=useState(false);
 
   useEffect(()=>{
     const session=readOfflineCache(AUTH_KEYS.session);
@@ -713,24 +696,6 @@ const LoginScreen=({onRegister})=>{
       persistRememberEmail();
     }catch(e){
       setErro(getAuthErrorMessage(e?.code));
-    }finally{
-      setLoading(false);
-    }
-  };
-
-  const loginGoogle=async()=>{
-    setLoading(true);
-    setErro("");
-    try{
-      const cred=await signInWithGoogle();
-      await ensureGoogleUserProfile(cred.user);
-      if(rememberMe&&cred.user.email){
-        writeOfflineCache(AUTH_KEYS.session,{remember:true,email:cred.user.email});
-      }
-    }catch(e){
-      if(e?.code!=="auth/popup-closed-by-user"&&e?.code!=="auth/cancelled-popup-request"){
-        setErro(getAuthErrorMessage(e?.code));
-      }
     }finally{
       setLoading(false);
     }
@@ -928,378 +893,19 @@ const LoginScreen=({onRegister})=>{
 
         {/* Botão Entrar */}
         <button onClick={go} disabled={!email||!pass}
-          style={{width:"100%",padding:"15px",background:!email||!pass?"#F1F5F9":`linear-gradient(135deg,${C.orange},#FF9800)`,border:`1.5px solid ${!email||!pass?"#E2E8F0":C.orange}`,borderRadius:14,cursor:!email||!pass?"not-allowed":"pointer",color:!email||!pass?"#B0BEC5":"#fff",fontWeight:700,fontSize:15,fontFamily:"'Sora',sans-serif",display:"flex",alignItems:"center",justifyContent:"center",gap:8,boxShadow:!email||!pass?"none":`0 6px 20px ${C.orange}44`,marginBottom:16,transition:"all .2s"}}>
+          style={{width:"100%",padding:"15px",background:!email||!pass?"#F1F5F9":`linear-gradient(135deg,${C.orange},#FF9800)`,border:`1.5px solid ${!email||!pass?"#E2E8F0":C.orange}`,borderRadius:14,cursor:!email||!pass?"not-allowed":"pointer",color:!email||!pass?"#B0BEC5":"#fff",fontWeight:700,fontSize:15,fontFamily:"'Sora',sans-serif",display:"flex",alignItems:"center",justifyContent:"center",gap:8,boxShadow:!email||!pass?"none":`0 6px 20px ${C.orange}44`,transition:"all .2s"}}>
           {loading?"Entrando...":<><span>Entrar</span><ArrowRightIcon size={15}/></>}
         </button>
 
-        {/* Divisor */}
-        <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16}}>
-          <div style={{flex:1,height:1,background:"#F0F4F8"}}/>
-          <span style={{color:"#B0BEC5",fontSize:12}}>ou</span>
-          <div style={{flex:1,height:1,background:"#F0F4F8"}}/>
-        </div>
-
-        {/* Botões sociais lado a lado */}
-        <div style={{display:"flex",gap:10,marginBottom:12}}>
-          {/* Google */}
-          <button onClick={loginGoogle} disabled={loading}
-            style={{flex:1,padding:"13px",background:"#fff",border:`1.5px solid ${C.orange}33`,borderRadius:14,cursor:loading?"not-allowed":"pointer",color:"#334155",fontWeight:600,fontSize:13,display:"flex",alignItems:"center",justifyContent:"center",gap:7,boxShadow:"0 1px 4px #00000008",opacity:loading?0.6:1}}>
-            <svg width="16" height="16" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
-            Google
-          </button>
-
-          {/* Apple */}
-          <button onClick={()=>setShowApple(true)}
-            style={{flex:1,padding:"13px",background:"#fff",border:`1.5px solid ${C.orange}33`,borderRadius:14,cursor:"pointer",color:"#334155",fontWeight:600,fontSize:13,display:"flex",alignItems:"center",justifyContent:"center",gap:7,boxShadow:"0 1px 4px #00000008"}}>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="#000"><path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.8-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/></svg>
-            Apple
-          </button>
-        </div>
-
-        {/* Modal Apple em breve */}
-        {showApple&&(
-          <div style={{position:"fixed",inset:0,background:"#00000066",zIndex:800,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
-            <div style={{background:"#fff",borderRadius:20,width:"100%",maxWidth:340,padding:26,textAlign:"center",boxShadow:"0 20px 60px #00000033"}}>
-              <div style={{fontSize:40,marginBottom:12}}>🔜</div>
-              <div style={{color:C.navy,fontWeight:800,fontSize:16,fontFamily:"'Sora',sans-serif",marginBottom:8}}>Em breve!</div>
-              <div style={{color:C.muted,fontSize:13,lineHeight:1.6,marginBottom:20}}>O login com Apple estará disponível em breve. Por enquanto use seu e-mail e senha para entrar.</div>
-              <button onClick={()=>setShowApple(false)}
-                style={{width:"100%",padding:"12px",background:`linear-gradient(135deg,${C.orange},#FF9800)`,border:"none",borderRadius:12,cursor:"pointer",color:"#fff",fontWeight:700,fontSize:14,boxShadow:`0 4px 12px ${C.orange}44`}}>
-                Entendi
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Criar conta */}
-        <button onClick={onRegister}
-          style={{width:"100%",padding:"14px 18px",background:"#FFF8F4",border:`1.5px solid ${C.orange}44`,borderRadius:14,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"space-between",boxShadow:`0 2px 8px ${C.orange}18`}}>
-          <div style={{textAlign:"left"}}>
-            <div style={{color:"#1E293B",fontWeight:700,fontSize:14}}>Ainda não tem conta?</div>
-            <div style={{color:"#94A3B8",fontSize:12,marginTop:2}}>Crie grátis em 2 minutos</div>
-          </div>
-          <div style={{width:34,height:34,borderRadius:"50%",background:`linear-gradient(135deg,${C.orange},#FF9800)`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,boxShadow:`0 3px 10px ${C.orange}44`}}>
-            <ArrowRightIcon size={13} color="#fff"/>
-          </div>
-        </button>
+        <p style={{marginTop:16,marginBottom:0,textAlign:"center",color:"#94A3B8",fontSize:13,lineHeight:1.55}}>
+          Ainda não tem conta? Crie gratuitamente em{" "}
+          <a href="https://logrotas.com.br/cadastro" target="_blank" rel="noopener noreferrer" style={{color:C.orange,fontWeight:600,textDecoration:"underline",textUnderlineOffset:2}}>logrotas.com.br</a>
+        </p>
 
         <div style={{marginTop:18,textAlign:"center",color:"#B0BEC5",fontSize:11}}>
           Login seguro via Firebase
         </div>
       </div>
-    </div>
-  );
-};
-
-const PROFILES_A=[
-  {id:"caminhoneiro", label:"Caminhoneiro",  desc:"Transporte de cargas em geral.",    icon:"🚛", color:C.orange,  bg:C.orangeLight},
-  {id:"guincheiro",   label:"Guincheiro",     desc:"Serviço de guincho e reboque.",     icon:"🪝", color:C.navy,    bg:C.navyLight},
-  {id:"motoqueiro",   label:"Motoqueiro",     desc:"Entregas rápidas com moto.",        icon:"🏍️", color:C.green,   bg:C.greenLight},
-  {id:"outros",       label:"Outros",         desc:"Outro tipo de transporte.",         icon:"🚗", color:"#6B7280", bg:"#F3F4F6"},
-];
-const RegisterFlow=({onDone,onBack})=>{
-  const[step,setStep]=useState(0);
-  const[data,setData]=useState({name:"",email:"",phone:"",pass:"",confirmPass:"",betaCode:"",profile:"",vehicle:"",terms:false});
-  const[show,setShow]=useState(false);
-  const[showConfirm,setShowConfirm]=useState(false);
-  const[erroLocal,setErroLocal]=useState("");
-  const[erroAuth,setErroAuth]=useState("");
-  const[showTerms,setShowTerms]=useState(false);
-  const[showProfileModal,setShowProfileModal]=useState(false);
-  const[registering,setRegistering]=useState(false);
-  const[validatingBeta,setValidatingBeta]=useState(false);
-  const registerReqRef=useRef(0);
-  const prevStepRef=useRef(0);
-
-  const saveRegisterPrefs=(patch)=>{
-    const cur=readOfflineCache(AUTH_KEYS.registerPrefs)||{};
-    writeOfflineCache(AUTH_KEYS.registerPrefs,{...cur,...patch});
-  };
-
-  const saveStep1Fields=(patch)=>{
-    const cur=readOfflineCache(AUTH_KEYS.registerStep1)||{};
-    writeOfflineCache(AUTH_KEYS.registerStep1,{...cur,...patch});
-  };
-
-  useEffect(()=>{
-    const step1=readOfflineCache(AUTH_KEYS.registerStep1);
-    const prefs=readOfflineCache(AUTH_KEYS.registerPrefs);
-    if(!step1&&!prefs)return;
-    setData(d=>({
-      ...d,
-      name:step1?.name||d.name,
-      email:step1?.email||d.email,
-      phone:step1?.phone||d.phone,
-      betaCode:step1?.betaCode||d.betaCode,
-      profile:prefs?.profile||d.profile,
-      vehicle:prefs?.vehicle||d.vehicle,
-    }));
-  },[]);
-
-  useEffect(()=>{
-    if(prevStepRef.current===2&&step!==2){
-      registerReqRef.current+=1;
-      setRegistering(false);
-    }
-    if(step!==2)setErroAuth("");
-    prevStepRef.current=step;
-  },[step]);
-
-  const finishRegister=async(payload)=>{
-    const reqId=++registerReqRef.current;
-    setRegistering(true);
-    setErroAuth("");
-    try{
-      const cred=await signUpWithEmail(payload.email,payload.pass);
-      if(reqId!==registerReqRef.current)return;
-
-      const betaResult=await consumeBetaCode(payload.betaCode,payload.email);
-      if(reqId!==registerReqRef.current)return;
-      if(!betaResult.ok){
-        try{await deleteCurrentUser();}catch{/* ignore */}
-        setErroAuth(betaResult.error);
-        return;
-      }
-
-      try{
-        await saveUserProfile(cred.user.uid,cadastroToFirestorePayload(payload));
-      }catch{
-        /* Auth OK — perfil pode ser salvo depois se Firestore falhar */
-      }
-      if(reqId!==registerReqRef.current)return;
-      if(payload?.profile)saveRegisterPrefs({profile:payload.profile});
-      if(payload?.vehicle)saveRegisterPrefs({vehicle:payload.vehicle});
-      onDone(payload);
-    }catch(e){
-      if(reqId!==registerReqRef.current)return;
-      setErroAuth(getAuthErrorMessage(e?.code));
-    }finally{
-      if(reqId===registerReqRef.current)setRegistering(false);
-    }
-  };
-
-  const Steps=()=>(
-    <div style={{display:"flex",gap:5,justifyContent:"center",marginBottom:20}}>
-      {[0,1,2].map(i=><div key={i} style={{height:4,borderRadius:4,width:i===step?28:16,background:i<=step?C.orange:C.border,transition:"all .3s"}}/>)}
-    </div>
-  );
-
-  const avancar0=async()=>{
-    setErroLocal("");
-    setErroAuth("");
-    if(!data.name.trim()){setErroLocal("Preencha seu nome completo.");return;}
-    if(!data.email.trim()||!data.email.includes("@")){setErroLocal("Preencha um e-mail válido — necessário para acessar sua conta.");return;}
-    if(!data.phone.trim()||data.phone.replace(/\D/g,"").length<10){setErroLocal("Preencha seu WhatsApp com DDD — usado para recuperação de senha.");return;}
-    if(!data.betaCode.trim()){setErroLocal("Informe seu código de acesso beta.");return;}
-    if(data.pass.length<6){setErroLocal("A senha precisa ter pelo menos 6 caracteres.");return;}
-    if(data.pass!==data.confirmPass){setErroLocal("As senhas não coincidem. Verifique e tente novamente.");return;}
-
-    setValidatingBeta(true);
-    try{
-      const betaCheck=await validateBetaCode(data.betaCode);
-      if(!betaCheck.ok){
-        setErroLocal(betaCheck.error);
-        return;
-      }
-      const normalizedCode=betaCheck.code;
-      setData(d=>({...d,betaCode:normalizedCode}));
-      saveStep1Fields({
-        name:data.name.trim(),
-        email:data.email.trim(),
-        phone:data.phone.trim(),
-        betaCode:normalizedCode,
-      });
-      setStep(1);
-    }catch{
-      setErroLocal("Não foi possível validar o código. Verifique sua conexão.");
-    }finally{
-      setValidatingBeta(false);
-    }
-  };
-
-  return(
-    <div>
-      {/* PASSO 0 — dados básicos */}
-      {step===0&&(
-        <>
-          <button type="button" onClick={onBack} style={{background:"none",border:"none",cursor:"pointer",display:"flex",alignItems:"center",gap:9,marginBottom:16,padding:0,color:"#1E3A8A",fontSize:15,fontWeight:700,fontFamily:"'DM Sans',sans-serif",lineHeight:1.2}}>
-            <ArrowLeftIcon size={18}/>
-            Voltar para o login
-          </button>
-          <Steps/>
-          <div style={{color:C.navy,fontWeight:800,fontSize:18,fontFamily:"'Sora',sans-serif",marginBottom:4}}>Criar sua conta</div>
-          <div style={{color:C.muted,fontSize:12,marginBottom:16}}>Passo 1 de 3 — campos com * são obrigatórios</div>
-          <div style={{display:"flex",flexDirection:"column",gap:12}}>
-            <FloatInput label="Nome completo" value={data.name} onChange={v=>{setData(d=>({...d,name:v}));saveStep1Fields({name:v});setErroLocal("");}} icon={UserIcon} placeholder="Ex: João da Silva"/>
-            <FloatInput label="Código de acesso beta *" value={data.betaCode} onChange={v=>{const c=normalizeBetaCode(v);setData(d=>({...d,betaCode:c}));saveStep1Fields({betaCode:c});setErroLocal("");}} icon={KeyIcon} placeholder="Ex: BETA-LR-001"/>
-            <FloatInput label="E-mail *" value={data.email} onChange={v=>{setData(d=>({...d,email:v}));saveStep1Fields({email:v});setErroLocal("");}} type="email" icon={MailIcon} placeholder="Ex: joao@email.com"/>
-            <div style={{display:"flex",flexDirection:"column",gap:2}}>
-              <FloatInput label="WhatsApp *" value={data.phone} onChange={v=>{setData(d=>({...d,phone:v}));saveStep1Fields({phone:v});setErroLocal("");}} type="tel" icon={PhoneIcon} placeholder="(11) 99999-9999"/>
-              <div style={{display:"flex",alignItems:"center",gap:5,paddingLeft:2}}>
-                <svg width="11" height="11" viewBox="0 0 24 24" fill="#22C55E"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/><path d="M12 0C5.373 0 0 5.373 0 12c0 2.089.537 4.049 1.475 5.757L.057 23.928c-.046.228.13.445.362.445a.42.42 0 00.102-.013l6.345-1.646A11.94 11.94 0 0012 24c6.627 0 12-5.373 12-12S18.627 0 12 0zm0 21.75a9.712 9.712 0 01-4.943-1.349l-.354-.209-3.664.95.982-3.561-.231-.371A9.712 9.712 0 012.25 12C2.25 6.615 6.615 2.25 12 2.25S21.75 6.615 21.75 12 17.385 21.75 12 21.75z"/></svg>
-                <span style={{color:"#64748B",fontSize:11}}>Usado para recuperação de senha e suporte</span>
-              </div>
-            </div>
-            <div>
-              <FloatInput label="Senha" value={data.pass} onChange={v=>{setData(d=>({...d,pass:v}));setErroLocal("");}} type={show?"text":"password"} icon={LockIcon} placeholder="Mínimo 6 caracteres"
-                suffix={<button onClick={()=>setShow(s=>!s)} style={{background:"none",border:"none",cursor:"pointer",color:C.muted,display:"flex"}}>{show?<EyeOffIcon size={14}/>:<EyeIcon size={14}/>}</button>}/>
-              {data.pass.length>0&&data.pass.length<6&&<div style={{color:C.amber,fontSize:12,marginTop:5,paddingLeft:4}}>⚠️ Mínimo 6 caracteres</div>}
-              {data.pass.length>=6&&<div style={{color:C.green,fontSize:12,marginTop:5,paddingLeft:4}}>✓ Senha válida</div>}
-            </div>
-            {/* Confirmar senha */}
-            <div>
-              <FloatInput label="Confirmar senha" value={data.confirmPass} onChange={v=>{setData(d=>({...d,confirmPass:v}));setErroLocal("");}} type={showConfirm?"text":"password"} icon={LockIcon} placeholder="Repita sua senha"
-                suffix={<button onClick={()=>setShowConfirm(s=>!s)} style={{background:"none",border:"none",cursor:"pointer",color:C.muted,display:"flex"}}>{showConfirm?<EyeOffIcon size={14}/>:<EyeIcon size={14}/>}</button>}/>
-              {data.confirmPass.length>0&&data.confirmPass!==data.pass&&<div style={{color:C.red,fontSize:12,marginTop:5,paddingLeft:4}}>❌ As senhas não coincidem</div>}
-              {data.confirmPass.length>0&&data.confirmPass===data.pass&&<div style={{color:C.green,fontSize:12,marginTop:5,paddingLeft:4}}>✓ Senhas conferem</div>}
-            </div>
-          </div>
-          {erroLocal&&<div style={{background:C.redLight,border:`1px solid ${C.red}33`,borderRadius:10,padding:"10px 13px",marginTop:12,color:C.red,fontSize:14,fontWeight:600}}>{erroLocal}</div>}
-          <PrimaryBtn onClick={avancar0} disabled={validatingBeta} style={{width:"100%",marginTop:16,opacity:validatingBeta?0.7:1}}>
-            {validatingBeta?"Validando código...":"Próximo → (1 de 3)"}
-          </PrimaryBtn>
-        </>
-      )}
-
-      {/* PASSO 1 — perfil */}
-      {step===1&&(
-        <>
-          <Steps/>
-          <div style={{color:C.navy,fontWeight:800,fontSize:18,fontFamily:"'Sora',sans-serif",marginBottom:4}}>Qual é o seu perfil?</div>
-          <div style={{color:C.muted,fontSize:12,marginBottom:16}}>Passo 2 de 3 — toque para selecionar</div>
-
-          {/* Botão único que abre modal de seleção */}
-          <button onClick={()=>setShowProfileModal(true)}
-            style={{width:"100%",background:data.profile?PROFILES_A.find(p=>p.id===data.profile)?.bg||C.subtle:C.subtle,border:`2px solid ${data.profile?PROFILES_A.find(p=>p.id===data.profile)?.color||C.border:C.border}`,borderRadius:13,padding:"14px 16px",cursor:"pointer",textAlign:"left",display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,marginBottom:16}}>
-            {data.profile?(
-              <>
-                <div style={{display:"flex",alignItems:"center",gap:12}}>
-                  <span style={{fontSize:26}}>{PROFILES_A.find(p=>p.id===data.profile)?.icon}</span>
-                  <div>
-                    <div style={{color:PROFILES_A.find(p=>p.id===data.profile)?.color,fontWeight:700,fontSize:14}}>{PROFILES_A.find(p=>p.id===data.profile)?.label}</div>
-                    <div style={{color:C.muted,fontSize:12,marginTop:1}}>{PROFILES_A.find(p=>p.id===data.profile)?.desc}</div>
-                  </div>
-                </div>
-                <CheckIcon size={16} color={PROFILES_A.find(p=>p.id===data.profile)?.color}/>
-              </>
-            ):(
-              <>
-                <span style={{color:C.muted,fontSize:14}}>Toque para escolher seu perfil...</span>
-                <ArrowRightIcon size={15} color={C.muted}/>
-              </>
-            )}
-          </button>
-
-          {/* Modal de seleção de perfil */}
-          {showProfileModal&&(
-            <div style={{position:"fixed",inset:0,background:"#00000066",zIndex:700,display:"flex",alignItems:"flex-end",justifyContent:"center"}}>
-              <div style={{background:"#fff",borderRadius:"20px 20px 0 0",width:"100%",maxWidth:480,padding:"24px 20px 36px",boxShadow:"0 -8px 32px #00000033"}}>
-                <div style={{width:36,height:4,background:"#E2E8F0",borderRadius:4,margin:"0 auto 20px"}}/>
-                <div style={{color:C.navy,fontWeight:800,fontSize:16,fontFamily:"'Sora',sans-serif",marginBottom:16,textAlign:"center"}}>Qual é o seu perfil?</div>
-                <div style={{display:"flex",flexDirection:"column",gap:10}}>
-                  {PROFILES_A.map(p=>(
-                    <button key={p.id} onClick={()=>{setData(d=>({...d,profile:p.id}));saveRegisterPrefs({profile:p.id});setShowProfileModal(false);}}
-                      style={{background:data.profile===p.id?p.bg:C.subtle,border:`2px solid ${data.profile===p.id?p.color:C.border}`,borderRadius:13,padding:"13px 16px",cursor:"pointer",textAlign:"left",display:"flex",alignItems:"center",gap:12}}>
-                      <span style={{fontSize:24,width:40,height:40,borderRadius:10,background:p.bg,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{p.icon}</span>
-                      <div style={{flex:1}}>
-                        <div style={{color:data.profile===p.id?p.color:C.text,fontWeight:700,fontSize:14}}>{p.label}</div>
-                        <div style={{color:C.muted,fontSize:12,marginTop:1}}>{p.desc}</div>
-                      </div>
-                      {data.profile===p.id&&<CheckIcon size={16} color={p.color}/>}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {!data.profile&&<div style={{color:C.muted,fontSize:12,textAlign:"center",marginBottom:10}}>👆 Toque no botão acima para escolher</div>}
-          <div style={{display:"flex",gap:9}}>
-            <button onClick={()=>setStep(0)} style={{padding:"11px 13px",background:C.subtle,border:`1.5px solid ${C.border}`,borderRadius:11,cursor:"pointer",color:C.muted,display:"flex"}}><ArrowLeftIcon size={16}/></button>
-            <PrimaryBtn onClick={()=>{if(data.profile)setStep(2);}} style={{flex:1,opacity:data.profile?1:0.5}}>Próximo → (2 de 3)</PrimaryBtn>
-          </div>
-        </>
-      )}
-
-      {/* PASSO 2 — veículo + termos */}
-      {step===2&&(
-        <>
-          <Steps/>
-          <div style={{color:C.navy,fontWeight:800,fontSize:18,fontFamily:"'Sora',sans-serif",marginBottom:4}}>Seu veículo principal</div>
-          <div style={{color:C.muted,fontSize:12,marginBottom:16}}>Passo 3 de 3 — usado nos cálculos automáticos</div>
-          <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:8,marginBottom:14}}>
-            {DEFAULT_VEHICLES.map(v=>{const sel=data.vehicle===v.id;return(
-              <button key={v.id} onClick={()=>{setData(d=>({...d,vehicle:v.id}));saveRegisterPrefs({vehicle:v.id});}}
-                style={{background:sel?C.orangeLight:C.subtle,border:`2px solid ${sel?C.orange:C.border}`,borderRadius:13,padding:"13px 8px",cursor:"pointer",textAlign:"center",transition:"all .15s"}}>
-                <div style={{fontSize:28,marginBottom:4}}>{v.emoji}</div>
-                <div style={{color:sel?C.orange:C.text,fontWeight:700,fontSize:12}}>{v.label}</div>
-                <div style={{color:C.muted,fontSize:10,marginTop:2}}>{v.electric?`${v.kwh} kWh/100km`:`${v.consumption} km/L`}</div>
-                {sel&&<div style={{marginTop:6,display:"inline-block",background:C.orange,borderRadius:20,padding:"2px 8px"}}><span style={{color:"#fff",fontSize:9,fontWeight:800}}>✓ Selecionado</span></div>}
-              </button>
-            );})}
-          </div>
-          {!data.vehicle&&<div style={{color:C.muted,fontSize:12,textAlign:"center",marginBottom:10}}>👆 Toque no seu veículo para continuar</div>}
-
-          {/* Termos — com link clicável */}
-          <label style={{display:"flex",alignItems:"flex-start",gap:10,cursor:"pointer",marginBottom:14,padding:"12px 13px",background:C.subtle,borderRadius:11,border:`1.5px solid ${data.terms?C.orange:C.border}`}}>
-            <button onClick={()=>setData(d=>({...d,terms:!d.terms}))}
-              style={{width:20,height:20,borderRadius:5,border:`2px solid ${data.terms?C.orange:C.border}`,background:data.terms?C.orange:"transparent",cursor:"pointer",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",marginTop:1}}>
-              {data.terms&&<CheckIcon size={11} color="#fff"/>}
-            </button>
-            <span style={{color:C.text2,fontSize:12,lineHeight:1.6}}>
-              Li e aceito os{" "}
-              <span onClick={e=>{e.preventDefault();e.stopPropagation();setShowTerms(true);}} style={{color:C.orange,fontWeight:700,textDecoration:"underline",cursor:"pointer"}}>Termos de Uso</span>
-              {" "}e a{" "}
-              <span onClick={e=>{e.preventDefault();e.stopPropagation();setShowTerms(true);}} style={{color:C.orange,fontWeight:700,textDecoration:"underline",cursor:"pointer"}}>Política de Privacidade</span>
-            </span>
-          </label>
-
-          <div style={{display:"flex",gap:9}}>
-            <button onClick={()=>setStep(1)} style={{padding:"11px 13px",background:C.subtle,border:`1.5px solid ${C.border}`,borderRadius:11,cursor:"pointer",color:C.muted,display:"flex"}}><ArrowLeftIcon size={16}/></button>
-            <PrimaryBtn onClick={()=>{if(data.vehicle&&data.terms&&!registering)finishRegister(data);}} style={{flex:1,opacity:data.vehicle&&data.terms&&!registering?1:0.5}}>
-              {registering?"Criando conta...":"✓ Criar Conta"}
-            </PrimaryBtn>
-          </div>
-          {erroAuth&&<div style={{background:C.redLight,border:`1px solid ${C.red}33`,borderRadius:10,padding:"10px 13px",marginTop:12,color:C.red,fontSize:14,fontWeight:600}}>{erroAuth}</div>}
-          {(!data.vehicle||!data.terms)&&(
-            <div style={{background:C.navyLight,borderRadius:10,padding:"9px 13px",marginTop:10,fontSize:12,color:C.navy,textAlign:"center"}}>
-              {!data.vehicle&&!data.terms?"Selecione o veículo e aceite os termos":!data.vehicle?"Selecione seu veículo para continuar":"Aceite os termos para finalizar"}
-            </div>
-          )}
-        </>
-      )}
-
-      {/* Modal Termos de Uso */}
-      {showTerms&&(
-        <div style={{position:"fixed",inset:0,background:"#00000066",zIndex:700,display:"flex",alignItems:"flex-end",justifyContent:"center",padding:"0 0 0 0"}}>
-          <div style={{background:C.surface,borderRadius:"20px 20px 0 0",width:"100%",maxWidth:480,maxHeight:"80vh",display:"flex",flexDirection:"column",boxShadow:"0 -8px 40px #00000033"}}>
-            <div style={{padding:"20px 22px 14px",borderBottom:`1px solid ${C.border}`,display:"flex",justifyContent:"space-between",alignItems:"center",flexShrink:0}}>
-              <div style={{color:C.navy,fontWeight:800,fontSize:18,fontFamily:"'Sora',sans-serif"}}>📄 Termos de Uso</div>
-              <button onClick={()=>setShowTerms(false)} style={{background:C.subtle,border:`1px solid ${C.border}`,borderRadius:9,padding:7,cursor:"pointer",color:C.muted,display:"flex"}}><XIcon size={15}/></button>
-            </div>
-            <div style={{overflowY:"auto",padding:"18px 22px",display:"flex",flexDirection:"column",gap:14}}>
-              {[
-                {titulo:"1. Sobre o LogRotas",texto:"O LogRotas é um aplicativo de gestão de rotas e fretes desenvolvido para motoristas autônomos, transportadoras e entregadores. O app está em fase de desenvolvimento e os dados são armazenados localmente no dispositivo."},
-                {titulo:"2. Uso dos seus dados",texto:"As informações que você cadastra (nome, e-mail, fretes, despesas) ficam salvas apenas no seu celular enquanto o app estiver aberto. Não coletamos, vendemos ou compartilhamos seus dados com terceiros."},
-                {titulo:"3. Responsabilidade dos cálculos",texto:"Os valores de pedágio, combustível e frete são estimativas baseadas nos dados que você fornece. O LogRotas não se responsabiliza por decisões financeiras tomadas com base nesses cálculos."},
-                {titulo:"4. Uso gratuito",texto:"O LogRotas é oferecido gratuitamente durante o período de testes do aplicativo."},
-                {titulo:"5. Contato",texto:"Dúvidas ou sugestões podem ser enviadas pelo WhatsApp disponível no app. Faremos o possível para responder em até 48 horas."},
-              ].map((t,i)=>(
-                <div key={i}>
-                  <div style={{color:C.navy,fontWeight:700,fontSize:14,marginBottom:5}}>{t.titulo}</div>
-                  <div style={{color:C.text2,fontSize:12,lineHeight:1.7}}>{t.texto}</div>
-                </div>
-              ))}
-            </div>
-            <div style={{padding:"14px 22px 20px",borderTop:`1px solid ${C.border}`,flexShrink:0}}>
-              <PrimaryBtn onClick={()=>{setData(d=>({...d,terms:true}));setShowTerms(false);}} style={{width:"100%"}}>
-                ✓ Li e aceito os Termos
-              </PrimaryBtn>
-            </div>
-          </div>
-        </div>
-      )}
-
     </div>
   );
 };
@@ -7355,7 +6961,7 @@ export default function App(){
     if(!splashDone||!authReady)return;
     if(firebaseUser){
       setScreen("app");
-    }else if(screen!=="register"){
+    }else{
       setScreen("login");
     }
   },[splashDone,authReady,firebaseUser]);
@@ -7411,38 +7017,6 @@ export default function App(){
     setShowFechamento(false);
     setPage("dashboard");
     setScreen("login");
-  };
-
-  // Quando o motorista conclui o cadastro — preenche o perfil e bônus local
-  const handleCadastroConcluido=(dadosCadastro)=>{
-    const profileLabels={
-      caminhoneiro:"Caminhoneiro",
-      guincheiro:"Guincheiro",
-      motoqueiro:"Motoqueiro",
-      outros:"Outros",
-    };
-    setPerfil({
-      nome: dadosCadastro.name||"",
-      email: dadosCadastro.email||"",
-      telefone: dadosCadastro.phone||"",
-      documento: dadosCadastro.documento||"",
-      tipo: profileLabels[dadosCadastro.profile]||"Motorista Autônomo",
-      veiculo: dadosCadastro.vehicle||"",
-    });
-    writePerfilLocalCache({
-      nome: dadosCadastro.name||"",
-      email: dadosCadastro.email||"",
-      telefone: dadosCadastro.phone||"",
-      documento: dadosCadastro.documento||"",
-      tipo: profileLabels[dadosCadastro.profile]||"Motorista Autônomo",
-      veiculo: dadosCadastro.vehicle||"",
-    });
-    // Veículo escolhido no cadastro também é selecionado na calculadora
-    if(dadosCadastro.vehicle){
-      const veh=DEFAULT_VEHICLES.find(v=>v.id===dadosCadastro.vehicle);
-      if(veh) setVehicles(DEFAULT_VEHICLES);
-    }
-    setScreen("app");
   };
 
   const limparTudo=()=>{setConfirmLimpar(true);};
@@ -7536,30 +7110,12 @@ export default function App(){
     </div>
   );}
 
-  if(screen==="login"||screen==="register"){return(
+  if(screen==="login"){return(
     <div style={{minHeight:"100vh",fontFamily:"'DM Sans',sans-serif",background:"linear-gradient(160deg,#1E3A8A 0%,#2952C8 100%)"}}>
       <link href="https://fonts.googleapis.com/css2?family=Sora:wght@700;800;900&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet"/>
       <div style={{position:"relative",zIndex:2,width:"100%",maxWidth:480,margin:"0 auto"}}>
         <div style={{height:3,background:`linear-gradient(90deg,transparent,${C.orange},transparent)`}}/>
-        {screen==="login"
-          ?<LoginScreen onRegister={()=>setScreen("register")}/>
-          :<div style={{padding:"32px 16px 40px"}}>
-            <div style={{textAlign:"center",marginBottom:24}}>
-              <div style={{display:"flex",justifyContent:"center",marginBottom:12}}>
-                <div style={{borderRadius:20,border:"3px solid #EFEFEF",boxShadow:"0 4px 20px #00000033",background:"#EFEFEF",overflow:"hidden",width:96,height:96,display:"flex",alignItems:"center",justifyContent:"center",padding:6}}>
-                  <img src={LOGO_B64} alt="LogRotas" style={{width:"100%",height:"100%",objectFit:"contain",borderRadius:12}}/>
-                </div>
-              </div>
-              <div style={{display:"flex",justifyContent:"center",alignItems:"baseline"}}>
-                <span style={{fontFamily:"'Sora',sans-serif",fontWeight:900,fontSize:28,color:"#fff"}}>Log</span>
-                <span style={{fontFamily:"'Sora',sans-serif",fontWeight:900,fontSize:28,color:C.orange}}>Rotas</span>
-              </div>
-              <div style={{color:"#93C5FD",fontSize:12,marginTop:4}}>Crie sua conta grátis</div>
-            </div>
-            <div style={{background:"#fff",border:`1.5px solid ${C.orange}33`,borderRadius:24,padding:"24px 20px",boxShadow:`0 12px 40px #00000044, 0 0 0 1px ${C.orange}18`}}>
-              <RegisterFlow onDone={handleCadastroConcluido} onBack={()=>setScreen("login")}/>
-            </div>
-          </div>}
+        <LoginScreen/>
       </div>
     </div>
   );}
@@ -7803,7 +7359,7 @@ export default function App(){
                 uiRestoredRef.current=false;
                 setShowCalc(false);setCalcMode(null);setShowFechamento(false);
                 setPage("dashboard");
-                setScreen("register");
+                setScreen("login");
               }} style={{flex:1,padding:"13px",background:C.red,border:"none",borderRadius:12,cursor:"pointer",color:"#fff",fontWeight:700,fontSize:14,display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
                 <Trash2Icon size={14}/> Apagar tudo
               </button>
