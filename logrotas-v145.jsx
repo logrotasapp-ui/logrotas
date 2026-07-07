@@ -139,7 +139,9 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="v306";
+const APP_VERSION="v307";
+const SUPORTE_WHATSAPP=""; // DDI+DDD+número sem símbolos, ex: "5511987654321"
+const SUPORTE_EMAIL="suporte@logrotas.com.br";
 const PEDAGIO_AVISO_RESULTADO="Pedágio estimado pelo Google. Pode haver variação — confirme o valor da praça.";
 const PAGE_SWIPE_ORDER=["dashboard","financeiro","despesas","comparador","manutencao","documentos","perfil"];
 const PAGE_SWIPE_MIN_PX=50;
@@ -155,6 +157,13 @@ const OfflineRestoredBanner=({show})=>show?(
 const montarLinkIndicacao=(whatsappOuId)=>{
   const id=String(whatsappOuId).replace(/\D/g,"")||"usuario";
   return `${BASE_URL}?ref=${id}`;
+};
+
+const montarLinkSuporteWhatsApp=()=>{
+  const texto=`Olá! Preciso de ajuda no LogRotas. (Versão: ${APP_VERSION})`;
+  const num=String(SUPORTE_WHATSAPP||"").replace(/\D/g,"");
+  if(num)return `https://wa.me/${num}?text=${encodeURIComponent(texto)}`;
+  return `https://wa.me/?text=${encodeURIComponent(texto)}`;
 };
 
 // Desative para exibir aviso "Em breve" no banner da tela Início (reativar após beta)
@@ -954,10 +963,6 @@ const LoginScreen=()=>{
           Ainda não tem conta? Crie gratuitamente em{" "}
           <a href="https://logrotas.com.br/cadastro" target="_blank" rel="noopener noreferrer" style={{color:C.orange,fontWeight:600,textDecoration:"underline",textUnderlineOffset:2}}>logrotas.com.br</a>
         </p>
-
-        <div style={{marginTop:18,textAlign:"center",color:"#B0BEC5",fontSize:11}}>
-          Login seguro via Firebase
-        </div>
       </div>
     </div>
   );
@@ -6519,6 +6524,44 @@ const Perfil=({uid,metaMes,setMetaMes,faturamentoMes,saldoLiquidoMes,vehicles,se
 
       {/* FAQ — botão que abre modal */}
       {(()=>{
+        const FAQ_ITENS=[
+          {cat:"🧮 Calculadora",perguntas:[
+            {p:"Qual a diferença entre as duas calculadoras?",r:"A Calculadora de Viagem é para consulta rápida do custo de uma viagem (combustível, pedágio, ARLA) sem salvar. A Calculadora de Rotas + Frete calcula seu frete completo, salva no histórico e gera orçamento pra enviar no WhatsApp."},
+            {p:"Por que meu resultado ficou diferente do esperado?",r:"Confira o consumo do veículo (km/L), o preço do combustível e o número de eixos do caminhão (afeta o pedágio). Pequenas diferenças nesses valores mudam o resultado final."},
+          ]},
+          {cat:"📦 Otimizador de Entregas",perguntas:[
+            {p:"Como importo vários endereços de uma vez?",r:"Toque em \"Tirar foto do romaneio\" ou envie um PDF/foto da galeria — o app lê os endereços automaticamente. Você também pode digitar ou ditar pelo microfone."},
+            {p:"O que é o número do pacote?",r:"É o número da etiqueta da caixa física. O app numera automaticamente na ordem em que os pacotes entram, e esse número nunca muda, mesmo se você reotimizar a rota. Assim você acha a caixa certa no carro. Dá pra editar tocando na parada."},
+            {p:"O que é a \"Ordem de carregamento\"?",r:"É a lista invertida da sua rota: o pacote da última entrega é o primeiro a ser carregado, ficando no fundo do carro. Assim o primeiro a entregar sai por último."},
+            {p:"Preciso otimizar sempre?",r:"Não. Se sua rota já vem pronta (como Shopee ou Amazon), use \"Usar rota como está\" — o app carrega os endereços na ordem original e não gasta suas otimizações."},
+            {p:"O que acontece se eu marcar \"não entregue\"?",r:"Você escolhe o motivo (cliente ausente, recusou, endereço não encontrado ou outro) e a entrega fica registrada, ajudando na sua prestação de contas."},
+          ]},
+          {cat:"🌙 Fechamento do Dia",perguntas:[
+            {p:"Pra que serve o \"Fechar meu dia\"?",r:"É para quem roda em apps. Você registra os km e os ganhos do dia, o app calcula o combustível pelo consumo do seu perfil e mostra seu lucro real, já lançado no Financeiro."},
+            {p:"Qual a diferença entre viagem e jornada?",r:"Viagem (ou Frete) é um trajeto com origem e destino. Jornada é o seu dia de trabalho em apps como Uber e iFood, registrado pelo \"Fechar meu dia\". As duas aparecem juntas em Viagens."},
+          ]},
+          {cat:"💰 Financeiro",perguntas:[
+            {p:"Como meu lucro é calculado?",r:"É a soma dos ganhos de fretes e jornadas do mês, menos os custos das viagens (combustível, pedágio, ARLA), menos manutenções e despesas do mês."},
+            {p:"Por que meu histórico está vazio?",r:"O histórico mostra o mês selecionado. Use \"Anterior\" e \"Próximo\" para navegar entre os meses. Fretes e jornadas só aparecem depois de salvos."},
+            {p:"Como funciona a meta mensal?",r:"Você define uma meta de faturamento no Perfil. A barra mostra quanto já recebeu de fretes e jornadas no mês e quanto falta para bater a meta."},
+          ]},
+          {cat:"🔧 Manutenção e Documentos",perguntas:[
+            {p:"Como funcionam os alertas de manutenção?",r:"Ao registrar uma manutenção, você informa o km atual e o app calcula quando será a próxima, avisando você quando estiver chegando perto."},
+            {p:"O app guarda meus documentos?",r:"O app não guarda arquivos. Você cadastra as datas de vencimento (CNH, CRLV, Seguro) e recebe alertas: vermelho quando falta até 30 dias, amarelo até 60 dias, verde quando está em dia."},
+          ]},
+          {cat:"📋 Checklist de Veículo",perguntas:[
+            {p:"O que é o Checklist de veículo?",r:"É uma vistoria com fotos e assinatura, em duas etapas (coleta e entrega), que gera um PDF pra proteger você e o cliente. A etapa de entrega só libera depois que a coleta estiver completa."},
+          ]},
+          {cat:"👤 Conta",perguntas:[
+            {p:"Como recupero minha senha?",r:"Na tela de login, toque em \"Esqueci minha senha\" e siga as instruções enviadas para o seu e-mail cadastrado."},
+            {p:"Como altero meus dados?",r:"Vá em Perfil > Meus Dados > Editar. Você pode atualizar nome, empresa, telefone e outros dados a qualquer momento."},
+            {p:"Como crio uma conta?",r:"As contas são criadas no site logrotas.com.br. Na tela de login do app, toque no link \"Crie gratuitamente em logrotas.com.br\". Depois de criar, é só entrar no app com seu e-mail e senha."},
+          ]},
+          {cat:"📱 Suporte",perguntas:[
+            {p:"Como falo com o suporte?",r:"Toque no botão de suporte abaixo para falar com a gente pelo WhatsApp, ou envie um e-mail para suporte@logrotas.com.br. Respondemos o mais rápido possível."},
+          ]},
+        ];
+        const totalFaq=FAQ_ITENS.reduce((n,c)=>n+c.perguntas.length,0);
         const[showFaq,setShowFaq]=useState(false);
         const[open,setOpen]=useState(null);
         return(<>
@@ -6530,7 +6573,7 @@ const Perfil=({uid,metaMes,setMetaMes,faturamentoMes,saldoLiquidoMes,vehicles,se
               </div>
               <div style={{textAlign:"left"}}>
                 <div style={{color:C.navy,fontWeight:700,fontSize:14}}>Ajuda & Perguntas Frequentes</div>
-                <div style={{color:C.muted,fontSize:11,marginTop:1}}>8 perguntas respondidas</div>
+                <div style={{color:C.muted,fontSize:11,marginTop:1}}>{totalFaq} perguntas respondidas</div>
               </div>
             </div>
             <ArrowRightIcon size={15} color={C.navy}/>
@@ -6540,24 +6583,7 @@ const Perfil=({uid,metaMes,setMetaMes,faturamentoMes,saldoLiquidoMes,vehicles,se
             <ModalWrap maxW={480}>
               <ModalHeader title="Ajuda & FAQ" icon={InfoIcon} iconColor={C.navy} onClose={()=>{setShowFaq(false);setOpen(null);}}/>
               <div style={{display:"flex",flexDirection:"column",gap:16}}>
-                {[
-                  {cat:"🧮 Calculadora",perguntas:[
-                    {p:"Qual a diferença entre as duas calculadoras?",r:"A Calculadora de Viagem é para consultas rápidas — combustível e pedágio. A Calculadora de Rotas + Frete é completa para profissionais — calcula frete, lucro, ARLA 32 e salva no histórico."},
-                    {p:"Por que meu resultado ficou diferente do esperado?",r:"Verifique o consumo km/L do seu veículo, o número de praças de pedágio e o preço do combustível. Esses três campos são os que mais impactam o resultado."},
-                  ]},
-                  {cat:"💰 Financeiro",perguntas:[
-                    {p:"Como meu lucro é calculado?",r:"Lucro = Valor cobrado do cliente − Custo total da viagem (combustível + pedágio + ARLA). Quanto maior seu valor por km e menor o custo, maior o lucro."},
-                    {p:"Por que meu histórico está vazio?",r:"O histórico só é preenchido quando você salva um frete como 'Já foi realizado'. Fretes marcados como 'Planejamento' não aparecem no histórico."},
-                    {p:"Como funciona a meta mensal?",r:"Você define um valor alvo no Perfil. O app acompanha automaticamente quanto você já recebeu com base nos fretes salvos no mês atual."},
-                  ]},
-                  {cat:"👤 Conta",perguntas:[
-                    {p:"Como recuperar minha senha?",r:"Na tela de login toque em 'Esqueci minha senha' e escolha recuperar pelo WhatsApp. Nossa equipe irá te atender e redefinir o acesso."},
-                    {p:"Como alterar meus dados?",r:"Acesse a aba Perfil e role até 'Dados do Perfil'. Toque em qualquer campo para editar e salve as alterações."},
-                  ]},
-                  {cat:"📲 Suporte",perguntas:[
-                    {p:"Como falar com o suporte?",r:"Entre em contato pelo WhatsApp de recuperação de senha na tela de login. Nossa equipe responde em até 24 horas nos dias úteis."},
-                  ]},
-                ].map((cat,ci)=>(
+                {FAQ_ITENS.map((cat,ci)=>(
                   <div key={ci}>
                     <div style={{color:C.navy,fontWeight:700,fontSize:13,marginBottom:8}}>{cat.cat}</div>
                     {cat.perguntas.map((item,pi)=>(
@@ -6576,6 +6602,20 @@ const Perfil=({uid,metaMes,setMetaMes,faturamentoMes,saldoLiquidoMes,vehicles,se
                     ))}
                   </div>
                 ))}
+
+                <div style={{padding:"16px",background:C.greenLight,border:`1.5px solid ${C.green}33`,borderRadius:13}}>
+                  <div style={{color:C.navy,fontWeight:700,fontSize:14,marginBottom:4}}>📱 Falar com o suporte</div>
+                  <div style={{color:C.muted,fontSize:12,marginBottom:12,lineHeight:1.5}}>Não encontrou sua resposta? Entre em contato com nossa equipe.</div>
+                  <a href={montarLinkSuporteWhatsApp()} target="_blank" rel="noopener noreferrer"
+                    style={{display:"flex",alignItems:"center",justifyContent:"center",gap:8,width:"100%",padding:"12px 16px",marginBottom:10,background:"#25D366",border:"none",borderRadius:12,cursor:"pointer",color:"#fff",fontWeight:700,fontSize:14,textDecoration:"none",boxShadow:"0 4px 12px #25D36644"}}>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="#fff" aria-hidden="true"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/><path d="M12 0C5.373 0 0 5.373 0 12c0 2.089.537 4.049 1.475 5.757L.057 23.928c-.046.228.13.445.362.445a.42.42 0 00.102-.013l6.345-1.646A11.94 11.94 0 0012 24c6.627 0 12-5.373 12-12S18.627 0 12 0zm0 21.75a9.712 9.712 0 01-4.943-1.349l-.354-.209-3.664.95.982-3.561-.231-.371A9.712 9.712 0 012.25 12C2.25 6.615 6.615 2.25 12 2.25S21.75 6.615 21.75 12 17.385 21.75 12 21.75z"/></svg>
+                    Falar no WhatsApp
+                  </a>
+                  <div style={{textAlign:"center",fontSize:13,color:C.muted}}>
+                    ou envie um e-mail para{" "}
+                    <a href={`mailto:${SUPORTE_EMAIL}`} style={{color:C.orange,fontWeight:600,textDecoration:"underline",textUnderlineOffset:2}}>{SUPORTE_EMAIL}</a>
+                  </div>
+                </div>
               </div>
             </ModalWrap>
           )}
