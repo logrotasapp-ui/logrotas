@@ -139,7 +139,7 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="v308";
+const APP_VERSION="v309";
 const SUPORTE_EMAIL="suporte@logrotas.com.br";
 const PEDAGIO_AVISO_RESULTADO="Pedágio estimado pelo Google. Pode haver variação — confirme o valor da praça.";
 const PAGE_SWIPE_ORDER=["dashboard","financeiro","despesas","comparador","manutencao","documentos","perfil"];
@@ -5964,327 +5964,14 @@ const Financeiro=({historicoFretes,manutencoes,despesas=[],jornadas=[]})=>{
   );
 };
 
-// ── ASSINATURA ────────────────────────────────────────────────────────────────
-// ── PAINEL ADMIN ──────────────────────────────────────────────────────────────
-const AdminPanel=({onClose,historicoFretes,docs,perfil,despesas,manutencoes})=>{
-  const[senha,setSenha]=useState("");
-  const[showSenha,setShowSenha]=useState(false);
-  const[autenticado,setAutenticado]=useState(false);
-  const[abaAdmin,setAbaAdmin]=useState("dashboard");
-  const SENHA_ADMIN="logrotas2026";
-
-  const USUARIOS_DEMO=[
-    {nome:perfil.nome||"Marcos",email:perfil.email||"marcos@gmail.com",whatsapp:perfil.telefone||"(11) 98765-4321",tipo:perfil.tipo||"Caminhoneiro",plano:"Gratuito",acesso:"Hoje",fretes:historicoFretes.length},
-    {nome:"João Silva",email:"joao@gmail.com",whatsapp:"(21) 99876-5432",tipo:"Motoqueiro",plano:"Pro",acesso:"Ontem",fretes:12},
-    {nome:"Ana Costa",email:"ana@gmail.com",whatsapp:"(31) 97654-3210",tipo:"Guincheiro",plano:"Pro",acesso:"2 dias",fretes:8},
-    {nome:"Pedro Santos",email:"pedro@gmail.com",whatsapp:"(41) 96543-2109",tipo:"Caminhoneiro",plano:"Gratuito",acesso:"1 semana",fretes:3},
-  ];
-
-  const stats={
-    totalUsuarios:USUARIOS_DEMO.length,
-    usuariosAtivos:3,
-    totalFretes:USUARIOS_DEMO.reduce((a,u)=>a+u.fretes,0)+historicoFretes.length,
-    assinantes:USUARIOS_DEMO.filter(u=>u.plano==="Pro").length,
-    receitaMensal:USUARIOS_DEMO.filter(u=>u.plano==="Pro").length*9.90,
-    taxaConversao:Math.round((USUARIOS_DEMO.filter(u=>u.plano==="Pro").length/USUARIOS_DEMO.length)*100),
-  };
-
-  if(!autenticado) return(
-    <div style={{position:"fixed",inset:0,background:"#0F1E2E",zIndex:900,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
-      <div style={{background:"#fff",borderRadius:20,width:"100%",maxWidth:360,padding:28,textAlign:"center"}}>
-        <div style={{fontSize:40,marginBottom:12}}>🔐</div>
-        <div style={{color:C.navy,fontWeight:800,fontSize:18,fontFamily:"'Sora',sans-serif",marginBottom:6}}>Painel Admin</div>
-        <div style={{color:C.muted,fontSize:13,marginBottom:20}}>Acesso restrito ao proprietário do LogRotas</div>
-        <div style={{display:"flex",alignItems:"center",background:C.subtle,border:"1.5px solid "+C.border,borderRadius:10,overflow:"hidden",marginBottom:4}}>
-          <input type={showSenha?"text":"password"} value={senha} onChange={e=>setSenha(e.target.value)} placeholder="Digite a senha admin"
-            style={{flex:1,background:"transparent",border:"none",outline:"none",color:C.text,padding:"10px 12px",fontSize:14}}/>
-          <button onClick={()=>setShowSenha(s=>!s)} style={{background:"none",border:"none",cursor:"pointer",padding:"0 12px",color:C.muted,display:"flex",alignItems:"center"}}>
-            {showSenha?<EyeOffIcon size={16}/>:<EyeIcon size={16}/>}
-          </button>
-        </div>
-        {senha.length>0&&senha!==SENHA_ADMIN&&<div style={{color:C.red,fontSize:12,marginTop:6}}>❌ Senha incorreta</div>}
-        <div style={{display:"flex",gap:10,marginTop:16}}>
-          <button onClick={onClose} style={{flex:1,padding:"12px",background:C.subtle,border:`1px solid ${C.border}`,borderRadius:11,cursor:"pointer",color:C.text2,fontWeight:600,fontSize:13}}>Cancelar</button>
-          <button onClick={()=>{if(senha===SENHA_ADMIN)setAutenticado(true);}}
-            style={{flex:1,padding:"12px",background:`linear-gradient(135deg,${C.navy},${C.navyMid})`,border:"none",borderRadius:11,cursor:"pointer",color:"#fff",fontWeight:700,fontSize:13}}>
-            Entrar
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-
-  return(
-    <div style={{position:"fixed",inset:0,background:"#0F1E2E",zIndex:900,overflowY:"auto"}}>
-      {/* Header admin */}
-      <div style={{background:`linear-gradient(135deg,${C.navy},${C.navyMid})`,padding:"16px 20px",display:"flex",justifyContent:"space-between",alignItems:"center",position:"sticky",top:0,zIndex:10}}>
-        <div>
-          <div style={{color:"#fff",fontWeight:800,fontSize:16,fontFamily:"'Sora',sans-serif"}}>🛡️ Painel Admin</div>
-          <div style={{color:"#93C5FD",fontSize:11,marginTop:1}}>LogRotas — Área restrita</div>
-        </div>
-        <button onClick={onClose} style={{background:"#ffffff22",border:"1px solid #ffffff33",borderRadius:10,padding:"6px 14px",cursor:"pointer",color:"#fff",fontWeight:600,fontSize:13}}>Sair</button>
-      </div>
-
-      {/* Abas admin — deslizantes */}
-      <div style={{background:`${C.navy}EE`,display:"flex",overflowX:"auto",padding:"0 8px",borderBottom:"1px solid #ffffff15",scrollbarWidth:"none"}}>
-        {[{id:"dashboard",label:"📊 Dashboard"},{id:"usuarios",label:"👤 Usuários"},{id:"stats",label:"📈 Estatísticas"},{id:"calculadora",label:"🧮 Calculadora"}].map(a=>(
-          <button key={a.id} onClick={()=>setAbaAdmin(a.id)}
-            style={{padding:"11px 16px",background:"none",border:"none",cursor:"pointer",color:abaAdmin===a.id?"#fff":"#93C5FD",fontWeight:abaAdmin===a.id?700:400,fontSize:12,borderBottom:abaAdmin===a.id?`2px solid ${C.orange}`:"2px solid transparent",whiteSpace:"nowrap",flexShrink:0}}>
-            {a.label}
-          </button>
-        ))}
-      </div>
-
-      <div style={{padding:"20px 16px",display:"flex",flexDirection:"column",gap:14}}>
-
-        {/* DASHBOARD */}
-        {abaAdmin==="dashboard"&&(<>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
-            {[
-              {emoji:"👥",label:"Total usuários",valor:stats.totalUsuarios,cor:"#3B82F6"},
-              {emoji:"🟢",label:"Ativos hoje",valor:stats.usuariosAtivos,cor:C.green},
-              {emoji:"🚛",label:"Fretes calculados",valor:stats.totalFretes,cor:C.orange},
-              {emoji:"💳",label:"Assinantes Pro",valor:stats.assinantes,cor:"#8B5CF6"},
-              {emoji:"💰",label:"Receita mensal",valor:`R$ ${stats.receitaMensal.toFixed(2)}`,cor:C.green},
-              {emoji:"📊",label:"Taxa conversão",valor:`${stats.taxaConversao}%`,cor:C.navy},
-            ].map((s,i)=>(
-              <div key={i} style={{background:"#fff",borderRadius:14,padding:"14px",boxShadow:"0 2px 8px #00000022"}}>
-                <div style={{fontSize:22,marginBottom:6}}>{s.emoji}</div>
-                <div style={{color:"#64748B",fontSize:11,marginBottom:3}}>{s.label}</div>
-                <div style={{color:s.cor,fontWeight:800,fontSize:20,fontFamily:"'Sora',sans-serif"}}>{s.valor}</div>
-              </div>
-            ))}
-          </div>
-
-          {/* Páginas mais usadas */}
-          <div style={{background:"#fff",borderRadius:14,padding:"16px",boxShadow:"0 2px 8px #00000022"}}>
-            <div style={{color:C.navy,fontWeight:700,fontSize:14,marginBottom:12}}>📱 Páginas mais acessadas</div>
-            {[
-              {nome:"Calculadora de Frete",pct:45,cor:C.orange},
-              {nome:"Dashboard",pct:25,cor:C.navy},
-              {nome:"Histórico de Fretes",pct:15,cor:C.green},
-              {nome:"Financeiro",pct:10,cor:"#8B5CF6"},
-              {nome:"Perfil",pct:5,cor:C.muted},
-            ].map((p,i)=>(
-              <div key={i} style={{marginBottom:10}}>
-                <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
-                  <span style={{color:C.text2,fontSize:12}}>{p.nome}</span>
-                  <span style={{color:p.cor,fontWeight:700,fontSize:12}}>{p.pct}%</span>
-                </div>
-                <div style={{background:C.border,borderRadius:4,height:6}}>
-                  <div style={{background:p.cor,width:`${p.pct}%`,height:"100%",borderRadius:4}}/>
-                </div>
-              </div>
-            ))}
-          </div>
-        </>)}
-
-        {/* USUÁRIOS */}
-        {abaAdmin==="usuarios"&&(
-          <div style={{display:"flex",flexDirection:"column",gap:10}}>
-            {USUARIOS_DEMO.map((u,i)=>(
-              <div key={i} style={{background:"#fff",borderRadius:14,padding:"14px 16px",boxShadow:"0 2px 8px #00000022"}}>
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}>
-                  <div style={{display:"flex",alignItems:"center",gap:10}}>
-                    <div style={{width:36,height:36,borderRadius:"50%",background:`linear-gradient(135deg,${C.navy},${C.navyMid})`,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:800,fontSize:14,flexShrink:0}}>
-                      {u.nome.charAt(0)}
-                    </div>
-                    <div>
-                      <div style={{color:C.navy,fontWeight:700,fontSize:14}}>{u.nome}</div>
-                      <div style={{color:C.muted,fontSize:11}}>{u.tipo} · {u.acesso}</div>
-                    </div>
-                  </div>
-                  <span style={{background:u.plano==="Pro"?C.orangeLight:C.subtle,color:u.plano==="Pro"?C.orange:C.muted,fontSize:10,fontWeight:700,padding:"3px 8px",borderRadius:20}}>{u.plano}</span>
-                </div>
-                <div style={{display:"flex",flexDirection:"column",gap:3,marginBottom:10}}>
-                  <div style={{color:C.muted,fontSize:11}}>📧 {u.email}</div>
-                  <div style={{color:C.muted,fontSize:11}}>🚛 {u.fretes} fretes salvos</div>
-                </div>
-                <a href={`https://wa.me/${u.whatsapp.replace(/\D/g,"")}?text=Olá ${u.nome}! Aqui é o suporte do LogRotas. Como posso te ajudar?`}
-                  target="_blank" rel="noreferrer"
-                  style={{display:"flex",alignItems:"center",justifyContent:"center",gap:6,background:"#22C55E",borderRadius:10,padding:"8px 0",textDecoration:"none"}}>
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="white"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/><path d="M12 0C5.373 0 0 5.373 0 12c0 2.089.537 4.049 1.475 5.757L.057 23.928c-.046.228.13.445.362.445a.42.42 0 00.102-.013l6.345-1.646A11.94 11.94 0 0012 24c6.627 0 12-5.373 12-12S18.627 0 12 0zm0 21.75a9.712 9.712 0 01-4.943-1.349l-.354-.209-3.664.95.982-3.561-.231-.371A9.712 9.712 0 012.25 12C2.25 6.615 6.615 2.25 12 2.25S21.75 6.615 21.75 12 17.385 21.75 12 21.75z"/></svg>
-                  <span style={{color:"#fff",fontSize:12,fontWeight:700}}>Contatar via WhatsApp</span>
-                </a>
-                <a href={`https://wa.me/${u.whatsapp.replace(/\D/g,"")}?text=Olá ${u.nome}! Sua senha de acesso ao LogRotas foi redefinida. Use a senha temporária: *LogRotas2024*. Acesse o app e redefina após o primeiro login.`}
-                  target="_blank" rel="noreferrer"
-                  style={{display:"flex",alignItems:"center",justifyContent:"center",gap:6,background:"#EFF6FF",border:"1.5px solid #BFDBFE",borderRadius:10,padding:"8px 0",textDecoration:"none",marginTop:6}}>
-                  <LockIcon size={14} color="#1D4ED8"/>
-                  <span style={{color:"#1D4ED8",fontSize:12,fontWeight:700}}>Recuperar senha via WhatsApp</span>
-                </a>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* CALCULADORA */}
-        {abaAdmin==="calculadora"&&(
-          <div style={{display:"flex",flexDirection:"column",gap:12}}>
-
-            {/* Uso geral */}
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
-              {[
-                {emoji:"🚗",label:"Calc. Viagem",valor:"127",desc:"cálculos realizados",cor:"#3B82F6"},
-                {emoji:"🚛",label:"Calc. Frete",valor:"284",desc:"cálculos realizados",cor:C.orange},
-                {emoji:"📊",label:"Mais usada",valor:"Frete",desc:"69% das consultas",cor:C.navy},
-                {emoji:"🔄",label:"Conversão",valor:"34%",desc:"viagem → frete",cor:C.green},
-              ].map((s,i)=>(
-                <div key={i} style={{background:"#fff",borderRadius:14,padding:"14px",boxShadow:"0 2px 8px #00000022"}}>
-                  <div style={{fontSize:22,marginBottom:6}}>{s.emoji}</div>
-                  <div style={{color:"#64748B",fontSize:11,marginBottom:2}}>{s.label}</div>
-                  <div style={{color:s.cor,fontWeight:800,fontSize:20,fontFamily:"'Sora',sans-serif"}}>{s.valor}</div>
-                  <div style={{color:C.muted,fontSize:10,marginTop:2}}>{s.desc}</div>
-                </div>
-              ))}
-            </div>
-
-            {/* Veículos mais usados */}
-            <div style={{background:"#fff",borderRadius:14,padding:"16px",boxShadow:"0 2px 8px #00000022"}}>
-              <div style={{color:C.navy,fontWeight:700,fontSize:14,marginBottom:12}}>🚗 Veículos mais escolhidos</div>
-              {[
-                {emoji:"🚛",nome:"Caminhão",pct:42,cor:C.orange},
-                {emoji:"🚗",nome:"Carro",pct:28,cor:"#3B82F6"},
-                {emoji:"🏍️",nome:"Moto",pct:18,cor:C.green},
-                {emoji:"🚙",nome:"Carro Elétrico",pct:8,cor:"#8B5CF6"},
-                {emoji:"🪝",nome:"Com Carretinha",pct:4,cor:C.navy},
-              ].map((v,i)=>(
-                <div key={i} style={{marginBottom:10}}>
-                  <div style={{display:"flex",justifyContent:"space-between",marginBottom:4,alignItems:"center"}}>
-                    <span style={{color:C.text2,fontSize:12}}>{v.emoji} {v.nome}</span>
-                    <span style={{color:v.cor,fontWeight:700,fontSize:12}}>{v.pct}%</span>
-                  </div>
-                  <div style={{background:C.border,borderRadius:4,height:6}}>
-                    <div style={{background:v.cor,width:`${v.pct}%`,height:"100%",borderRadius:4}}/>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            {/* Métricas de distância e combustível */}
-            <div style={{background:"#fff",borderRadius:14,padding:"16px",boxShadow:"0 2px 8px #00000022"}}>
-              <div style={{color:C.navy,fontWeight:700,fontSize:14,marginBottom:12}}>📏 Médias das rotas</div>
-              {[
-                {label:"Distância média por rota",valor:"287 km",emoji:"📍"},
-                {label:"Maior distância calculada",valor:"1.842 km",emoji:"🗺️"},
-                {label:"% rotas ida e volta",valor:"38%",emoji:"🔄"},
-                {label:"% com parada intermediária",valor:"22%",emoji:"📌"},
-                {label:"Praças de pedágio (média)",valor:"3,4 praças",emoji:"🏁"},
-              ].map((m,i,arr)=>(
-                <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"9px 0",borderBottom:i<arr.length-1?`1px solid ${C.border}`:"none"}}>
-                  <span style={{color:C.text2,fontSize:12}}>{m.emoji} {m.label}</span>
-                  <span style={{color:C.navy,fontWeight:700,fontSize:13}}>{m.valor}</span>
-                </div>
-              ))}
-            </div>
-
-            {/* Índice de preço de combustível — dado estratégico */}
-            <div style={{background:"#fff",border:`1.5px solid ${C.orange}33`,borderRadius:14,padding:"16px",boxShadow:"0 2px 8px #00000022"}}>
-              <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12}}>
-                <span style={{fontSize:18}}>⛽</span>
-                <div>
-                  <div style={{color:C.navy,fontWeight:700,fontSize:14}}>Índice de Preço de Combustível</div>
-                  <div style={{color:C.orange,fontSize:11,fontWeight:600}}>⭐ Dado estratégico exclusivo do LogRotas</div>
-                </div>
-              </div>
-              {[
-                {tipo:"Gasolina",media:"R$ 6,42/L",variacao:"+0,08",tendencia:"📈"},
-                {tipo:"Diesel",media:"R$ 6,18/L",variacao:"-0,03",tendencia:"📉"},
-                {tipo:"Etanol",media:"R$ 4,87/L",variacao:"+0,12",tendencia:"📈"},
-                {tipo:"Energia (kWh)",media:"R$ 1,82/kWh",variacao:"—",tendencia:"➡️"},
-              ].map((c,i,arr)=>(
-                <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:i<arr.length-1?`1px solid ${C.border}`:"none"}}>
-                  <span style={{color:C.text2,fontSize:12}}>{c.tendencia} {c.tipo}</span>
-                  <div style={{textAlign:"right"}}>
-                    <div style={{color:C.navy,fontWeight:700,fontSize:13}}>{c.media}</div>
-                    <div style={{color:c.variacao.startsWith("+")?C.red:c.variacao.startsWith("-")?C.green:C.muted,fontSize:10}}>{c.variacao} vs mês anterior</div>
-                  </div>
-                </div>
-              ))}
-              <div style={{marginTop:10,background:C.orangeLight,borderRadius:8,padding:"8px 10px"}}>
-                <div style={{color:C.orange,fontSize:11,fontWeight:600}}>💡 Insight</div>
-                <div style={{color:"#92400E",fontSize:11,marginTop:2,lineHeight:1.5}}>Com 5.000 usuários este índice se torna um produto de dados vendável para postos, fintechs e transportadoras. Valor estimado: R$ 2.000–R$ 8.000/mês por assinante corporativo.</div>
-              </div>
-            </div>
-
-            {/* Horários de pico */}
-            <div style={{background:"#fff",borderRadius:14,padding:"16px",boxShadow:"0 2px 8px #00000022"}}>
-              <div style={{color:C.navy,fontWeight:700,fontSize:14,marginBottom:12}}>🕐 Horários de pico de uso</div>
-              {[
-                {hora:"06h–09h",pct:32,label:"Início da jornada"},
-                {hora:"11h–13h",pct:24,label:"Almoço / pausa"},
-                {hora:"14h–17h",pct:28,label:"Tarde produtiva"},
-                {hora:"19h–22h",pct:16,label:"Planejamento noturno"},
-              ].map((h,i)=>(
-                <div key={i} style={{marginBottom:10}}>
-                  <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
-                    <span style={{color:C.text2,fontSize:12}}>⏰ {h.hora} — {h.label}</span>
-                    <span style={{color:C.navy,fontWeight:700,fontSize:12}}>{h.pct}%</span>
-                  </div>
-                  <div style={{background:C.border,borderRadius:4,height:5}}>
-                    <div style={{background:`linear-gradient(90deg,${C.navy},${C.navyMid})`,width:`${h.pct}%`,height:"100%",borderRadius:4}}/>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            {/* Aviso dados simulados */}
-            <div style={{background:"#FFF8F4",border:`1.5px solid ${C.orange}33`,borderRadius:12,padding:"12px 14px"}}>
-              <div style={{color:C.orange,fontWeight:700,fontSize:12,marginBottom:4}}>⚠️ Dados simulados</div>
-              <div style={{color:C.muted,fontSize:11,lineHeight:1.5}}>Após integrar o Firebase, todas as métricas serão calculadas em tempo real com dados reais dos seus usuários.</div>
-            </div>
-          </div>
-        )}
-
-        {abaAdmin==="stats"&&(
-          <div style={{display:"flex",flexDirection:"column",gap:12}}>
-            <div style={{background:"#fff",borderRadius:14,padding:"16px",boxShadow:"0 2px 8px #00000022"}}>
-              <div style={{color:C.navy,fontWeight:700,fontSize:14,marginBottom:12}}>💰 Projeção de Receita</div>
-              {[
-                {label:"Este mês",valor:`R$ ${stats.receitaMensal.toFixed(2)}`,desc:"com assinantes atuais"},
-                {label:"Com 500 usuários Pro",valor:"R$ 4.950,00",desc:"projeção de crescimento"},
-                {label:"Com 2.000 usuários Pro",valor:"R$ 19.800,00",desc:"meta de longo prazo"},
-                {label:"Com 10.000 usuários Pro",valor:"R$ 99.000,00",desc:"visão de longo prazo"},
-              ].map((r,i)=>(
-                <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 0",borderBottom:i<3?`1px solid ${C.border}`:"none"}}>
-                  <div><div style={{color:C.text,fontSize:13,fontWeight:600}}>{r.label}</div><div style={{color:C.muted,fontSize:11}}>{r.desc}</div></div>
-                  <div style={{color:C.green,fontWeight:800,fontSize:15,fontFamily:"'Sora',sans-serif"}}>{r.valor}</div>
-                </div>
-              ))}
-            </div>
-            <div style={{background:"#fff",borderRadius:14,padding:"16px",boxShadow:"0 2px 8px #00000022"}}>
-              <div style={{color:C.navy,fontWeight:700,fontSize:14,marginBottom:12}}>📊 Dados do App</div>
-              {[
-                {label:"Fretes salvos total",valor:String(stats.totalFretes)},
-                {label:"Documentos cadastrados",valor:String(docs.length)},
-                {label:"Despesas registradas",valor:String(despesas.length)},
-                {label:"Manutenções registradas",valor:String(manutencoes.length)},
-              ].map((d,i,arr)=>(
-                <div key={i} style={{display:"flex",justifyContent:"space-between",padding:"9px 0",borderBottom:i<arr.length-1?`1px solid ${C.border}`:"none"}}>
-                  <span style={{color:C.text2,fontSize:13}}>{d.label}</span>
-                  <span style={{color:C.navy,fontWeight:700,fontSize:13}}>{d.valor}</span>
-                </div>
-              ))}
-            </div>
-            <div style={{background:"#FFF8F4",border:`1.5px solid ${C.orange}33`,borderRadius:14,padding:"14px 16px"}}>
-              <div style={{color:C.orange,fontWeight:700,fontSize:13,marginBottom:6}}>⚠️ Nota importante</div>
-              <div style={{color:C.muted,fontSize:12,lineHeight:1.6}}>Os dados de usuários são simulados. Após integrar o Firebase, este painel mostrará dados reais em tempo real.</div>
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-};
-
 // ── PERFIL ────────────────────────────────────────────────────────────────────
-const Perfil=({uid,metaMes,setMetaMes,faturamentoMes,saldoLiquidoMes,vehicles,setVehicles,perfil,setPerfil,onLimpar,onAdmin})=>{
+const Perfil=({uid,metaMes,setMetaMes,faturamentoMes,saldoLiquidoMes,vehicles,setVehicles,perfil,setPerfil,onLimpar})=>{
   const[editMode,setEditMode]=useState(false);
   const[loadingPerfil,setLoadingPerfil]=useState(false);
   const[editandoMeta,setEditandoMeta]=useState(false);
   const[draftMeta,setDraftMeta]=useState(String(metaMes));
   const[editVeh,setEditVeh]=useState(null);
   const[editVehVals,setEditVehVals]=useState({});
-  const[tapCount,setTapCount]=useState(0);
   const pct=metaMes>0?Math.min((faturamentoMes/metaMes)*100,100):0;
   const falta=metaMes>0?Math.max(metaMes-faturamentoMes,0):0;
   const atingiu=faturamentoMes>=metaMes&&metaMes>0;
@@ -6303,8 +5990,6 @@ const Perfil=({uid,metaMes,setMetaMes,faturamentoMes,saldoLiquidoMes,vehicles,se
     writeVehiclesLocalCache(next);
     return next;
   });setEditVeh(null);};
-
-  const tapTimer=useRef(null);
 
   useEffect(()=>{
     if(!uid)return;
@@ -6340,26 +6025,9 @@ const Perfil=({uid,metaMes,setMetaMes,faturamentoMes,saldoLiquidoMes,vehicles,se
     setEditMode(e=>!e);
   };
 
-  const handleTitleTap=()=>{
-    const next=tapCount+1;
-    setTapCount(next);
-    if(tapTimer.current)clearTimeout(tapTimer.current);
-    if(next>=5){setTapCount(0);onAdmin();}
-    else{tapTimer.current=setTimeout(()=>setTapCount(0),3000);}
-  };
-
   return(
     <div style={{display:"flex",flexDirection:"column",gap:18}}>
-      <div onClick={handleTitleTap} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 0",cursor:"default",userSelect:"none"}}>
-        <h1 style={{color:C.navy,fontSize:22,fontWeight:900,fontFamily:"'Sora',sans-serif",margin:0}}>Meu Perfil</h1>
-        {tapCount>0&&tapCount<5&&(
-          <div style={{display:"flex",gap:3}}>
-            {Array.from({length:5}).map((_,i)=>(
-              <div key={i} style={{width:6,height:6,borderRadius:"50%",background:i<tapCount?C.orange:C.border,transition:"background .15s"}}/>
-            ))}
-          </div>
-        )}
-      </div>
+      <h1 style={{color:C.navy,fontSize:22,fontWeight:900,fontFamily:"'Sora',sans-serif",margin:0,padding:"8px 0"}}>Meu Perfil</h1>
 
       {/* META DO MÊS — integrada com histórico de fretes */}
       <div style={{background:`linear-gradient(135deg,${C.navy},${C.navyMid})`,borderRadius:18,padding:"22px 24px",boxShadow:`0 6px 24px ${C.navy}44`}}>
@@ -7112,7 +6780,6 @@ export default function App(){
   const limparTudo=()=>{setConfirmLimpar(true);};
   const[confirmLimpar,setConfirmLimpar]=useState(false);
   const[showNotif,setShowNotif]=useState(false);
-  const[showAdmin,setShowAdmin]=useState(false);
   const[navBanner,setNavBanner]=useState(()=>{
     const nav=readNavigationSession();
     return nav?.active?nav:null;
@@ -7244,7 +6911,7 @@ export default function App(){
         {page==="comparador"  &&<Comparador historicoFretes={historicoFretes} jornadas={jornadas} onAddFrete={handleAddFrete} onUpdateFrete={handleUpdateFrete} onDeleteFrete={handleDeleteFrete} onUpdateJornada={handleUpdateJornada} onDeleteJornada={handleDeleteJornada} perfil={perfil} uid={firebaseUser?.uid} onOpenChecklist={handleOpenChecklist}/>}
         {page==="manutencao"  &&<Manutencao manutencoes={manutencoes} onAddManutencao={handleAddManutencao} onUpdateManutencao={handleUpdateManutencao} onDeleteManutencao={handleDeleteManutencao}/>}
         {page==="documentos"  &&<Documentos docs={docs} onAddDocumento={handleAddDocumento} onDeleteDocumento={handleDeleteDocumento}/>}
-        {page==="perfil"      &&<Perfil uid={firebaseUser?.uid} metaMes={metaMes} setMetaMes={setMetaMes} faturamentoMes={faturamentoMes} saldoLiquidoMes={saldoLiquidoMes} vehicles={vehicles} setVehicles={setVehicles} perfil={perfil} setPerfil={setPerfil} onLimpar={limparTudo} onAdmin={()=>setShowAdmin(true)}/>}
+        {page==="perfil"      &&<Perfil uid={firebaseUser?.uid} metaMes={metaMes} setMetaMes={setMetaMes} faturamentoMes={faturamentoMes} saldoLiquidoMes={saldoLiquidoMes} vehicles={vehicles} setVehicles={setVehicles} perfil={perfil} setPerfil={setPerfil} onLimpar={limparTudo}/>}
       </div>
       {page!=="dashboard"&&(<button onClick={()=>{setCalcMode(null);setShowCalc(true);}} style={{position:"fixed",bottom:22,right:18,width:52,height:52,borderRadius:"50%",background:C.orange,border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",boxShadow:`0 4px 20px ${C.orange}55`,zIndex:90}}><RouteIcon size={22} color="#fff"/></button>)}
       {checklistScreen?.checklist?.id&&(
@@ -7418,7 +7085,6 @@ export default function App(){
         </div>
       )}
 
-      {showAdmin&&<AdminPanel onClose={()=>setShowAdmin(false)} historicoFretes={historicoFretes} docs={docs} perfil={perfil} despesas={despesas} manutencoes={manutencoes}/>}
       {confirmLimpar&&(
         <div style={{position:"fixed",inset:0,background:"#00000066",zIndex:700,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
           <div style={{background:"#fff",borderRadius:20,width:"100%",maxWidth:360,padding:28,boxShadow:"0 20px 60px #00000033",textAlign:"center"}}>
