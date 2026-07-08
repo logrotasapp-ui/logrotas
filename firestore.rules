@@ -7,52 +7,62 @@ service cloud.firestore {
     }
 
     function isAdmin() {
-      return request.auth != null && request.auth.token.admin == true;
+      return request.auth != null &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == "admin";
     }
 
     // ── Dados do motorista (perfil + subcoleções) ──────────────────────────
     match /users/{userId} {
-      allow read, write: if isOwner(userId);
+      allow read: if isOwner(userId) || isAdmin();
+      allow write: if isOwner(userId);
 
       // Checklists — contém CPF/RG/CNH de terceiros (LGPD)
       match /checklists/{checklistId} {
-        allow read, write: if isOwner(userId);
+        allow read: if isOwner(userId) || isAdmin();
+        allow write: if isOwner(userId);
       }
 
       match /fretes/{docId} {
-        allow read, write: if isOwner(userId);
+        allow read: if isOwner(userId) || isAdmin();
+        allow write: if isOwner(userId);
       }
 
       match /despesas/{docId} {
-        allow read, write: if isOwner(userId);
+        allow read: if isOwner(userId) || isAdmin();
+        allow write: if isOwner(userId);
       }
 
       match /manutencao/{docId} {
-        allow read, write: if isOwner(userId);
+        allow read: if isOwner(userId) || isAdmin();
+        allow write: if isOwner(userId);
       }
 
       match /documentos/{docId} {
-        allow read, write: if isOwner(userId);
+        allow read: if isOwner(userId) || isAdmin();
+        allow write: if isOwner(userId);
       }
 
       match /financeiro/{docId} {
-        allow read, write: if isOwner(userId);
+        allow read: if isOwner(userId) || isAdmin();
+        allow write: if isOwner(userId);
       }
 
       match /entregas/{docId} {
-        allow read, write: if isOwner(userId);
+        allow read: if isOwner(userId) || isAdmin();
+        allow write: if isOwner(userId);
       }
 
       // Fechamento do dia (jornadas do motorista)
       match /jornadas/{docId} {
-        allow read, write: if isOwner(userId);
+        allow read: if isOwner(userId) || isAdmin();
+        allow write: if isOwner(userId);
       }
     }
 
-    // ── Códigos beta (leitura autenticada; gravação só admin) ─────────────
+    // ── Códigos beta (leitura autenticada + admin; gravação só Cloud Function) ─
     match /betaCodes/{codeId} {
-      allow read: if request.auth != null;
-      allow write: if isAdmin();
+      allow read: if request.auth != null || isAdmin();
+      allow write: if false;
     }
 
     // ── Avaliações do app (feedback por estrelas) ─────────────────────────
