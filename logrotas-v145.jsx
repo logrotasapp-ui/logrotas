@@ -67,6 +67,7 @@ import {
   enviarAvaliacao,
   reenviarAvaliacoesPendentes,
 } from "./src/services/avaliacaoService.js";
+import { incrementUsageCounter, touchUltimoAcesso, USAGE_COUNTERS } from "./src/services/usageStatsService.js";
 import { logChecklist } from "./src/services/checklistLogSanitizer.js";
 import {
   generateChecklistCompletoPdf,
@@ -6388,6 +6389,7 @@ export default function App(){
         }
         if(cancelled)return;
         setProfileGateOk(true);
+        void touchUltimoAcesso(firebaseUser.uid);
         if(profile){
           const p=firestoreToPerfil(profile);
           setPerfil(p);
@@ -6403,6 +6405,7 @@ export default function App(){
       }catch{
         if(!cancelled){
           setProfileGateOk(true);
+          void touchUltimoAcesso(firebaseUser.uid);
           const local=readPerfilLocalFallback();
           setPerfil({
             ...local,
@@ -6536,6 +6539,11 @@ export default function App(){
   const handleCalcConcluida=useCallback(async(origem)=>{
     const uid=firebaseUser?.uid;
     if(!uid)return;
+    if(origem==="viagem"){
+      void incrementUsageCounter(uid,USAGE_COUNTERS.calculosViagem);
+    }else if(origem==="roteirizacao"){
+      void incrementUsageCounter(uid,USAGE_COUNTERS.rotasOtimizadas);
+    }
     try{
       const {shouldShow}=await registrarConclusaoCalculadora(uid,origem,avaliacaoInteragidaSessaoRef.current);
       if(shouldShow)avaliacaoPendenteRef.current=origem;

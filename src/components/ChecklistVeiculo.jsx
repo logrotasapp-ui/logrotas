@@ -27,6 +27,7 @@ import {
   proximoEstadoAcessorio,
   aplicarLimiteAvulsosSalvos,
 } from "../services/checklistService.js";
+import { incrementUsageCounter, USAGE_COUNTERS } from "../services/usageStatsService.js";
 import {
   stampAndCompressImage,
   compressImageToJpegBlob,
@@ -2885,10 +2886,17 @@ export default function ChecklistVeiculo({
       };
       const ok = await salvar({ entrega: entregaAtualizada, status: "concluido" });
       if (ok) {
+        const atualizado = checklistRef.current || checklist;
+        if (uid) {
+          if (atualizado?.avulso) {
+            void incrementUsageCounter(uid, USAGE_COUNTERS.checklistsAvulsos);
+          } else if (atualizado?.freteId) {
+            void incrementUsageCounter(uid, USAGE_COUNTERS.checklistsFrete);
+          }
+        }
         recebedorEntregaPadRef.current?.clear?.();
         prestadorEntregaPadRef.current?.clear?.();
         setSubstituirEntrega({ recebedor: false, prestador: false });
-        const atualizado = checklistRef.current || checklist;
         if (atualizado?.avulso && uid) {
           try {
             await aplicarLimiteAvulsosSalvos(uid);

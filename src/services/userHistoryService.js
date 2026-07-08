@@ -11,6 +11,7 @@ import {
   writeBatch,
 } from "firebase/firestore";
 import { db } from "../firebase.js";
+import { incrementUsageCounter, USAGE_COUNTERS } from "./usageStatsService.js";
 
 export const HISTORY_COLLECTIONS = {
   fretes: "fretes",
@@ -162,6 +163,7 @@ export async function addFreteWithFinanceiro(uid, frete) {
     financeiroPayload("receita", HISTORY_COLLECTIONS.fretes, freteRef.id, payload)
   );
   await batch.commit();
+  void incrementUsageCounter(uid, USAGE_COUNTERS.fretes);
   return { id: freteRef.id, ...payload };
 }
 
@@ -197,6 +199,7 @@ export async function addDespesaWithFinanceiro(uid, despesa) {
     financeiroPayload("despesa", HISTORY_COLLECTIONS.despesas, despRef.id, payload)
   );
   await batch.commit();
+  void incrementUsageCounter(uid, USAGE_COUNTERS.despesas);
   return { id: despRef.id, ...payload };
 }
 
@@ -232,6 +235,7 @@ export async function addManutencaoWithFinanceiro(uid, item) {
     financeiroPayload("manutencao", HISTORY_COLLECTIONS.manutencao, maintRef.id, payload)
   );
   await batch.commit();
+  void incrementUsageCounter(uid, USAGE_COUNTERS.manutencoes);
   return { id: maintRef.id, ...payload };
 }
 
@@ -252,7 +256,9 @@ export async function deleteManutencaoWithFinanceiro(uid, id) {
 }
 
 export async function addDocumento(uid, docData) {
-  return addHistoryItem(uid, HISTORY_COLLECTIONS.documentos, docData);
+  const saved = await addHistoryItem(uid, HISTORY_COLLECTIONS.documentos, docData);
+  void incrementUsageCounter(uid, USAGE_COUNTERS.documentos);
+  return saved;
 }
 
 export async function deleteDocumento(uid, id) {

@@ -9,6 +9,7 @@ import { addDoc, collection, serverTimestamp } from "firebase/firestore";
 import { db } from "../firebase.js";
 import { HISTORY_COLLECTIONS } from "./userHistoryService.js";
 import { parseNumeroBR, roundMoney } from "./formatUtils.js";
+import { incrementUsageCounter, USAGE_COUNTERS } from "./usageStatsService.js";
 
 /**
  * Combustível estimado da jornada.
@@ -38,5 +39,6 @@ export async function saveJornada(uid, dados) {
     { ...dados, createdAt: serverTimestamp(), updatedAt: serverTimestamp() }
   );
 
+  void incrementUsageCounter(uid, USAGE_COUNTERS.fechamentos);
   return { jornada: { id: jornadaRef.id, ...dados } };
 }
