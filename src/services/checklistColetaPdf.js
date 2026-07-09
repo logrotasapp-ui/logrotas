@@ -573,6 +573,18 @@ export async function generateChecklistColetaPdf({
 
   const { cliente, veiculo, servico, origem, destino, coleta, entrega, numero } = checklist || {};
 
+  const empresaNome = perfil?.empresa?.trim();
+  if (empresaNome) {
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(14);
+    doc.setTextColor(30, 58, 138);
+    wrapLines(doc, stripEmojis(empresaNome), contentWidth).forEach((ln) => {
+      doc.text(ln, margin, y);
+      y += 6;
+    });
+    y += 2;
+  }
+
   doc.setFont("helvetica", "bold");
   doc.setFontSize(15);
   doc.setTextColor(30, 58, 138);
