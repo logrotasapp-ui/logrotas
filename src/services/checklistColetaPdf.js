@@ -576,26 +576,39 @@ export async function generateChecklistColetaPdf({
   const empresaNome = perfil?.empresa?.trim();
   if (empresaNome) {
     doc.setFont("helvetica", "bold");
-    doc.setFontSize(14);
+    doc.setFontSize(18);
     doc.setTextColor(30, 58, 138);
     wrapLines(doc, stripEmojis(empresaNome), contentWidth).forEach((ln) => {
       doc.text(ln, margin, y);
-      y += 6;
+      y += 7;
     });
-    y += 2;
+    y += 3;
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(11);
+    doc.setTextColor(71, 85, 105);
+    const tituloPdf = onlyEntrega
+      ? "CHECKLIST DE VEICULO - ENTREGA"
+      : includeEntrega
+        ? "CHECKLIST DE VEICULO - COMPLETO"
+        : "CHECKLIST DE VEICULO - COLETA";
+    doc.text(tituloPdf, margin, y);
+    y += 7;
+  } else {
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(15);
+    doc.setTextColor(30, 58, 138);
+    const tituloPdf = onlyEntrega
+      ? "CHECKLIST DE VEICULO - ENTREGA"
+      : includeEntrega
+        ? "CHECKLIST DE VEICULO - COMPLETO"
+        : "CHECKLIST DE VEICULO - COLETA";
+    doc.text(tituloPdf, margin, y);
+    y += 8;
   }
 
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(15);
-  doc.setTextColor(30, 58, 138);
-  const tituloPdf = onlyEntrega
-    ? "CHECKLIST DE VEICULO - ENTREGA"
-    : includeEntrega
-      ? "CHECKLIST DE VEICULO - COMPLETO"
-      : "CHECKLIST DE VEICULO - COLETA";
-  doc.text(tituloPdf, margin, y);
-  y += 8;
   doc.setFontSize(12);
+  doc.setTextColor(30, 58, 138);
+  doc.setFont("helvetica", "bold");
   doc.text(`No ${numero || "-"}`, margin, y);
   y += 10;
   doc.setTextColor(0, 0, 0);
