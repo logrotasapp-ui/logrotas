@@ -105,6 +105,7 @@ import {
 import { OFFLINE_KEYS, AUTH_KEYS, readOfflineCache, writeOfflineCache, clearAllLogRotasStorage, clearVehiclesLocalCache, readVehiclesLocalCache, writeVehiclesLocalCache, readProPlanActive, readProTrialDaysLeft, readPerfilLocalFallback, writePerfilLocalCache, readUiState, writeUiState, clearUiState } from "./src/services/offlineStorage.js";
 import { subscribeAuth, signInWithEmail, signInWithGoogle, signOutUser, getAuthErrorMessage, sendPasswordResetEmail, getPasswordResetErrorMessage } from "./src/services/authService.js";
 import { saveUserProfile, loadUserProfile, firestoreToPerfil, perfilToFirestorePayload } from "./src/services/userProfileService.js";
+import { compressImageToJpegBlob, uploadEmpresaLogo } from "./src/services/storageService.js";
 import { saveJornada } from "./src/services/jornadaService.js";
 import {
   loadUserHistory,
@@ -5969,6 +5970,11 @@ const Financeiro=({historicoFretes,manutencoes,despesas=[],jornadas=[]})=>{
 const Perfil=({uid,metaMes,setMetaMes,faturamentoMes,saldoLiquidoMes,vehicles,setVehicles,perfil,setPerfil,onLimpar})=>{
   const[editMode,setEditMode]=useState(false);
   const[loadingPerfil,setLoadingPerfil]=useState(false);
+  const[savingPerfil,setSavingPerfil]=useState(false);
+  const[logoPreviewUrl,setLogoPreviewUrl]=useState("");
+  const logoFileInputRef=useRef(null);
+  const logoPendingBlobRef=useRef(null);
+  const logoRemoveOnSaveRef=useRef(false);
   const[editandoMeta,setEditandoMeta]=useState(false);
   const[draftMeta,setDraftMeta]=useState(String(metaMes));
   const[editVeh,setEditVeh]=useState(null);
@@ -6016,14 +6022,69 @@ const Perfil=({uid,metaMes,setMetaMes,faturamentoMes,saldoLiquidoMes,vehicles,se
     return()=>{cancelled=true;};
   },[uid]);
 
+  useEffect(()=>{
+    if(logoPreviewUrl?.startsWith("blob:"))return;
+    setLogoPreviewUrl(perfil?.empresaLogoUrl||"");
+  },[perfil?.empresaLogoUrl]);
+
+  const resetLogoDraft=()=>{
+    logoPendingBlobRef.current=null;
+    logoRemoveOnSaveRef.current=false;
+    if(logoFileInputRef.current)logoFileInputRef.current.value="";
+    setLogoPreviewUrl(perfil?.empresaLogoUrl||"");
+  };
+
+  const handleLogoFileChange=(e)=>{
+    const file=e.target.files?.[0];
+    if(!file)return;
+    logoPendingBlobRef.current=file;
+    logoRemoveOnSaveRef.current=false;
+    setLogoPreviewUrl((prev)=>{
+      if(prev?.startsWith("blob:"))URL.revokeObjectURL(prev);
+      return URL.createObjectURL(file);
+    });
+  };
+
+  const handleRemoverLogo=()=>{
+    logoPendingBlobRef.current=null;
+    logoRemoveOnSaveRef.current=true;
+    if(logoFileInputRef.current)logoFileInputRef.current.value="";
+    setLogoPreviewUrl((prev)=>{
+      if(prev?.startsWith("blob:"))URL.revokeObjectURL(prev);
+      return "";
+    });
+  };
+
   const toggleEditMode=async()=>{
-    if(editMode&&uid){
-      try{
-        await saveUserProfile(uid,perfilToFirestorePayload(perfil));
-        writePerfilLocalCache(perfil);
-      }catch{/* ignore */}
+    if(!editMode){
+      resetLogoDraft();
+      setEditMode(true);
+      return;
     }
-    setEditMode(e=>!e);
+    if(!uid){
+      setEditMode(false);
+      return;
+    }
+    setSavingPerfil(true);
+    try{
+      let nextPerfil={...perfil};
+      if(logoRemoveOnSaveRef.current){
+        nextPerfil.empresaLogoUrl="";
+      }else if(logoPendingBlobRef.current){
+        const jpeg=await compressImageToJpegBlob(logoPendingBlobRef.current,512);
+        nextPerfil.empresaLogoUrl=await uploadEmpresaLogo(uid,jpeg);
+      }
+      await saveUserProfile(uid,perfilToFirestorePayload(nextPerfil));
+      setPerfil(nextPerfil);
+      writePerfilLocalCache(nextPerfil);
+      if(logoPreviewUrl?.startsWith("blob:"))URL.revokeObjectURL(logoPreviewUrl);
+      setLogoPreviewUrl(nextPerfil.empresaLogoUrl||"");
+      logoPendingBlobRef.current=null;
+      logoRemoveOnSaveRef.current=false;
+      if(logoFileInputRef.current)logoFileInputRef.current.value="";
+      setEditMode(false);
+    }catch{/* offline: mantém modo edição */}
+    finally{setSavingPerfil(false);}
   };
 
   return(
@@ -6132,9 +6193,9 @@ const Perfil=({uid,metaMes,setMetaMes,faturamentoMes,saldoLiquidoMes,vehicles,se
           <div style={{color:C.navy,fontWeight:800,fontSize:15,fontFamily:"'Sora',sans-serif",display:"flex",alignItems:"center",gap:7}}>
             <span>👤</span> Meus Dados
           </div>
-          <button onClick={toggleEditMode} disabled={loadingPerfil}
-            style={{background:editMode?C.greenLight:C.orangeLight,border:`1px solid ${editMode?C.green:C.orange}33`,borderRadius:8,padding:"5px 12px",cursor:loadingPerfil?"wait":"pointer",color:editMode?C.green:C.orange,fontSize:12,fontWeight:700,display:"flex",alignItems:"center",gap:5,opacity:loadingPerfil?0.6:1}}>
-            {editMode?<><CheckIcon size={12}/> Salvar</>:<><EditIcon size={12}/> Editar</>}
+          <button onClick={toggleEditMode} disabled={loadingPerfil||savingPerfil}
+            style={{background:editMode?C.greenLight:C.orangeLight,border:`1px solid ${editMode?C.green:C.orange}33`,borderRadius:8,padding:"5px 12px",cursor:loadingPerfil||savingPerfil?"wait":"pointer",color:editMode?C.green:C.orange,fontSize:12,fontWeight:700,display:"flex",alignItems:"center",gap:5,opacity:loadingPerfil||savingPerfil?0.6:1}}>
+            {savingPerfil?"Salvando…":editMode?<><CheckIcon size={12}/> Salvar</>:<><EditIcon size={12}/> Editar</>}
           </button>
         </div>
         <div style={{padding:"12px 20px",display:"flex",flexDirection:"column",gap:12}}>
@@ -6149,6 +6210,32 @@ const Perfil=({uid,metaMes,setMetaMes,faturamentoMes,saldoLiquidoMes,vehicles,se
           </div>
           <Field label="Meu Nome" value={perfil.nome} onChange={v=>setPerfil(p=>({...p,nome:v}))} placeholder="Ex: João Silva" readOnly={!editMode}/>
           <Field label="Nome da empresa (opcional)" value={perfil.empresa||""} onChange={v=>setPerfil(p=>({...p,empresa:v}))} placeholder="Ex: Transportes Silva" readOnly={!editMode}/>
+          <div style={{display:"flex",flexDirection:"column",gap:8}}>
+            <span style={{color:C.muted,fontSize:13,fontWeight:600}}>Logo da empresa (opcional)</span>
+            <span style={{color:C.muted,fontSize:11,lineHeight:1.4}}>Aparece no cabeçalho dos PDFs do checklist. JPEG, enviado ao salvar.</span>
+            {logoPreviewUrl?(
+              <div style={{display:"flex",alignItems:"center",gap:12}}>
+                <img src={logoPreviewUrl} alt="Logo da empresa" style={{width:72,height:72,objectFit:"contain",border:`1px solid ${C.border}`,borderRadius:10,background:"#fff",padding:4}}/>
+                {editMode&&(
+                  <button type="button" onClick={handleRemoverLogo} disabled={savingPerfil}
+                    style={{background:C.redLight,border:`1px solid ${C.red}44`,borderRadius:8,padding:"7px 12px",cursor:savingPerfil?"wait":"pointer",color:C.red,fontSize:12,fontWeight:700}}>
+                    Remover logo
+                  </button>
+                )}
+              </div>
+            ):(
+              <div style={{color:C.muted,fontSize:12,fontStyle:"italic"}}>Nenhum logo cadastrado</div>
+            )}
+            {editMode&&(
+              <>
+                <input ref={logoFileInputRef} type="file" accept="image/*" style={{display:"none"}} onChange={handleLogoFileChange}/>
+                <button type="button" onClick={()=>logoFileInputRef.current?.click()} disabled={savingPerfil}
+                  style={{alignSelf:"flex-start",background:C.subtle,border:`1.5px solid ${C.navy}`,borderRadius:8,padding:"8px 14px",cursor:savingPerfil?"wait":"pointer",color:C.navy,fontSize:12,fontWeight:700}}>
+                  Escolher logo
+                </button>
+              </>
+            )}
+          </div>
           <Field label="E-mail" value={perfil.email} onChange={v=>setPerfil(p=>({...p,email:v}))} placeholder="Ex: joao@email.com" readOnly={!editMode}/>
           <Field label="WhatsApp / Telefone" value={perfil.telefone} onChange={v=>setPerfil(p=>({...p,telefone:v}))} placeholder="Ex: (11) 99999-9999" readOnly={!editMode}/>
           <Field label="Documento (CPF/RG/CNH)" value={perfil.documento||""} onChange={v=>setPerfil(p=>({...p,documento:v}))} placeholder="Ex: 000.000.000-00 ou RG" readOnly={!editMode}/>
@@ -6317,7 +6404,7 @@ export default function App(){
   const docsVencidos=(docs||[]).filter(d=>{if(!d.expiry)return false;const[dia,mes,ano]=d.expiry.split("/");return new Date(ano,mes-1,dia)<hoje;});
   const docsVencendo30=(docs||[]).filter(d=>{if(!d.expiry)return false;const[dia,mes,ano]=d.expiry.split("/");const dias=Math.ceil((new Date(ano,mes-1,dia)-hoje)/(1000*60*60*24));return dias<=30&&dias>=0;});
   const docsVencendo=(docs||[]).filter(d=>{if(!d.expiry)return false;const[dia,mes,ano]=d.expiry.split("/");const dias=Math.ceil((new Date(ano,mes-1,dia)-hoje)/(1000*60*60*24));return dias<=60&&dias>=0;});
-  const[perfil,setPerfil]=useState({nome:"",empresa:"",email:"",telefone:"",documento:"",tipo:"Motorista Autônomo",veiculo:"",servicosFechamento:[],precoCombustivel:""});
+  const[perfil,setPerfil]=useState({nome:"",empresa:"",empresaLogoUrl:"",email:"",telefone:"",documento:"",tipo:"Motorista Autônomo",veiculo:"",servicosFechamento:[],precoCombustivel:""});
   const[checklistScreen,setChecklistScreen]=useState(null);
   const[ultimosAvulsos,setUltimosAvulsos]=useState([]);
   const[showUltimosAvulsosModal,setShowUltimosAvulsosModal]=useState(false);
@@ -6774,7 +6861,7 @@ export default function App(){
     }catch{/* ignore */}
     clearVehiclesLocalCache();
     setVehicles(DEFAULT_VEHICLES);
-    setPerfil({nome:"",empresa:"",email:"",telefone:"",documento:"",tipo:"Motorista Autônomo",veiculo:""});
+    setPerfil({nome:"",empresa:"",empresaLogoUrl:"",email:"",telefone:"",documento:"",tipo:"Motorista Autônomo",veiculo:""});
     // V294 — não restaurar tela/modal antigos após trocar de conta
     clearUiState();
     uiRestoredRef.current=false;
@@ -7114,7 +7201,7 @@ export default function App(){
                 setHistoricoFretes([]);setManutencoes([]);setDespesas([]);setJornadas([]);setDocs([]);
                 setMetaMes(8000);setValorKm("");setAdicionalFixo("");
                 setVehicles(DEFAULT_VEHICLES);
-                setPerfil({nome:"",empresa:"",email:"",telefone:"",documento:"",tipo:"Motorista Autônomo",veiculo:""});
+                setPerfil({nome:"",empresa:"",empresaLogoUrl:"",email:"",telefone:"",documento:"",tipo:"Motorista Autônomo",veiculo:""});
                 setPlan("free");
                 setTrialDias(0);
                 setConfirmLimpar(false);

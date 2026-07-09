@@ -57,6 +57,8 @@ export function readPerfilLocalFallback() {
   if (cached && (cached.nome || cached.email || cached.telefone)) {
     return {
       nome: cached.nome || "",
+      empresa: cached.empresa || "",
+      empresaLogoUrl: cached.empresaLogoUrl || "",
       email: cached.email || "",
       telefone: cached.telefone || "",
       documento: cached.documento || "",
@@ -79,6 +81,8 @@ export function readPerfilLocalFallback() {
 export function writePerfilLocalCache(perfil) {
   writeOfflineCache(PROFILE_KEYS.perfil, {
     nome: perfil?.nome || "",
+    empresa: perfil?.empresa || "",
+    empresaLogoUrl: perfil?.empresaLogoUrl || "",
     email: perfil?.email || "",
     telefone: perfil?.telefone || "",
     documento: perfil?.documento || "",

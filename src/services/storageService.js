@@ -36,13 +36,13 @@ function blobFromCanvas(canvas, quality = JPEG_QUALITY) {
  * Redimensiona para máx 1600px no lado maior e exporta JPEG (~0.7) via canvas.
  * Aceita File ou Blob (captura da câmera/galeria). Sem rotação EXIF — prévia usa orientação do navegador.
  */
-export async function compressImageToJpegBlob(input) {
+export async function compressImageToJpegBlob(input, maxDim = MAX_DIM) {
   const img = await loadImageFromBlob(input);
   let width = img.naturalWidth || img.width;
   let height = img.naturalHeight || img.height;
   const maxSide = Math.max(width, height);
-  if (maxSide > MAX_DIM) {
-    const scale = MAX_DIM / maxSide;
+  if (maxSide > maxDim) {
+    const scale = maxDim / maxSide;
     width = Math.round(width * scale);
     height = Math.round(height * scale);
   }
@@ -186,6 +186,19 @@ export async function uploadChecklistEntregaImage(uid, checklistId, nomeArquivo,
   const downloadUrl = await getDownloadURL(storageRef);
   if (!isChecklistDownloadUrl(downloadUrl)) {
     throw new Error("URL de download inválida após upload.");
+  }
+  return downloadUrl;
+}
+
+/** Logo da empresa no perfil: users/{uid}/profile/empresa-logo.jpg */
+export async function uploadEmpresaLogo(uid, blob) {
+  if (!uid || !blob) throw new Error("uid e blob são obrigatórios");
+  const path = `users/${uid}/profile/empresa-logo.jpg`;
+  const storageRef = ref(storage, path);
+  await uploadBytes(storageRef, blob, { contentType: "image/jpeg" });
+  const downloadUrl = await getDownloadURL(storageRef);
+  if (!isChecklistDownloadUrl(downloadUrl)) {
+    throw new Error("URL de download inválida após upload do logo.");
   }
   return downloadUrl;
 }
