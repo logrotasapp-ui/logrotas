@@ -1,10 +1,10 @@
 import { readOfflineCache, writeOfflineCache, OFFLINE_KEYS } from "./offlineStorage.js";
 
-/** Etapa inicial ao abrir/retomar checklist (1–6). */
+/** Etapa inicial ao abrir/retomar checklist (1–6). Status prevalece sobre etapa salva desatualizada. */
 export function etapaInicialParaChecklist(checklist, etapaSalva) {
-  if (etapaSalva >= 1 && etapaSalva <= 6) return etapaSalva;
   if (checklist?.status === "concluido") return 6;
   if (checklist?.status === "aguardando_entrega") return 5;
+  if (etapaSalva >= 1 && etapaSalva <= 6) return etapaSalva;
   return 1;
 }
 

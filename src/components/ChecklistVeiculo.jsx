@@ -1433,6 +1433,10 @@ export default function ChecklistVeiculo({
   const migrationRanRef = useRef(null);
   const pendingUploadsRef = useRef(new Map());
   const gerarPdfCompletoRef = useRef(null);
+  const etapaBootstrappedIdRef = useRef(null);
+  const etapaReportedRef = useRef(null);
+  const onEtapaChangeRef = useRef(onEtapaChange);
+  onEtapaChangeRef.current = onEtapaChange;
   checklistRef.current = checklist;
   etapaRef.current = etapa;
 
@@ -1452,20 +1456,25 @@ export default function ChecklistVeiculo({
     setChecklist((c) => ({ ...c, id: initial.id }));
   }, [initial?.id, checklist?.id]);
 
-  // Restaura etapa ao retomar checklist (ex.: após share sheet / PWA morto)
+  // Restaura etapa só ao abrir/retomar outro checklist — não a cada onSaved do pai
   useEffect(() => {
-    if (initialEtapa >= 1 && initialEtapa <= 6) {
-      setEtapa(initialEtapa);
-      return;
-    }
-    const st = initial?.status;
-    if (st === "aguardando_entrega") setEtapa(5);
-    else if (st === "concluido") setEtapa(6);
+    if (!initial?.id || etapaBootstrappedIdRef.current === initial.id) return;
+    etapaBootstrappedIdRef.current = initial.id;
+
+    let etapaInicial = 1;
+    if (initial?.status === "concluido") etapaInicial = 6;
+    else if (initial?.status === "aguardando_entrega") etapaInicial = 5;
+    else if (initialEtapa >= 1 && initialEtapa <= 6) etapaInicial = initialEtapa;
+
+    setEtapa(etapaInicial);
+    etapaReportedRef.current = etapaInicial;
   }, [initial?.id, initialEtapa, initial?.status]);
 
   useEffect(() => {
-    onEtapaChange?.(etapa);
-  }, [etapa, onEtapaChange]);
+    if (etapaReportedRef.current === etapa) return;
+    etapaReportedRef.current = etapa;
+    onEtapaChangeRef.current?.(etapa);
+  }, [etapa]);
 
   // Re-sincroniza do Firestore ao voltar do app externo (WhatsApp / share sheet)
   useEffect(() => {

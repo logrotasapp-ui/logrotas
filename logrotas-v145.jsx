@@ -154,7 +154,7 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="v313";
+const APP_VERSION="v314";
 const SUPORTE_EMAIL="suporte@logrotas.com.br";
 const PEDAGIO_AVISO_RESULTADO="Pedágio estimado pelo Google. Pode haver variação — confirme o valor da praça.";
 const PAGE_SWIPE_ORDER=["dashboard","financeiro","despesas","comparador","manutencao","documentos","perfil"];
@@ -6763,6 +6763,34 @@ export default function App(){
     });
   },[firebaseUser?.uid]);
 
+  const handleChecklistSaved=useCallback((c)=>{
+    if(!c?.id){
+      logChecklist("warn","[Checklist] onSaved ignorado: checklist sem id",c);
+      return;
+    }
+    setChecklistScreen((s)=>{
+      if(!s?.checklist?.id)return s;
+      let resumeEtapa=s.resumeEtapa??1;
+      if(c.status==="concluido")resumeEtapa=6;
+      else if(c.status==="aguardando_entrega"&&resumeEtapa<5)resumeEtapa=5;
+      return{...s,checklist:c,resumeEtapa};
+    });
+    if(c.status==="concluido")clearChecklistSession();
+  },[]);
+
+  const handleChecklistEtapaChange=useCallback((etapa)=>{
+    setChecklistScreen((prev)=>{
+      if(!prev?.checklist?.id)return prev;
+      writeChecklistSession({
+        checklistId:prev.checklist.id,
+        avulso:!!prev.checklist.avulso||!prev.frete,
+        freteId:prev.frete?.id||prev.checklist.freteId||null,
+        etapa,
+      });
+      return{...prev,resumeEtapa:etapa};
+    });
+  },[]);
+
   const handleUltimosChecklists=useCallback(async()=>{
     const uid=firebaseUser?.uid;
     if(!uid)return;
@@ -7133,26 +7161,8 @@ export default function App(){
           initialEtapa={checklistScreen.resumeEtapa}
           onClose={()=>{clearChecklistSession();setChecklistScreen(null);refreshAvulsosDashboard();}}
           onAvulsoFinalizado={refreshAvulsosDashboard}
-          onSaved={(c)=>{
-            if(!c?.id){
-              logChecklist("warn","[Checklist] onSaved ignorado: checklist sem id",c);
-              return;
-            }
-            setChecklistScreen(s=>({...s,checklist:c}));
-            if(c.status==="concluido")clearChecklistSession();
-          }}
-          onEtapaChange={(etapa)=>{
-            setChecklistScreen((prev)=>{
-              if(!prev?.checklist?.id)return prev;
-              writeChecklistSession({
-                checklistId:prev.checklist.id,
-                avulso:!!prev.checklist.avulso||!prev.frete,
-                freteId:prev.frete?.id||prev.checklist.freteId||null,
-                etapa,
-              });
-              return {...prev,resumeEtapa:etapa};
-            });
-          }}
+          onSaved={handleChecklistSaved}
+          onEtapaChange={handleChecklistEtapaChange}
         />
       )}
       {gerandoAvulsoPdf&&(
