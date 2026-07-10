@@ -504,6 +504,111 @@ export function entregaCompleta(checklist, perfil = null) {
   return { completa: faltando.length === 0, faltando };
 }
 
+function fotoReferenciaLocal(foto) {
+  return !!(foto?.url?.trim() || foto?.mediaId);
+}
+
+function assinaturaReferenciaLocal(assin) {
+  if (!assin) return false;
+  return !!(assin.imagemUrl?.trim() || assin.imagemMediaId);
+}
+
+/** Validação com mídia local (mediaId) — permite finalizar offline (Fase 2). */
+export function coletaCompletaLocal(checklist, perfil = null) {
+  const faltando = [];
+  if (!checklist) return { completa: false, faltando: ["Checklist não encontrado"] };
+
+  const { cliente, veiculo, servico, origem, destino, coleta } = checklist;
+
+  if (!cliente?.nome?.trim()) faltando.push("Nome do cliente");
+  if (!cliente?.telefone?.trim()) faltando.push("Telefone do cliente");
+  if (!veiculo?.placa?.trim()) faltando.push("Placa do veículo");
+  if (!veiculo?.marca?.trim()) faltando.push("Marca do veículo");
+  if (!veiculo?.modelo?.trim()) faltando.push("Modelo do veículo");
+  if (!veiculo?.cor?.trim()) faltando.push("Cor do veículo");
+  if (!servico?.tipo) faltando.push("Tipo de serviço");
+  if (!servico?.motivo) faltando.push("Motivo do serviço");
+  if (!origem?.endereco?.trim()) faltando.push("Endereço de origem");
+  if (!destino?.endereco?.trim()) faltando.push("Endereço de destino");
+
+  const perguntas = coleta?.perguntas || [];
+  perguntas.forEach((p, i) => {
+    if (p.resposta !== "sim" && p.resposta !== "nao") {
+      faltando.push(`Pergunta ${i + 1}: ${p.texto}`);
+    }
+  });
+
+  const acessorios = coleta?.acessorios || [];
+  acessorios.forEach((a) => {
+    if (!a.estado) faltando.push(`Acessório: ${a.item}`);
+  });
+
+  if (!coleta?.pneus?.dianteiro) faltando.push("Pneu dianteiro");
+  if (!coleta?.pneus?.traseiro) faltando.push("Pneu traseiro");
+  if (resolveTipoVeiculo(veiculo) !== "moto" && !coleta?.pneus?.estepe) faltando.push("Estepe");
+  if (!coleta?.combustivel) faltando.push("Nível de combustível");
+
+  const fotos = coleta?.fotos || [];
+  CHECKLIST_FOTO_SLOTS.filter((s) => s.obrigatoria).forEach((slot) => {
+    if (!fotos.some((f) => f.tipo === slot.id && fotoReferenciaLocal(f))) {
+      faltando.push(`Foto: ${slot.label}`);
+    }
+  });
+
+  const assin = coleta?.assinaturas || {};
+  if (!assin.responsavel?.nome?.trim()) faltando.push("Nome do responsável no local");
+  if (!assin.responsavel?.documento?.trim()) faltando.push("Documento do responsável no local");
+  if (!assinaturaReferenciaLocal(assin.responsavel)) {
+    faltando.push("Assinatura do responsável no local");
+  }
+  const prestId = resolvePrestadorIdentidade(assin.prestador, perfil);
+  if (!prestId.nome) faltando.push("Nome do prestador");
+  if (!prestId.documento) faltando.push("Documento do prestador");
+  if (!assinaturaReferenciaLocal(assin.prestador)) faltando.push("Assinatura do prestador");
+
+  return { completa: faltando.length === 0, faltando };
+}
+
+/** Validação de entrega com mídia local (mediaId). */
+export function entregaCompletaLocal(checklist, perfil = null) {
+  const faltando = [];
+  if (!checklist) return { completa: false, faltando: ["Checklist não encontrado"] };
+
+  const { entrega } = checklist;
+  const fotos = entrega?.fotos || [];
+
+  CHECKLIST_ENTREGA_FOTO_SLOTS.filter((s) => s.obrigatoria).forEach((slot) => {
+    if (!fotos.some((f) => f.tipo === slot.id && fotoReferenciaLocal(f))) {
+      faltando.push(`Foto entrega: ${slot.label}`);
+    }
+  });
+
+  if (!entrega?.recebedor?.nome?.trim()) faltando.push("Nome de quem recebeu o veículo");
+  if (!entrega?.recebedor?.documento?.trim()) faltando.push("Documento de quem recebeu o veículo");
+
+  const conf = entrega?.conferencia;
+  if (conf?.conforme !== true && conf?.conforme !== false) {
+    faltando.push("Conferência na entrega");
+  }
+  if (conf?.conforme === false) {
+    const acessorios = normalizeColetaData(checklist.coleta, checklist).acessorios || [];
+    if (!derivarDivergenciasEntrega(acessorios, conf).length) {
+      faltando.push("Marque ao menos um item divergente");
+    }
+  }
+
+  const assin = entrega?.assinaturas || {};
+  if (!assin.recebedor?.nome?.trim()) faltando.push("Nome do recebedor (assinatura)");
+  if (!assin.recebedor?.documento?.trim()) faltando.push("Documento do recebedor (assinatura)");
+  if (!assinaturaReferenciaLocal(assin.recebedor)) faltando.push("Assinatura do recebedor");
+  const prestId = resolvePrestadorIdentidade(assin.prestador, perfil);
+  if (!prestId.nome) faltando.push("Nome do prestador (entrega)");
+  if (!prestId.documento) faltando.push("Documento do prestador (entrega)");
+  if (!assinaturaReferenciaLocal(assin.prestador)) faltando.push("Assinatura do prestador (entrega)");
+
+  return { completa: faltando.length === 0, faltando };
+}
+
 export async function criarChecklist(uid, freteId, dados = {}) {
   if (!uid || !freteId) throw new Error("uid e freteId são obrigatórios");
 

@@ -1,6 +1,7 @@
 const DB_NAME = "logrotas_checklist_v1";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const STORE = "checklists";
+const STORE_MEDIA = "media";
 
 let dbPromise = null;
 
@@ -28,6 +29,10 @@ export function openChecklistDb() {
         store.createIndex("byUid", "uid", { unique: false });
         store.createIndex("byFreteId", "freteId", { unique: false });
       }
+      if (!db.objectStoreNames.contains(STORE_MEDIA)) {
+        const media = db.createObjectStore(STORE_MEDIA, { keyPath: "mediaId" });
+        media.createIndex("byChecklistId", "checklistId", { unique: false });
+      }
     };
   });
   return dbPromise;
@@ -53,4 +58,31 @@ export async function idbGetByFreteId(uid, freteId) {
   if (!uid || !freteId) return null;
   const all = await idbGetAllByUid(uid);
   return all.find((c) => c.freteId === freteId) || null;
+}
+
+export async function idbPutMedia(record) {
+  const db = await openChecklistDb();
+  return requestToPromise(
+    db.transaction(STORE_MEDIA, "readwrite").objectStore(STORE_MEDIA).put(record)
+  );
+}
+
+export async function idbGetMedia(mediaId) {
+  const db = await openChecklistDb();
+  return requestToPromise(
+    db.transaction(STORE_MEDIA, "readonly").objectStore(STORE_MEDIA).get(mediaId)
+  );
+}
+
+export async function idbDeleteMedia(mediaId) {
+  const db = await openChecklistDb();
+  return requestToPromise(
+    db.transaction(STORE_MEDIA, "readwrite").objectStore(STORE_MEDIA).delete(mediaId)
+  );
+}
+
+export async function idbListMediaByChecklistId(checklistId) {
+  const db = await openChecklistDb();
+  const idx = db.transaction(STORE_MEDIA, "readonly").objectStore(STORE_MEDIA).index("byChecklistId");
+  return requestToPromise(idx.getAll(checklistId));
 }

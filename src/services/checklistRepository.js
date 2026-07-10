@@ -14,8 +14,19 @@ import {
   getChecklistLocalByFreteId,
   listChecklistsLocal,
   stripChecklistStorageMeta,
+  countPendingChecklistMedia,
+  applyPendingMediaSyncMeta,
 } from "./checklistOfflineStore.js";
+import {
+  buildChecklistMediaId,
+  buildChecklistStoragePath,
+  putChecklistMedia,
+  getChecklistMediaBlob,
+  hasChecklistMediaBlob,
+} from "./checklistMediaStore.js";
 import { logChecklist } from "./checklistLogSanitizer.js";
+
+export { getChecklistMediaBlob, hasChecklistMediaBlob };
 
 export function isNavigatorOnline() {
   return typeof navigator === "undefined" ? true : navigator.onLine !== false;
@@ -39,6 +50,78 @@ function mergePatchIntoLocal(local, patch) {
   };
   merged.atualizadoEm = merged._sync.lastLocalSaveAt;
   return merged;
+}
+
+function stripFotoForFirestore(foto) {
+  if (!foto) return foto;
+  const { previewUrl, uploadStatus, localId, mediaId, syncStatus, ...rest } = foto;
+  return rest;
+}
+
+function stripAssinaturaForFirestore(assin) {
+  if (!assin) return assin;
+  const { imagemMediaId, ...rest } = assin;
+  return rest;
+}
+
+function stripPatchForFirestore(patch) {
+  if (!patch) return patch;
+  const out = JSON.parse(JSON.stringify(patch));
+  if (out.coleta?.fotos) {
+    out.coleta.fotos = out.coleta.fotos.map(stripFotoForFirestore);
+  }
+  if (out.entrega?.fotos) {
+    out.entrega.fotos = out.entrega.fotos.map(stripFotoForFirestore);
+  }
+  if (out.coleta?.assinaturas) {
+    Object.keys(out.coleta.assinaturas).forEach((k) => {
+      out.coleta.assinaturas[k] = stripAssinaturaForFirestore(out.coleta.assinaturas[k]);
+    });
+  }
+  if (out.entrega?.assinaturas) {
+    Object.keys(out.entrega.assinaturas).forEach((k) => {
+      out.entrega.assinaturas[k] = stripAssinaturaForFirestore(out.entrega.assinaturas[k]);
+    });
+  }
+  return out;
+}
+
+function buildRemotePatch(patch, merged) {
+  const pending = countPendingChecklistMedia(merged);
+  if (pending > 0) return null;
+  const remote = stripPatchForFirestore(patch);
+  return Object.keys(remote).length ? remote : null;
+}
+
+/**
+ * Grava blob de foto/assinatura no IndexedDB (Fase 2a).
+ * Upload ao Storage fica para Fase 2c.
+ */
+export async function captureChecklistMedia({
+  uid,
+  checklistId,
+  contexto = "coleta",
+  tipo = "foto",
+  slot,
+  blob,
+  storageFileName,
+}) {
+  if (!uid || !checklistId || !blob) {
+    throw new Error("uid, checklistId e blob são obrigatórios");
+  }
+  const mediaId = buildChecklistMediaId(checklistId, contexto, slot);
+  const storagePath = buildChecklistStoragePath(uid, checklistId, contexto, storageFileName);
+  await putChecklistMedia({
+    mediaId,
+    checklistId,
+    uid,
+    contexto,
+    tipo,
+    slot,
+    storagePath,
+    blob,
+  });
+  return { mediaId, storagePath };
 }
 
 async function persistRemoteCreate(uid, checklistId, doc) {
@@ -151,8 +234,12 @@ export async function saveChecklist({ uid, checklistId, patch, baseChecklist }) 
   }
 
   let merged = mergePatchIntoLocal(local, patch);
+  merged = applyPendingMediaSyncMeta(merged);
 
-  if (merged._sync.state === "synced" && !isNavigatorOnline()) {
+  const pendingMedia = merged._sync?.pendingMediaCount ?? 0;
+  if (pendingMedia > 0) {
+    merged._sync.state = "local_only";
+  } else if (merged._sync.state === "synced" && !isNavigatorOnline()) {
     merged._sync.state = "local_only";
   }
 
@@ -164,9 +251,10 @@ export async function saveChecklist({ uid, checklistId, patch, baseChecklist }) 
   }
 
   let savedRemote = false;
-  if (isNavigatorOnline()) {
+  const remotePatch = buildRemotePatch(patch, merged);
+  if (isNavigatorOnline() && remotePatch) {
     try {
-      await persistRemoteUpdate(uid, checklistId, patch);
+      await persistRemoteUpdate(uid, checklistId, remotePatch);
       merged._sync = {
         ...merged._sync,
         state: "synced",
@@ -179,6 +267,11 @@ export async function saveChecklist({ uid, checklistId, patch, baseChecklist }) 
       await saveChecklistLocal(merged);
       logChecklist("warn", "[Checklist] Atualização remota falhou — local_only", err);
     }
+  } else if (pendingMedia > 0) {
+    logChecklist("log", "[Checklist] Sync remoto adiado — mídia pendente", {
+      checklistId,
+      pendingMedia,
+    });
   }
 
   return {

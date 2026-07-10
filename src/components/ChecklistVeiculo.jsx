@@ -4,6 +4,8 @@ import { ArrowLeftIcon, XIcon, CameraIcon, RefreshCwIcon, CheckCircle2Icon } fro
 import {
   coletaCompleta,
   entregaCompleta,
+  coletaCompletaLocal,
+  entregaCompletaLocal,
   CHECKLIST_TIPOS_SERVICO,
   CHECKLIST_MOTIVOS,
   CHECKLIST_ESTADOS_ACESSORIO,
@@ -27,14 +29,13 @@ import {
   aplicarLimiteAvulsosSalvos,
 } from "../services/checklistService.js";
 import { clearChecklistSession } from "../services/checklistSessionService.js";
-import { saveChecklist as saveChecklistToRepository, loadChecklist } from "../services/checklistRepository.js";
+import { saveChecklist as saveChecklistToRepository, loadChecklist, captureChecklistMedia } from "../services/checklistRepository.js";
+import { resolveChecklistImagePreview } from "../services/checklistImageResolver.js";
 import { getChecklistSyncBadge } from "../services/checklistSyncStatus.js";
 import { incrementUsageCounter, USAGE_COUNTERS } from "../services/usageStatsService.js";
 import {
   stampAndCompressImage,
   compressImageToJpegBlob,
-  uploadChecklistImage,
-  uploadChecklistEntregaImage,
   formatStampDataHora,
   buildPhotoStampText,
   migrateChecklistColetaMedia,
@@ -67,6 +68,12 @@ async function getCachedStorageBlobUrl(urlOrPath) {
   const objUrl = URL.createObjectURL(blob);
   storageBlobUrlCache.set(urlOrPath, objUrl);
   return objUrl;
+}
+
+const CHECKLIST_GEO_TIMEOUT_MS = 3000;
+
+async function getChecklistGeolocation() {
+  return getDriverGeolocation({ preferFresh: true, timeoutMs: CHECKLIST_GEO_TIMEOUT_MS });
 }
 
 const C = {
@@ -169,7 +176,7 @@ function atualizarFotoPorLocalId(fotosAtuais, localId, patch) {
   return (fotosAtuais || []).map((f) => (f.localId === localId ? { ...f, ...patch } : f));
 }
 
-/** Remove campos só de UI antes de gravar no Firestore. */
+/** Remove campos só de UI antes de gravar — mantém mediaId/syncStatus no doc local. */
 function sanitizeFotosForFirestore(fotos) {
   return (fotos || []).map((f) => {
     const { previewUrl, uploadStatus, localId, ...rest } = f;
@@ -183,6 +190,7 @@ function preserveLocalFotoPreviews(localFotos, savedFotos) {
   const usados = new Set();
   const merged = saved.map((sf) => {
     const local = (localFotos || []).find((lf) => {
+      if (lf.mediaId && sf.mediaId && lf.mediaId === sf.mediaId) return true;
       if (!lf.previewUrl || lf.url || usados.has(lf.localId)) return false;
       if (lf.tipo !== sf.tipo) return false;
       if (sf.url) return false;
@@ -197,6 +205,7 @@ function preserveLocalFotoPreviews(localFotos, savedFotos) {
       ...sf,
       previewUrl: local.previewUrl,
       uploadStatus: local.uploadStatus,
+      syncStatus: local.syncStatus ?? sf.syncStatus,
       localId: local.localId,
     };
   });
@@ -206,8 +215,18 @@ function preserveLocalFotoPreviews(localFotos, savedFotos) {
   return [...merged, ...extras];
 }
 
+function fotoMídiaPendenteSync(foto) {
+  return !!foto && !!foto.mediaId && !foto.url;
+}
+
+/** Pendência para PDF (exige URL Storage) — Fase 4 liberará via IndexedDB. */
 function fotoUploadPendente(foto) {
-  return !!foto && (foto.uploadStatus === "uploading" || (!!foto.previewUrl && !foto.url));
+  return (
+    !!foto &&
+    (foto.uploadStatus === "uploading" ||
+      fotoMídiaPendenteSync(foto) ||
+      (!!foto.previewUrl && !foto.url && !foto.mediaId))
+  );
 }
 
 function fotosUploadPendentes(checklist) {
@@ -1119,7 +1138,8 @@ function PhotoSlot({
   const temFoto = !!displayUrl;
   const uploading = foto?.uploadStatus === "uploading";
   const failed = foto?.uploadStatus === "failed";
-  const synced = temFoto && !!foto?.url && !uploading && !failed;
+  const pendingLocal = foto?.syncStatus === "pending" && !foto?.url;
+  const synced = temFoto && (foto?.url || foto?.mediaId) && !uploading && !failed;
   const handleAreaClick = () => {
     if (processing) return;
     if (somenteLeitura) {
@@ -1231,6 +1251,23 @@ function PhotoSlot({
           >
             <RefreshCwIcon size={11} style={{ animation: "lr-btn-spin 1s linear infinite" }} />
             Enviando…
+          </div>
+        )}
+        {pendingLocal && !uploading && (
+          <div
+            style={{
+              position: "absolute",
+              top: 8,
+              right: 8,
+              background: "rgba(232,93,4,0.92)",
+              color: "#fff",
+              fontSize: 10,
+              fontWeight: 700,
+              padding: "4px 8px",
+              borderRadius: 8,
+            }}
+          >
+            📱 Local
           </div>
         )}
         {synced && (
@@ -1431,7 +1468,6 @@ export default function ChecklistVeiculo({
   const checklistRef = useRef(checklist);
   const etapaRef = useRef(etapa);
   const migrationRanRef = useRef(null);
-  const pendingUploadsRef = useRef(new Map());
   const gerarPdfCompletoRef = useRef(null);
   const etapaBootstrappedIdRef = useRef(null);
   const etapaReportedRef = useRef(null);
@@ -1440,10 +1476,13 @@ export default function ChecklistVeiculo({
   checklistRef.current = checklist;
   etapaRef.current = etapa;
 
-  const validacao = coletaCompleta(checklist, perfil);
-  const validacaoEntrega = entregaCompleta(checklist, perfil);
+  const validacao = coletaCompletaLocal(checklist, perfil);
+  const validacaoEntrega = entregaCompletaLocal(checklist, perfil);
   const prestadorPerfilOk = perfilPrestadorCompleto(perfil);
-  const coletaOk = checklist?.status === "aguardando_entrega" || checklist?.status === "concluido" || validacao.completa;
+  const coletaOk =
+    checklist?.status === "aguardando_entrega" ||
+    checklist?.status === "concluido" ||
+    validacao.completa;
   const entregaHabilitada = checklist?.status === "aguardando_entrega" || checklist?.status === "concluido";
   const travarEtapasColeta = coletaChecklistTravada(checklist);
   const entregaConcluida = entregaChecklistTravada(checklist);
@@ -1469,6 +1508,47 @@ export default function ChecklistVeiculo({
     setEtapa(etapaInicial);
     etapaReportedRef.current = etapaInicial;
   }, [initial?.id, initialEtapa, initial?.status]);
+
+  // Reidrata previewUrl a partir do IndexedDB após kill do app / retomar sessão
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const base = checklistRef.current;
+      if (!base?.id) return;
+
+      const hydrateFotos = async (fotos) => {
+        const list = [...(fotos || [])];
+        let changed = false;
+        for (let i = 0; i < list.length; i++) {
+          const f = list[i];
+          if (!f?.mediaId || f.previewUrl) continue;
+          const preview = await resolveChecklistImagePreview({ mediaId: f.mediaId });
+          if (preview && !cancelled) {
+            list[i] = { ...f, previewUrl: preview };
+            changed = true;
+          }
+        }
+        return changed ? list : null;
+      };
+
+      const coletaFotos = await hydrateFotos(base.coleta?.fotos);
+      const entregaFotos = await hydrateFotos(base.entrega?.fotos);
+      if (cancelled || (!coletaFotos && !entregaFotos)) return;
+
+      const next = { ...base };
+      if (coletaFotos) {
+        next.coleta = { ...normalizeColetaData(next.coleta, next), fotos: coletaFotos };
+      }
+      if (entregaFotos) {
+        next.entrega = { ...normalizeEntregaData(next.entrega), fotos: entregaFotos };
+      }
+      checklistRef.current = next;
+      setChecklist(next);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [initial?.id]);
 
   useEffect(() => {
     if (etapaReportedRef.current === etapa) return;
@@ -1991,8 +2071,11 @@ export default function ChecklistVeiculo({
   };
   gerarPdfCompletoRef.current = handleGerarPdfCompleto;
 
-  const assinaturaSalvaValida = (assin) =>
-    !!assin?.imagemUrl?.trim() && !String(assin.imagemUrl).startsWith("data:");
+  const assinaturaSalvaValida = (assin) => {
+    if (!assin) return false;
+    if (assin.imagemMediaId) return true;
+    return !!assin.imagemUrl?.trim() && !String(assin.imagemUrl).startsWith("data:");
+  };
 
   const salvarAssinaturaBloco = useCallback(
     async (bloco) => {
@@ -2018,13 +2101,20 @@ export default function ChecklistVeiculo({
       setSalvandoAssinaturaBloco((s) => ({ ...s, [bloco]: true }));
       setErro("");
       try {
-        const gps = await getDriverGeolocation({ preferFresh: true });
+        const gps = await getChecklistGeolocation();
         const blob = await padRef.current.toBlob();
         const jpeg = await compressImageToJpegBlob(blob);
         const nomeArquivo = `assinatura_${bloco}_${Date.now()}`;
-        logChecklist("log", "[Checklist] Enviando assinatura ao Storage", { bloco, nomeArquivo });
-        const url = await uploadChecklistImage(uid, checklistId, nomeArquivo, jpeg);
-        logChecklist("log", "[Checklist] Upload assinatura OK", { bloco, url: url?.slice(0, 80) });
+        logChecklist("log", "[Checklist] Gravando assinatura local (IndexedDB)", { bloco, nomeArquivo });
+        const { mediaId } = await captureChecklistMedia({
+          uid,
+          checklistId,
+          contexto: "coleta",
+          tipo: "assinatura",
+          slot: `assinatura_${bloco}`,
+          blob: jpeg,
+          storageFileName: nomeArquivo,
+        });
 
         const dataHora = formatStampDataHora();
         const assinaturas = {
@@ -2033,7 +2123,8 @@ export default function ChecklistVeiculo({
             ...assinAtual,
             nome: ident ? ident.nome : (assinAtual.nome || "").trim(),
             documento: ident ? ident.documento : (assinAtual.documento || "").trim(),
-            imagemUrl: url,
+            imagemMediaId: mediaId,
+            imagemUrl: "",
             dataHora,
             lat: gps?.lat ?? null,
             lng: gps?.lng ?? null,
@@ -2084,12 +2175,20 @@ export default function ChecklistVeiculo({
       setSalvandoAssinaturaEntregaBloco((s) => ({ ...s, [bloco]: true }));
       setErro("");
       try {
-        const gps = await getDriverGeolocation({ preferFresh: true });
+        const gps = await getChecklistGeolocation();
         const blob = await padRef.current.toBlob();
         const jpeg = await compressImageToJpegBlob(blob);
         const nomeArquivo = `assinatura_entrega_${bloco}_${Date.now()}`;
-        logChecklist("log", "[Checklist] Enviando assinatura entrega ao Storage", { bloco, nomeArquivo });
-        const url = await uploadChecklistEntregaImage(uid, checklistId, nomeArquivo, jpeg);
+        logChecklist("log", "[Checklist] Gravando assinatura entrega local (IndexedDB)", { bloco, nomeArquivo });
+        const { mediaId } = await captureChecklistMedia({
+          uid,
+          checklistId,
+          contexto: "entrega",
+          tipo: "assinatura",
+          slot: `assinatura_entrega_${bloco}`,
+          blob: jpeg,
+          storageFileName: nomeArquivo,
+        });
 
         const assinaturas = {
           ...entregaNorm.assinaturas,
@@ -2097,7 +2196,8 @@ export default function ChecklistVeiculo({
             ...assinAtual,
             nome: ident ? ident.nome : (assinAtual.nome || "").trim(),
             documento: ident ? ident.documento : (assinAtual.documento || "").trim(),
-            imagemUrl: url,
+            imagemMediaId: mediaId,
+            imagemUrl: "",
             dataHora: formatStampDataHora(),
             lat: gps?.lat ?? null,
             lng: gps?.lng ?? null,
@@ -2123,22 +2223,59 @@ export default function ChecklistVeiculo({
     [uid, salvar, perfil]
   );
 
-  const uploadAssinaturaImagem = useCallback(
-    async (imagemUrl, padRef, nomeArquivo, checklistId) => {
-      if (imagemUrl && isChecklistDownloadUrl(imagemUrl)) return imagemUrl;
-      if (imagemUrl && String(imagemUrl).startsWith("data:image")) {
-        logChecklist("log", "[Checklist] Convertendo assinatura base64 para Storage", { nomeArquivo });
-        const resp = await fetch(imagemUrl);
-        const rawBlob = await resp.blob();
-        const jpeg = await compressImageToJpegBlob(rawBlob);
-        return uploadChecklistImage(uid, checklistId, nomeArquivo, jpeg);
-      }
+  const capturarAssinaturaPad = useCallback(
+    async ({
+      padRef,
+      assinAtual,
+      bloco,
+      contexto,
+      checklistId,
+      ident,
+      gps,
+      dataHora,
+    }) => {
       if (padRef?.current && !padRef.current.isEmpty?.()) {
-        const blob = await padRef.current.toBlob();
-        const jpeg = await compressImageToJpegBlob(blob);
-        return uploadChecklistImage(uid, checklistId, nomeArquivo, jpeg);
+        const jpeg = await compressImageToJpegBlob(await padRef.current.toBlob());
+        const nomeArquivo =
+          contexto === "entrega"
+            ? `assinatura_entrega_${bloco}_${Date.now()}`
+            : `assinatura_${bloco}_${Date.now()}`;
+        const { mediaId } = await captureChecklistMedia({
+          uid,
+          checklistId,
+          contexto,
+          tipo: "assinatura",
+          slot: contexto === "entrega" ? `assinatura_entrega_${bloco}` : `assinatura_${bloco}`,
+          blob: jpeg,
+          storageFileName: nomeArquivo,
+        });
+        return {
+          ...assinAtual,
+          nome: ident ? ident.nome : (assinAtual.nome || "").trim(),
+          documento: ident ? ident.documento : (assinAtual.documento || "").trim(),
+          imagemMediaId: mediaId,
+          imagemUrl: "",
+          dataHora,
+          lat: gps?.lat ?? null,
+          lng: gps?.lng ?? null,
+        };
       }
-      return imagemUrl || "";
+      if (
+        assinAtual?.imagemMediaId ||
+        (assinAtual?.imagemUrl && isChecklistDownloadUrl(assinAtual.imagemUrl))
+      ) {
+        return {
+          ...assinAtual,
+          nome: ident ? ident.nome : (assinAtual.nome || "").trim(),
+          documento: ident ? ident.documento : (assinAtual.documento || "").trim(),
+        };
+      }
+      return {
+        ...assinAtual,
+        nome: ident ? ident.nome : (assinAtual.nome || "").trim(),
+        documento: ident ? ident.documento : (assinAtual.documento || "").trim(),
+        imagemUrl: assinAtual?.imagemUrl || "",
+      };
     },
     [uid]
   );
@@ -2182,7 +2319,7 @@ export default function ChecklistVeiculo({
         const respPadNovo = !responsavelPadRef.current?.isEmpty?.();
         const prestPadNovo = !prestadorPadRef.current?.isEmpty?.();
         const precisaGps = finalizar || respPadNovo || prestPadNovo;
-        const gps = precisaGps ? await getDriverGeolocation({ preferFresh: true }) : null;
+        const gps = precisaGps ? await getChecklistGeolocation() : null;
         const lat = gps?.lat ?? null;
         const lng = gps?.lng ?? null;
         const dataHora = formatStampDataHora();
@@ -2194,39 +2331,36 @@ export default function ChecklistVeiculo({
           checklistId,
         });
 
-        const respUrl = await uploadAssinaturaImagem(
-          resp.imagemUrl,
-          responsavelPadRef,
-          `assinatura_responsavel_${Date.now()}`,
-          checklistId
-        );
-        const prestUrl = await uploadAssinaturaImagem(
-          prest.imagemUrl,
-          prestadorPadRef,
-          `assinatura_prestador_${Date.now()}`,
-          checklistId
-        );
-
-        if (respPadNovo && respUrl) {
-          logChecklist("log", "[Checklist] Upload assinatura responsavel OK", { url: respUrl.slice(0, 80) });
-        }
-        if (prestPadNovo && prestUrl) {
-          logChecklist("log", "[Checklist] Upload assinatura prestador OK", { url: prestUrl.slice(0, 80) });
-        }
+        const respAssin = await capturarAssinaturaPad({
+          padRef: responsavelPadRef,
+          assinAtual: resp,
+          bloco: "responsavel",
+          contexto: "coleta",
+          checklistId,
+          ident: null,
+          gps: { lat, lng },
+          dataHora: respPadNovo || !resp.dataHora ? dataHora : resp.dataHora,
+        });
+        const prestAssin = await capturarAssinaturaPad({
+          padRef: prestadorPadRef,
+          assinAtual: prest,
+          bloco: "prestador",
+          contexto: "coleta",
+          checklistId,
+          ident: prestId,
+          gps: { lat, lng },
+          dataHora: prestPadNovo || !prest.dataHora ? dataHora : prest.dataHora,
+        });
 
         const assinaturas = {
           responsavel: {
-            nome: (resp.nome || "").trim(),
-            documento: (resp.documento || "").trim(),
-            imagemUrl: respUrl,
+            ...respAssin,
             dataHora: respPadNovo || !resp.dataHora ? dataHora : resp.dataHora,
             lat: respPadNovo ? lat : resp.lat ?? lat,
             lng: respPadNovo ? lng : resp.lng ?? lng,
           },
           prestador: {
-            nome: prestId.nome,
-            documento: prestId.documento,
-            imagemUrl: prestUrl,
+            ...prestAssin,
             dataHora: prestPadNovo || !prest.dataHora ? dataHora : prest.dataHora,
             lat: prestPadNovo ? lat : prest.lat ?? lat,
             lng: prestPadNovo ? lng : prest.lng ?? lng,
@@ -2238,7 +2372,7 @@ export default function ChecklistVeiculo({
 
         if (finalizar) {
           const checklistAtualizado = { ...atual, coleta: coletaAtualizada };
-          const val = coletaCompleta(checklistAtualizado, perfil);
+          const val = coletaCompletaLocal(checklistAtualizado, perfil);
           if (val.completa) {
             coletaAtualizada.finalizadaEm = new Date().toISOString();
             payload.status = "aguardando_entrega";
@@ -2249,8 +2383,8 @@ export default function ChecklistVeiculo({
         logChecklist("log", "[Checklist] persistirAssinaturas payload", {
           bytes: payloadBytes,
           finalizar,
-          temAssinResp: !!assinaturas.responsavel.imagemUrl,
-          temAssinPrest: !!assinaturas.prestador.imagemUrl,
+          temAssinResp: !!(assinaturas.responsavel.imagemUrl || assinaturas.responsavel.imagemMediaId),
+          temAssinPrest: !!(assinaturas.prestador.imagemUrl || assinaturas.prestador.imagemMediaId),
         });
         if (payloadBytes > 900000) {
           logChecklist("error", "[Checklist] Payload próximo do limite Firestore (1MB)", { payloadBytes });
@@ -2263,6 +2397,9 @@ export default function ChecklistVeiculo({
           if (respPadNovo) responsavelPadRef.current?.clear?.();
           if (prestPadNovo) prestadorPadRef.current?.clear?.();
           setSubstituirColeta({ responsavel: false, prestador: false });
+          if (finalizar) {
+            setToastMsg("Coleta salva no aparelho. Sincroniza quando houver internet.");
+          }
         }
         return ok;
       } catch (err) {
@@ -2273,13 +2410,13 @@ export default function ChecklistVeiculo({
         setSalvando(false);
       }
     },
-    [uid, checklist, salvar, uploadAssinaturaImagem, perfil]
+    [uid, checklist, salvar, capturarAssinaturaPad, perfil]
   );
 
   const irParaEtapa = (id) => {
     const etapaInfo = ETAPAS.find((e) => e.id === id);
     if (etapaInfo?.requerColeta && !entregaHabilitada) {
-      const val = coletaCompleta(checklist, perfil);
+      const val = coletaCompletaLocal(checklist, perfil);
       const msg = val.faltando.length
         ? `Complete a coleta primeiro: ${val.faltando.slice(0, 3).join(", ")}${val.faltando.length > 3 ? "…" : ""}`
         : "Finalize a coleta antes de registrar a entrega.";
@@ -2380,99 +2517,17 @@ export default function ChecklistVeiculo({
     [checklist]
   );
 
-  const enviarFotoBackground = useCallback(
-    async ({ localId, previewUrl, slotAtivo, isEntrega, blob, nomeArquivo, novaFoto, checklistId }) => {
-      const marcarFoto = (patch) => {
-        const base = checklistRef.current || checklist;
-        const fotosAtuais = isEntrega ? base.entrega?.fotos : base.coleta?.fotos;
-        const fotos = atualizarFotoPorLocalId(fotosAtuais, localId, patch);
-        aplicarFotosNoChecklist(isEntrega, fotos);
-      };
-
-      try {
-        marcarFoto({ uploadStatus: "uploading" });
-        logChecklist("log", "[Checklist] Enviando foto ao Storage (background)", {
-          nomeArquivo,
-          checklistId,
-          slot: slotAtivo,
-        });
-        const url = isEntrega
-          ? await uploadChecklistEntregaImage(uid, checklistId, nomeArquivo, blob)
-          : await uploadChecklistImage(uid, checklistId, nomeArquivo, blob);
-        logChecklist("log", "[Checklist] Upload concluído", { slot: slotAtivo, url: url?.slice(0, 80) });
-
-        const fotoFinal = { ...novaFoto, url, uploadStatus: undefined };
-        delete fotoFinal.previewUrl;
-        delete fotoFinal.localId;
-
-        const base = checklistRef.current || checklist;
-        const fotosAtuais = isEntrega ? base.entrega?.fotos : base.coleta?.fotos;
-        const fotos = atualizarFotosLista(fotosAtuais, slotAtivo, fotoFinal, previewUrl);
-        const next = aplicarFotosNoChecklist(isEntrega, fotos);
-        await salvar(isEntrega ? { entrega: next.entrega } : { coleta: next.coleta });
-
-        pendingUploadsRef.current.delete(localId);
-        if (previewUrl) URL.revokeObjectURL(previewUrl);
-      } catch (err) {
-        logChecklist("error", "[Checklist] Falha upload foto (background):", err);
-        marcarFoto({ uploadStatus: "failed" });
-        setToastMsg("Falha ao enviar foto. Toque em Tentar novamente.");
-      }
-    },
-    [uid, checklist, salvar, aplicarFotosNoChecklist]
-  );
 
   const retryUploadFoto = useCallback(
     (foto, contexto = "coleta") => {
-      if (!foto?.localId || !uid || !checklist?.id) return;
-      const pending = pendingUploadsRef.current.get(foto.localId);
-      const isEntrega = contexto === "entrega";
-      const checklistId = checklist.id;
-      const slotAtivo = foto.tipo;
-      const nomeArquivo =
-        pending?.nomeArquivo ||
-        (slotAtivo === "avarias"
-          ? `avarias_${Date.now()}`
-          : isEntrega
-            ? `entrega_${slotAtivo}`
-            : slotAtivo);
-
-      const run = async () => {
-        let blob = pending?.blob;
-        if (!blob && foto.previewUrl) {
-          try {
-            blob = await fetch(foto.previewUrl).then((r) => r.blob());
-          } catch {
-            setToastMsg("Não foi possível recuperar a foto para reenvio.");
-            return;
-          }
-        }
-        if (!blob) {
-          setToastMsg("Foto local indisponível. Capture novamente.");
-          return;
-        }
-        pendingUploadsRef.current.set(foto.localId, {
-          blob,
-          nomeArquivo,
-          slotAtivo,
-          isEntrega,
-          previewUrl: foto.previewUrl,
-          novaFoto: foto,
-        });
-        await enviarFotoBackground({
-          localId: foto.localId,
-          previewUrl: foto.previewUrl,
-          slotAtivo,
-          isEntrega,
-          blob,
-          nomeArquivo,
-          novaFoto: foto,
-          checklistId,
-        });
-      };
-      void run();
+      if (!foto?.mediaId && !foto?.localId) return;
+      if (foto?.mediaId && !foto?.url) {
+        setToastMsg("Foto salva no aparelho. Sincronização na próxima etapa.");
+        return;
+      }
+      setToastMsg("Não foi possível recuperar a foto. Capture novamente.");
     },
-    [uid, checklist, enviarFotoBackground]
+    []
   );
 
   const handleArquivoFoto = async (e) => {
@@ -2500,7 +2555,7 @@ export default function ChecklistVeiculo({
     let previewUrl = null;
     let localId = null;
     try {
-      const gps = await getDriverGeolocation({ preferFresh: true });
+      const gps = await getChecklistGeolocation();
       const lat = gps?.lat ?? null;
       const lng = gps?.lng ?? null;
       const now = new Date();
@@ -2509,7 +2564,24 @@ export default function ChecklistVeiculo({
       const blob = await stampAndCompressImage(file, stamp);
       previewUrl = URL.createObjectURL(blob);
       localId = `${slotCaptura}_${Date.now()}`;
-      logChecklist("log", "[Checklist] Foto comprimida, preview local criado", { slot: slotCaptura });
+      logChecklist("log", "[Checklist] Foto comprimida, gravando local", { slot: slotCaptura });
+
+      const nomeArquivo =
+        slotCaptura === "avarias"
+          ? `avarias_${Date.now()}`
+          : isEntrega
+            ? `entrega_${slotCaptura}`
+            : slotCaptura;
+
+      const { mediaId } = await captureChecklistMedia({
+        uid,
+        checklistId,
+        contexto: isEntrega ? "entrega" : "coleta",
+        tipo: "foto",
+        slot: slotCaptura,
+        blob,
+        storageFileName: nomeArquivo,
+      });
 
       const slots = isEntrega ? CHECKLIST_ENTREGA_FOTO_SLOTS : CHECKLIST_FOTO_SLOTS;
       const slotInfo = slots.find((s) => s.id === slotCaptura);
@@ -2517,9 +2589,10 @@ export default function ChecklistVeiculo({
         tipo: slotCaptura,
         label: slotInfo?.label || slotCaptura,
         url: "",
+        mediaId,
         previewUrl,
         localId,
-        uploadStatus: "uploading",
+        syncStatus: "pending",
         dataHora,
         lat,
         lng,
@@ -2529,43 +2602,16 @@ export default function ChecklistVeiculo({
       const fotosExistentes = isEntrega ? base.entrega?.fotos : base.coleta?.fotos;
       if (slotCaptura !== "avarias") {
         const anterior = (fotosExistentes || []).find((f) => f.tipo === slotCaptura);
-        if (anterior?.previewUrl) URL.revokeObjectURL(anterior.previewUrl);
-        if (anterior?.localId) pendingUploadsRef.current.delete(anterior.localId);
+        if (anterior?.previewUrl?.startsWith("blob:")) URL.revokeObjectURL(anterior.previewUrl);
       }
 
       const fotos = atualizarFotosLista(fotosExistentes, slotCaptura, novaFoto);
-      aplicarFotosNoChecklist(isEntrega, fotos);
-
-      const nomeArquivo =
-        slotCaptura === "avarias"
-          ? `avarias_${Date.now()}`
-          : isEntrega
-            ? `entrega_${slotCaptura}`
-            : slotCaptura;
-
-      pendingUploadsRef.current.set(localId, {
-        blob,
-        nomeArquivo,
-        slotAtivo: slotCaptura,
-        isEntrega,
-        previewUrl,
-        novaFoto,
-      });
-
-      void enviarFotoBackground({
-        localId,
-        previewUrl,
-        slotAtivo: slotCaptura,
-        isEntrega,
-        blob,
-        nomeArquivo,
-        novaFoto,
-        checklistId,
-      });
+      const next = aplicarFotosNoChecklist(isEntrega, fotos);
+      await salvar(isEntrega ? { entrega: next.entrega } : { coleta: next.coleta });
+      setToastMsg("Foto salva no aparelho.");
     } catch (err) {
       logChecklist("error", "[Checklist] Falha no processamento local da foto:", err);
       if (previewUrl) URL.revokeObjectURL(previewUrl);
-      if (localId) pendingUploadsRef.current.delete(localId);
       setErro("Falha ao processar a foto. Tente novamente.");
       setToastMsg("Falha ao processar a foto.");
     } finally {
@@ -2621,7 +2667,7 @@ export default function ChecklistVeiculo({
     logChecklist("log", "[Checklist] Finalizar coleta clicado");
     const ok = await persistirAssinaturasColeta({ finalizar: true });
     if (ok) {
-      const val = coletaCompleta(checklistRef.current, perfil);
+      const val = coletaCompletaLocal(checklistRef.current, perfil);
       logChecklist("log", "[Checklist] Finalizar coleta concluído", { completa: val.completa });
       if (val.completa || checklistRef.current?.status === "aguardando_entrega") setEtapa(5);
     }
@@ -2953,7 +2999,7 @@ export default function ChecklistVeiculo({
       }
     }
 
-    const val = entregaCompleta({ ...atual, entrega: entregaNorm }, perfil);
+    const val = entregaCompletaLocal({ ...atual, entrega: entregaNorm }, perfil);
     if (!val.completa) {
       setErro(`Complete a entrega: ${val.faltando.slice(0, 3).join(", ")}${val.faltando.length > 3 ? "…" : ""}`);
       return;
@@ -2969,6 +3015,7 @@ export default function ChecklistVeiculo({
       const ok = await salvar({ entrega: entregaAtualizada, status: "concluido" });
       if (ok) {
         clearChecklistSession();
+        setToastMsg("Entrega salva no aparelho. Sincroniza quando houver internet.");
         const atualizado = checklistRef.current || checklist;
         if (uid) {
           if (atualizado?.avulso) {

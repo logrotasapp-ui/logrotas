@@ -104,7 +104,7 @@ export function warmGeocodeProximity() {
  * @returns {Promise<{ lng: number, lat: number } | null>}
  */
 export function getDriverGeolocation(options = {}) {
-  const { preferFresh = false } = options;
+  const { preferFresh = false, timeoutMs = 12000 } = options;
 
   return new Promise((resolve) => {
     if (!preferFresh && cachedGeocodeProximity) {
@@ -135,7 +135,7 @@ export function getDriverGeolocation(options = {}) {
       },
       {
         enableHighAccuracy: true,
-        timeout: 12000,
+        timeout: timeoutMs,
         maximumAge: preferFresh ? 0 : 600000,
       }
     );
