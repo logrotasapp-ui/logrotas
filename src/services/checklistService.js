@@ -338,19 +338,32 @@ export function normalizeEntregaData(entrega) {
   };
 }
 
-async function gerarNumero(uid) {
+async function gerarNumeroPorTipo(uid, tipoPrefix) {
   const ano = new Date().getFullYear();
-  const prefix = `${ano}-`;
   const snap = await getDocs(colRef(uid));
   let maxSeq = 0;
   snap.docs.forEach((d) => {
-    const num = d.data()?.numero || "";
-    if (String(num).startsWith(prefix)) {
-      const seq = parseInt(String(num).slice(prefix.length), 10);
-      if (!Number.isNaN(seq) && seq > maxSeq) maxSeq = seq;
-    }
+    const seq = parseNumeroSeqComPrefixo(d.data()?.numero, tipoPrefix);
+    if (seq != null && seq > maxSeq) maxSeq = seq;
   });
-  return `${ano}-${String(maxSeq + 1).padStart(4, "0")}`;
+  return `${tipoPrefix}-${ano}-${String(maxSeq + 1).padStart(4, "0")}`;
+}
+
+/** Legado (2026-XXXX) não entra no scan — só AV-2026-XXXX. */
+async function gerarNumeroAvulso(uid) {
+  return gerarNumeroPorTipo(uid, "AV");
+}
+
+/** Legado (2026-XXXX) não entra no scan — só FR-2026-XXXX. */
+async function gerarNumeroFrete(uid) {
+  return gerarNumeroPorTipo(uid, "FR");
+}
+
+function parseNumeroSeqComPrefixo(numero, tipoPrefix) {
+  const m = String(numero || "").match(new RegExp(`^${tipoPrefix}-(\\d{4})-(\\d{4})$`));
+  if (!m) return null;
+  const seq = parseInt(m[2], 10);
+  return Number.isNaN(seq) ? null : seq;
 }
 
 function buildNovoDocumento(freteId, dados = {}) {
@@ -488,7 +501,7 @@ export function entregaCompleta(checklist, perfil = null) {
 export async function criarChecklist(uid, freteId, dados = {}) {
   if (!uid || !freteId) throw new Error("uid e freteId são obrigatórios");
 
-  const numero = await gerarNumero(uid);
+  const numero = await gerarNumeroFrete(uid);
   const payload = buildNovoDocumento(freteId, dados);
   payload.numero = numero;
 
@@ -505,7 +518,7 @@ export async function criarChecklist(uid, freteId, dados = {}) {
 export async function criarChecklistAvulso(uid, dados = {}) {
   if (!uid) throw new Error("uid é obrigatório");
 
-  const numero = await gerarNumero(uid);
+  const numero = await gerarNumeroAvulso(uid);
   const payload = buildNovoDocumento(null, dados);
   payload.numero = numero;
   payload.avulso = true;

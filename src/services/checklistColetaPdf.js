@@ -574,82 +574,98 @@ export async function generateChecklistColetaPdf({
   const { cliente, veiculo, servico, origem, destino, coleta, entrega, numero } = checklist || {};
 
   const LOGO_BOX_MM = 28;
-  const LOGO_GAP_MM = 4;
   const headerStartY = y;
-  let headerTextX = margin;
-  let headerTextW = contentWidth;
+  const pageCenterX = pageWidth / 2;
 
-  let logoEntry = null;
-  const empresaLogoUrl = perfil?.empresaLogoUrl?.trim();
-  if (empresaLogoUrl) {
-    logoEntry = await fetchImageDataUrl(empresaLogoUrl, "empresa-logo");
-    if (logoEntry) {
-      try {
-        const fit = containFitInBox(
-          logoEntry.width,
-          logoEntry.height,
-          margin,
-          headerStartY,
-          LOGO_BOX_MM,
-          LOGO_BOX_MM
-        );
-        doc.addImage(logoEntry.dataUrl, "JPEG", fit.x, fit.y, fit.w, fit.h);
-        headerTextX = margin + LOGO_BOX_MM + LOGO_GAP_MM;
-        headerTextW = contentWidth - LOGO_BOX_MM - LOGO_GAP_MM;
-      } catch (err) {
-        logChecklist("error", "[Checklist PDF] Logo empresa falhou:", err);
-        logoEntry = null;
-        headerTextX = margin;
-        headerTextW = contentWidth;
-      }
-    }
-  }
-
-  const wrapHeader = (text) => wrapLines(doc, stripEmojis(text), headerTextW);
   const tituloPdf = onlyEntrega
     ? "CHECKLIST DE VEICULO - ENTREGA"
     : includeEntrega
       ? "CHECKLIST DE VEICULO - COMPLETO"
       : "CHECKLIST DE VEICULO - COLETA";
 
+  let logoEntry = null;
+  const empresaLogoUrl = perfil?.empresaLogoUrl?.trim();
+  if (empresaLogoUrl) {
+    logoEntry = await fetchImageDataUrl(empresaLogoUrl, "empresa-logo");
+  }
+
   const empresaNome = perfil?.empresa?.trim();
+  const empresaLines = [];
+  const tituloLines = [];
+
+  if (empresaNome) {
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(18);
+    empresaLines.push(...wrapLines(doc, stripEmojis(empresaNome), contentWidth));
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(11);
+    tituloLines.push(...wrapLines(doc, stripEmojis(tituloPdf), contentWidth));
+  } else {
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(15);
+    tituloLines.push(...wrapLines(doc, stripEmojis(tituloPdf), contentWidth));
+  }
+
+  let textBlockH = 0;
+  if (empresaLines.length) {
+    textBlockH += empresaLines.length * 7 + 2;
+  }
+  if (tituloLines.length) {
+    textBlockH += tituloLines.length * (empresaNome ? 5 : 7) + 2;
+  }
+
+  const headerBlockH = Math.max(textBlockH, logoEntry ? LOGO_BOX_MM : textBlockH);
+
+  if (logoEntry) {
+    try {
+      const logoBoxY = headerStartY + (headerBlockH - LOGO_BOX_MM) / 2;
+      const fit = containFitInBox(
+        logoEntry.width,
+        logoEntry.height,
+        margin,
+        logoBoxY,
+        LOGO_BOX_MM,
+        LOGO_BOX_MM
+      );
+      doc.addImage(logoEntry.dataUrl, "JPEG", fit.x, fit.y, fit.w, fit.h);
+    } catch (err) {
+      logChecklist("error", "[Checklist PDF] Logo empresa falhou:", err);
+      logoEntry = null;
+    }
+  }
+
+  let textY = headerStartY;
+  if (headerBlockH > textBlockH) {
+    textY += (headerBlockH - textBlockH) / 2;
+  }
+
   if (empresaNome) {
     doc.setFont("helvetica", "bold");
     doc.setFontSize(18);
     doc.setTextColor(30, 58, 138);
-    wrapHeader(empresaNome).forEach((ln) => {
-      doc.text(ln, headerTextX, y);
-      y += 7;
+    empresaLines.forEach((ln) => {
+      doc.text(ln, pageCenterX, textY, { align: "center" });
+      textY += 7;
     });
-    y += 2;
+    textY += 2;
     doc.setFont("helvetica", "normal");
     doc.setFontSize(11);
     doc.setTextColor(71, 85, 105);
-    wrapHeader(tituloPdf).forEach((ln) => {
-      doc.text(ln, headerTextX, y);
-      y += 5;
+    tituloLines.forEach((ln) => {
+      doc.text(ln, pageCenterX, textY, { align: "center" });
+      textY += 5;
     });
-    y += 2;
-  } else if (logoEntry) {
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(15);
-    doc.setTextColor(30, 58, 138);
-    wrapHeader(tituloPdf).forEach((ln) => {
-      doc.text(ln, headerTextX, y);
-      y += 7;
-    });
-    y += 2;
   } else {
     doc.setFont("helvetica", "bold");
     doc.setFontSize(15);
     doc.setTextColor(30, 58, 138);
-    doc.text(tituloPdf, margin, y);
-    y += 8;
+    tituloLines.forEach((ln) => {
+      doc.text(ln, pageCenterX, textY, { align: "center" });
+      textY += 7;
+    });
   }
 
-  if (logoEntry) {
-    y = Math.max(y, headerStartY + LOGO_BOX_MM) + 2;
-  }
+  y = headerStartY + headerBlockH + 4;
 
   doc.setFontSize(12);
   doc.setTextColor(30, 58, 138);
