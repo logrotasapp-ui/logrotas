@@ -642,7 +642,6 @@ export async function generateChecklistColetaPdf({
   const { cliente, veiculo, servico, origem, destino, coleta, entrega, numero } = checklist || {};
 
   const LOGO_BOX_MM = 24;
-  const LOGO_GAP_MM = 10;
   const headerStartY = y;
   const pageCenterX = pageWidth / 2;
 
@@ -659,7 +658,7 @@ export async function generateChecklistColetaPdf({
   }
 
   const empresaNome = perfil?.empresa?.trim();
-  const textWrapW = logoEntry ? contentWidth - LOGO_BOX_MM - LOGO_GAP_MM : contentWidth;
+  const textWrapW = contentWidth;
   const empresaLines = [];
   const tituloLines = [];
 
@@ -676,23 +675,24 @@ export async function generateChecklistColetaPdf({
     tituloLines.push(...wrapLines(doc, stripEmojis(tituloPdf), textWrapW));
   }
 
-  let textBlockH = 0;
+  let textContentH = 0;
   if (empresaLines.length) {
-    textBlockH += empresaLines.length * 7 + 2;
+    textContentH += empresaLines.length * 7 + 2;
   }
   if (tituloLines.length) {
-    textBlockH += tituloLines.length * (empresaNome ? 5 : 7) + 2;
+    textContentH += tituloLines.length * (empresaNome ? 5 : 7) + 2;
   }
 
-  const headerBlockH = logoEntry ? Math.max(textBlockH, LOGO_BOX_MM) : textBlockH;
+  const firstLineBaselineMm = empresaNome ? 5 : 6.5;
+  const textBlockTotalH = firstLineBaselineMm + textContentH;
+  const headerBlockH = logoEntry ? Math.max(textBlockTotalH, LOGO_BOX_MM) : textBlockTotalH;
 
-  let textX = margin;
-  let textAlign = "left";
+  const textX = pageCenterX;
 
   if (logoEntry) {
     try {
       const logoBoxX = margin;
-      const logoBoxY = headerStartY + (headerBlockH - LOGO_BOX_MM) / 2;
+      const logoBoxY = headerStartY;
       const fit = containFitInBox(
         logoEntry.width,
         logoEntry.height,
@@ -702,27 +702,20 @@ export async function generateChecklistColetaPdf({
         LOGO_BOX_MM
       );
       doc.addImage(logoEntry.dataUrl, "JPEG", fit.x, fit.y, fit.w, fit.h);
-      textX = margin + LOGO_BOX_MM + LOGO_GAP_MM;
-      textAlign = "left";
     } catch (err) {
       logChecklist("error", "[Checklist PDF] Logo empresa falhou:", err);
       logoEntry = null;
-      textX = pageCenterX;
-      textAlign = "center";
     }
-  } else {
-    textX = pageCenterX;
-    textAlign = "center";
   }
 
-  let textY = headerStartY + (headerBlockH - textBlockH) / 2;
+  let textY = headerStartY + firstLineBaselineMm;
 
   if (empresaNome) {
     doc.setFont("helvetica", "bold");
     doc.setFontSize(18);
     doc.setTextColor(30, 58, 138);
     empresaLines.forEach((ln) => {
-      doc.text(ln, textX, textY, textAlign === "center" ? { align: "center" } : undefined);
+      doc.text(ln, textX, textY, { align: "center" });
       textY += 7;
     });
     textY += 2;
@@ -730,7 +723,7 @@ export async function generateChecklistColetaPdf({
     doc.setFontSize(11);
     doc.setTextColor(71, 85, 105);
     tituloLines.forEach((ln) => {
-      doc.text(ln, textX, textY, textAlign === "center" ? { align: "center" } : undefined);
+      doc.text(ln, textX, textY, { align: "center" });
       textY += 5;
     });
   } else {
@@ -738,7 +731,7 @@ export async function generateChecklistColetaPdf({
     doc.setFontSize(15);
     doc.setTextColor(30, 58, 138);
     tituloLines.forEach((ln) => {
-      doc.text(ln, textX, textY, textAlign === "center" ? { align: "center" } : undefined);
+      doc.text(ln, textX, textY, { align: "center" });
       textY += 7;
     });
   }
