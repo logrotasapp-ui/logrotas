@@ -6,6 +6,12 @@ const { onCall, HttpsError } = require("firebase-functions/v2/https");
 const { logger } = require("firebase-functions");
 const admin = require("firebase-admin");
 
+const {
+  createAsaasSubscription,
+  webhookAsaas,
+  cancelAsaasSubscription,
+} = require("./asaas");
+
 admin.initializeApp();
 
 const db = admin.firestore();
@@ -364,3 +370,9 @@ exports.registerWithBetaCode = onCall(
     }
   }
 );
+
+// ── Asaas (assinaturas) ───────────────────────────────────────────────────────
+
+exports.createAsaasSubscription = createAsaasSubscription;
+exports.webhookAsaas = webhookAsaas;
+exports.cancelAsaasSubscription = cancelAsaasSubscription;
