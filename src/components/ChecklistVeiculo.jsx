@@ -84,7 +84,47 @@ function mensagemErroChecklist(err, contexto = "salvar") {
     const detalhe = err?.message ? `: ${String(err.message).slice(0, 80)}` : "";
     return `Não foi possível salvar${detalhe}. Tente novamente.`;
   }
+  if (contexto === "pdf") {
+    const detalhe = err?.message ? String(err.message).slice(0, 100) : "";
+    return detalhe
+      ? `Não foi possível gerar o PDF: ${detalhe}`
+      : "Não foi possível gerar o PDF. Tente novamente.";
+  }
   return "Ocorreu um erro. Tente novamente.";
+}
+
+function logFalhaPdfAcao(acao, err, ctx = {}) {
+  const payload = {
+    acao,
+    name: err?.name,
+    message: err?.message,
+    stack: err?.stack?.split?.("\n")?.slice(0, 5),
+    ...ctx,
+  };
+  logChecklist("error", "[Checklist PDF] FALHA REAL", payload);
+  console.error("[Checklist PDF] FALHA REAL", payload);
+}
+
+function buildContextoDebugPdf(checklist, perfil, etapaAtual) {
+  const st = checklist?.status;
+  return {
+    etapa: etapaAtual,
+    status: st,
+    coletaCompleta: coletaCompletaLocal(checklist, perfil).completa,
+    entregaHabilitada: st === "aguardando_entrega" || st === "concluido",
+    pendingMedia: countPendingChecklistMedia(checklist),
+    fotos: (checklist?.coleta?.fotos || []).map((f) => ({
+      tipo: f.tipo,
+      hasUrl: !!f.url?.trim(),
+      hasMediaId: !!f.mediaId,
+      syncStatus: f.syncStatus,
+    })),
+    assinaturas: ["responsavel", "prestador"].map((k) => ({
+      k,
+      hasUrl: !!checklist?.coleta?.assinaturas?.[k]?.imagemUrl?.trim(),
+      hasMediaId: !!checklist?.coleta?.assinaturas?.[k]?.imagemMediaId,
+    })),
+  };
 }
 
 /** Cache em memória de objectURLs por storagePath — evita re-fetch a cada render. */
@@ -999,13 +1039,14 @@ function EtapaPdfColeta({
   perfil,
   gerandoPdf,
   onGerarPdf,
-  coletaOk,
+  coletaFinalizada,
+  coletaDadosCompletos,
 }) {
   const pdfBusy = gerandoPdf;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-      {coletaOk ? (
+      {coletaFinalizada ? (
         <div
           style={{
             background: C.greenLight,
@@ -1020,7 +1061,24 @@ function EtapaPdfColeta({
             Coleta concluída
           </div>
           <div style={{ color: C.text2, fontSize: 13, marginTop: 8, lineHeight: 1.5 }}>
-            Gere o laudo em PDF da coleta do checklist {checklist?.numero || ""}.
+            Gere o laudo em PDF da coleta do checklist {checklist?.numero || ""}. Depois vá para a aba Entrega.
+          </div>
+        </div>
+      ) : coletaDadosCompletos ? (
+        <div
+          style={{
+            background: C.orangeLight,
+            border: `1px solid ${C.orange}44`,
+            borderRadius: 16,
+            padding: "16px 18px",
+            textAlign: "center",
+          }}
+        >
+          <div style={{ color: C.navy, fontWeight: 800, fontSize: 14, fontFamily: "'Sora',sans-serif" }}>
+            Dados completos — falta finalizar
+          </div>
+          <div style={{ color: C.muted, fontSize: 12, marginTop: 6, lineHeight: 1.5 }}>
+            Volte à aba Assinaturas e toque em &quot;Finalizar coleta&quot; para liberar a entrega. Você já pode gerar o PDF da coleta.
           </div>
         </div>
       ) : (
@@ -1896,7 +1954,9 @@ export default function ChecklistVeiculo({
           baseChecklist: base,
         });
         if (!result.savedLocally || !result.checklist) {
-          logChecklist("warn", "[Checklist] Retorno antecipado: falha ao gravar local", { checklistId });
+          const debugSave = { checklistId, patchKeys: Object.keys(payload) };
+          logChecklist("warn", "[Checklist] Retorno antecipado: falha ao gravar local", debugSave);
+          console.error("[Checklist] save local falhou", debugSave);
           notificarErroSalvar("Não foi possível salvar. Tente novamente.");
           return null;
         }
@@ -1998,9 +2058,10 @@ export default function ChecklistVeiculo({
         await salvar({ coleta: coletaComPdf });
       }
     } catch (err) {
-      logChecklist("error", "[Checklist] Gerar PDF falhou:", err);
-      setErro("Não foi possível gerar o PDF. Verifique sua conexão e tente novamente.");
-      setToastMsg("Não foi possível gerar o PDF.");
+      const msgPdf = mensagemErroChecklist(err, "pdf");
+      logFalhaPdfAcao("coleta", err, buildContextoDebugPdf(atual, perfil, etapaRef.current));
+      setErro(msgPdf);
+      setToastMsg(msgPdf);
     } finally {
       setGerandoPdf(false);
     }
@@ -2045,9 +2106,10 @@ export default function ChecklistVeiculo({
       setPdfModalTipo("entrega");
       setShowPdfShare(true);
     } catch (err) {
-      logChecklist("error", "[Checklist] Gerar PDF entrega falhou:", err);
-      setErro("Não foi possível gerar o PDF da entrega.");
-      setToastMsg("Não foi possível gerar o PDF da entrega.");
+      const msgPdf = mensagemErroChecklist(err, "pdf");
+      logFalhaPdfAcao("entrega", err, buildContextoDebugPdf(atual, perfil, etapaRef.current));
+      setErro(msgPdf);
+      setToastMsg(msgPdf);
     } finally {
       setGerandoPdfEntrega(false);
       if (manterEtapa6) setEtapa(6);
@@ -2096,9 +2158,10 @@ export default function ChecklistVeiculo({
       setPdfModalTipo("completo");
       setShowPdfShare(true);
     } catch (err) {
-      logChecklist("error", "[Checklist] Gerar PDF completo falhou:", err);
-      setErro("Não foi possível gerar o PDF completo.");
-      setToastMsg("Não foi possível gerar o PDF completo.");
+      const msgPdf = mensagemErroChecklist(err, "pdf");
+      logFalhaPdfAcao("completo", err, buildContextoDebugPdf(atual, perfil, etapaRef.current));
+      setErro(msgPdf);
+      setToastMsg(msgPdf);
     } finally {
       setGerandoPdfCompleto(false);
       if (manterEtapa6) setEtapa(6);
@@ -2461,6 +2524,14 @@ export default function ChecklistVeiculo({
       const msg = val.faltando.length
         ? `Complete a coleta primeiro: ${val.faltando.slice(0, 3).join(", ")}${val.faltando.length > 3 ? "…" : ""}`
         : "Finalize a coleta antes de registrar a entrega.";
+      console.error("[Checklist] Troca aba bloqueada (coleta)", {
+        de: etapa,
+        para: id,
+        status: checklist?.status,
+        entregaHabilitada,
+        coletaCompleta: val.completa,
+        faltando: val.faltando.slice(0, 5),
+      });
       setToastMsg(msg);
       return;
     }
@@ -2484,7 +2555,18 @@ export default function ChecklistVeiculo({
         logChecklist("log", "[Checklist] Auto-save entrega ao trocar aba", { de: etapa, para: id });
         ok = !!(await salvar({ entrega: normalizeEntregaData(atual.entrega) }));
       }
-      if (ok) setEtapa(id);
+      if (ok) {
+        setErro("");
+        setEtapa(id);
+      } else {
+        const st = checklistRef.current?.status;
+        console.error("[Checklist] Troca aba bloqueada (save)", {
+          de: etapa,
+          para: id,
+          status: st,
+          entregaHabilitada: st === "aguardando_entrega" || st === "concluido",
+        });
+      }
     })();
   };
 
@@ -3660,7 +3742,8 @@ export default function ChecklistVeiculo({
             frete={frete}
             perfil={perfil}
             gerandoPdf={gerandoPdf}
-            coletaOk={coletaOk}
+            coletaFinalizada={entregaHabilitada}
+            coletaDadosCompletos={validacao.completa}
             onGerarPdf={handleGerarPdf}
           />
         )}

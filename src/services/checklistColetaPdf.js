@@ -13,6 +13,10 @@ import {
 
 const IMAGE_FETCH_TIMEOUT_MS = 10000;
 
+function pdfFotoCacheKey(foto) {
+  return `${foto.tipo}:${foto.mediaId || foto.url || ""}`;
+}
+
 /** Extrai caminho do Storage a partir de URL HTTPS de download do Firebase. */
 function storagePathFromHttpsUrl(url) {
   if (!url || typeof url !== "string") return null;
@@ -216,11 +220,8 @@ async function fetchChecklistImageForPdf(
   const resolvedMediaId = mediaId || imagemMediaId;
   const resolvedUrl = url?.trim() || "";
 
-  if (resolvedUrl) {
-    return fetchImageDataUrl(resolvedUrl, context);
-  }
-
-  if (resolvedMediaId) {
+  const loadFromLocal = async () => {
+    if (!resolvedMediaId) return null;
     try {
       const blob = await Promise.race([
         getChecklistMediaBlob(resolvedMediaId),
@@ -241,10 +242,25 @@ async function fetchChecklistImageForPdf(
       );
     }
     return null;
+  };
+
+  if (resolvedMediaId && !resolvedUrl) {
+    return loadFromLocal();
+  }
+
+  if (resolvedUrl) {
+    const fromRemote = await fetchImageDataUrl(resolvedUrl, context);
+    if (fromRemote) return fromRemote;
+    const fromLocal = await loadFromLocal();
+    if (fromLocal) {
+      logChecklist("log", "[Checklist PDF] Imagem OK via IndexedDB (fallback URL):", context);
+      return fromLocal;
+    }
+    return null;
   }
 
   logChecklist("warn", "[Checklist PDF] Imagem ausente:", context);
-  return null;
+  return loadFromLocal();
 }
 
 async function fetchImageDataUrl(urlOrPath, context = "") {
@@ -311,7 +327,7 @@ async function preloadChecklistImages({
     ...fotosGrid.map((foto) => {
       const slotLabel = slotLabelForFoto(foto, fotoSlots);
       return {
-        mapKey: `foto:${foto.tipo}:${foto.mediaId || foto.url}`,
+        mapKey: `foto:${pdfFotoCacheKey(foto)}`,
         promise: fetchChecklistImageForPdf(
           { url: foto.url, mediaId: foto.mediaId },
           `foto:${slotLabel}`
@@ -331,7 +347,7 @@ async function preloadChecklistImages({
     ...entregaFotosGrid.map((foto) => {
       const slotLabel = slotLabelForFoto(foto, entregaFotoSlots);
       return {
-        mapKey: `entrega-foto:${foto.tipo}:${foto.mediaId || foto.url}`,
+        mapKey: `entrega-foto:${pdfFotoCacheKey(foto)}`,
         promise: fetchChecklistImageForPdf(
           { url: foto.url, mediaId: foto.mediaId },
           `entrega-foto:${slotLabel}`
@@ -463,7 +479,7 @@ function renderFotosGrid(doc, {
     }
 
     const rowStartY = yRef.y;
-    const leftEntry = imageCache[`${keyPrefix}:${left.tipo}:${left.url}`];
+    const leftEntry = imageCache[`${keyPrefix}:${pdfFotoCacheKey(left)}`];
     drawFotoCell(doc, {
       meta: leftMeta,
       imgEntry: leftEntry,
@@ -474,7 +490,7 @@ function renderFotosGrid(doc, {
     });
 
     if (right && rightMeta) {
-      const rightEntry = imageCache[`${keyPrefix}:${right.tipo}:${right.url}`];
+      const rightEntry = imageCache[`${keyPrefix}:${pdfFotoCacheKey(right)}`];
       drawFotoCell(doc, {
         meta: rightMeta,
         imgEntry: rightEntry,
