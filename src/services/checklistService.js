@@ -4,6 +4,7 @@ import {
   getDocs,
   getDoc,
   addDoc,
+  setDoc,
   updateDoc,
   deleteDoc,
   query,
@@ -396,6 +397,11 @@ function buildNovoDocumento(freteId, dados = {}) {
   };
 }
 
+/** Payload inicial de checklist (sem id/numero) — usado pelo repositório offline. */
+export function buildNovoChecklistDocumento(freteId, dados = {}) {
+  return buildNovoDocumento(freteId, dados);
+}
+
 function resolvePrestadorIdentidade(assinPrestador, perfil) {
   if (perfil?.nome?.trim() && perfil?.documento?.trim()) {
     return { nome: perfil.nome.trim(), documento: perfil.documento.trim() };
@@ -532,6 +538,22 @@ export async function criarChecklistAvulso(uid, dados = {}) {
   });
 
   return { id: ref.id, ...payload };
+}
+
+/** Cria checklist no Firestore com ID fixo (sync offline Fase 1). */
+export async function criarChecklistComId(uid, checklistId, data) {
+  if (!uid || !checklistId) throw new Error("uid e checklistId são obrigatórios");
+
+  const { _sync, uid: _u, id, ...rest } = data || {};
+  const payload = sanitizeFirestoreData(stripMeta(rest));
+
+  await setDoc(doc(db, "users", uid, COLLECTION, checklistId), {
+    ...payload,
+    criadoEm: serverTimestamp(),
+    atualizadoEm: serverTimestamp(),
+  });
+
+  return { id: checklistId, ...payload };
 }
 
 /** Checklist avulso finalizado e persistido (até 2 mais recentes). */

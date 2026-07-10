@@ -60,7 +60,14 @@ import DeliveryMap from "./src/components/DeliveryMap.js";
 import NavigationMap from "./src/components/NavigationMap.jsx";
 import ProgressOverlay from "./src/components/ProgressOverlay.jsx";
 import ChecklistVeiculo from "./src/components/ChecklistVeiculo.jsx";
-import { criarChecklist, buscarChecklistPorFrete, buscarChecklistPorId, criarChecklistAvulso, listarChecklistsAvulsosRecentes, listarChecklistsAvulsosEmAndamento, resumoChecklistAvulso } from "./src/services/checklistService.js";
+import { listarChecklistsAvulsosRecentes, resumoChecklistAvulso, buscarChecklistPorFrete } from "./src/services/checklistService.js";
+import {
+  createChecklist,
+  openChecklistForFrete,
+  loadChecklist,
+  listAvulsosEmAndamentoMerged,
+} from "./src/services/checklistRepository.js";
+import { getChecklistSyncBadge } from "./src/services/checklistSyncStatus.js";
 import {
   writeChecklistSession,
   readChecklistSession,
@@ -147,7 +154,7 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="v311";
+const APP_VERSION="v312";
 const SUPORTE_EMAIL="suporte@logrotas.com.br";
 const PEDAGIO_AVISO_RESULTADO="Pedágio estimado pelo Google. Pode haver variação — confirme o valor da praça.";
 const PAGE_SWIPE_ORDER=["dashboard","financeiro","despesas","comparador","manutencao","documentos","perfil"];
@@ -4483,7 +4490,10 @@ const Dashboard=({onNav,setShowCalc,setCalcMode,historicoFretes,jornadas=[],manu
                 <div style={{background:C.orange+"22",borderRadius:10,padding:8,flexShrink:0}}><RefreshCwIcon size={16} color={C.orange}/></div>
                 <div>
                   <div style={{color:C.navy,fontWeight:800,fontSize:14}}>Retomar checklist</div>
-                  <div style={{color:C.orange,fontSize:12,marginTop:2,fontWeight:600}}>Coleta concluída — entrega pendente</div>
+                  <div style={{color:C.orange,fontSize:12,marginTop:2,fontWeight:600}}>
+                    {getChecklistSyncBadge(cl)?"⏳ Aguardando sincronização · ":""}
+                    Coleta concluída — entrega pendente
+                  </div>
                   <div style={{color:C.muted,fontSize:12,marginTop:4}}>Nº {numero} · {data} · {endereco}</div>
                 </div>
               </button>
@@ -6595,20 +6605,21 @@ export default function App(){
       return;
     }
     try{
-      let checklist=existente?.id?existente:await buscarChecklistPorFrete(uid,frete.id);
-      if(!checklist?.id){
-        logChecklist("log","[Checklist] Criando checklist novo para frete",frete.id);
-        checklist=await criarChecklist(uid,frete.id,{
+      const checklist=await openChecklistForFrete({
+        uid,
+        frete,
+        existente,
+        dados:{
           origem:{endereco:frete.origin||""},
           destino:{endereco:frete.dest||""},
-        });
-      }
+        },
+      });
       if(!checklist?.id){
-        logChecklist("error","[Checklist] Checklist sem id após buscar/criar",{freteId:frete.id,checklist});
+        logChecklist("error","[Checklist] Checklist sem id após abrir/criar",{freteId:frete.id,checklist});
         return;
       }
       const etapa=etapaInicialParaChecklist(checklist);
-      logChecklist("log","[Checklist] Abrindo checklist",{checklistId:checklist.id,freteId:frete.id,novo:!existente?.id});
+      logChecklist("log","[Checklist] Abrindo checklist",{checklistId:checklist.id,freteId:frete.id,sync:checklist._sync?.state});
       setChecklistScreen({frete,checklist,resumeEtapa:etapa});
       writeChecklistSession({
         checklistId:checklist.id,
@@ -6631,7 +6642,7 @@ export default function App(){
     try{
       const[concluidos,emAndamento]=await Promise.all([
         listarChecklistsAvulsosRecentes(uid),
-        listarChecklistsAvulsosEmAndamento(uid),
+        listAvulsosEmAndamentoMerged(uid),
       ]);
       setUltimosAvulsos(concluidos);
       setAvulsosEmAndamento(emAndamento);
@@ -6713,7 +6724,7 @@ export default function App(){
       return;
     }
     try{
-      const checklist=await criarChecklistAvulso(uid,{});
+      const {checklist}=await createChecklist({uid,avulso:true,dados:{}});
       setChecklistScreen({frete:null,checklist,resumeEtapa:1});
       writeChecklistSession({
         checklistId:checklist.id,
@@ -6726,21 +6737,31 @@ export default function App(){
     }
   },[firebaseUser?.uid]);
 
-  const handleRetomarChecklistAvulso=useCallback((checklist)=>{
+  const handleRetomarChecklistAvulso=useCallback(async(checklist)=>{
     if(!checklist?.id)return;
+    const uid=firebaseUser?.uid;
+    let cl=checklist;
+    if(uid){
+      try{
+        const loaded=await loadChecklist(uid,checklist.id);
+        if(loaded)cl=loaded;
+      }catch(err){
+        logChecklist("warn","[Checklist] Retomar: load local falhou, usando props",err);
+      }
+    }
     const sess=readChecklistSession();
     const etapa=etapaInicialParaChecklist(
-      checklist,
-      sess?.checklistId===checklist.id?sess.etapa:undefined
+      cl,
+      sess?.checklistId===cl.id?sess.etapa:undefined
     );
-    setChecklistScreen({frete:null,checklist,resumeEtapa:etapa});
+    setChecklistScreen({frete:null,checklist:cl,resumeEtapa:etapa});
     writeChecklistSession({
-      checklistId:checklist.id,
+      checklistId:cl.id,
       avulso:true,
       freteId:null,
       etapa,
     });
-  },[]);
+  },[firebaseUser?.uid]);
 
   const handleUltimosChecklists=useCallback(async()=>{
     const uid=firebaseUser?.uid;
@@ -6888,7 +6909,7 @@ export default function App(){
       const sess=readChecklistSession();
       if(!sess?.checklistId)return;
       try{
-        const checklist=await buscarChecklistPorId(firebaseUser.uid,sess.checklistId);
+        const checklist=await loadChecklist(firebaseUser.uid,sess.checklistId);
         if(!checklist?.id||checklist.status==="concluido"){
           clearChecklistSession();
           return;

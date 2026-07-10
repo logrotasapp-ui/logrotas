@@ -2,7 +2,6 @@ import { useState, useCallback, useRef, useEffect, Component } from "react";
 import { createPortal } from "react-dom";
 import { ArrowLeftIcon, XIcon, CameraIcon, RefreshCwIcon, CheckCircle2Icon } from "lucide-react";
 import {
-  atualizarChecklist,
   coletaCompleta,
   entregaCompleta,
   CHECKLIST_TIPOS_SERVICO,
@@ -26,9 +25,10 @@ import {
   inicializarEstadosEntrega,
   proximoEstadoAcessorio,
   aplicarLimiteAvulsosSalvos,
-  buscarChecklistPorId,
 } from "../services/checklistService.js";
 import { clearChecklistSession } from "../services/checklistSessionService.js";
+import { saveChecklist as saveChecklistToRepository, loadChecklist } from "../services/checklistRepository.js";
+import { getChecklistSyncBadge } from "../services/checklistSyncStatus.js";
 import { incrementUsageCounter, USAGE_COUNTERS } from "../services/usageStatsService.js";
 import {
   stampAndCompressImage,
@@ -1474,7 +1474,7 @@ export default function ChecklistVeiculo({
     let cancelled = false;
     const resync = async () => {
       try {
-        const fresh = await buscarChecklistPorId(uid, checklist.id);
+        const fresh = await loadChecklist(uid, checklist.id);
         if (cancelled || !fresh?.id) return;
         const normalized = normalizeChecklist(fresh);
         setChecklist(normalized);
@@ -1523,12 +1523,18 @@ export default function ChecklistVeiculo({
         const payload = {};
         if (coletaChanged) payload.coleta = coleta;
         if (entregaChanged) payload.entrega = entrega;
-        const atualizado = await atualizarChecklist(uid, initial.id, payload);
-        if (cancelled) return;
+        const atualizado = await saveChecklistToRepository({
+          uid,
+          checklistId: initial.id,
+          patch: payload,
+          baseChecklist: checklistRef.current,
+        });
+        if (cancelled || !atualizado.savedLocally) return;
+        const saved = atualizado.checklist || checklistRef.current;
         const merged = {
-          ...checklistRef.current,
-          ...(coletaChanged ? { coleta: normalizeColetaData(atualizado.coleta || coleta, checklistRef.current) } : {}),
-          ...(entregaChanged ? { entrega: normalizeEntregaData(atualizado.entrega || entrega) } : {}),
+          ...saved,
+          ...(coletaChanged ? { coleta: normalizeColetaData(saved.coleta || coleta, saved) } : {}),
+          ...(entregaChanged ? { entrega: normalizeEntregaData(saved.entrega || entrega) } : {}),
           id: initial.id,
         };
         setChecklist(merged);
@@ -1715,11 +1721,18 @@ export default function ChecklistVeiculo({
       setSalvando(true);
       setErro("");
       try {
-        await atualizarChecklist(uid, checklistId, payload);
-        const merged = { ...base, id: checklistId };
-        Object.entries(payload).forEach(([key, val]) => {
-          merged[key] = val;
+        const result = await saveChecklistToRepository({
+          uid,
+          checklistId,
+          patch: payload,
+          baseChecklist: base,
         });
+        if (!result.savedLocally || !result.checklist) {
+          logChecklist("warn", "[Checklist] Retorno antecipado: falha ao gravar local", { checklistId });
+          notificarErroSalvar("Não foi possível salvar. Tente novamente.");
+          return null;
+        }
+        const merged = { ...result.checklist, id: checklistId };
         if (merged.coleta) merged.coleta = normalizeColetaData(merged.coleta, merged);
         if (merged.entrega) merged.entrega = normalizeEntregaData(merged.entrega);
         const localBase = checklistRef.current || checklist;
@@ -1735,23 +1748,18 @@ export default function ChecklistVeiculo({
             fotos: preserveLocalFotoPreviews(localBase.entrega?.fotos, merged.entrega.fotos),
           };
         }
-        if (!merged?.id) {
-          logChecklist("warn", "[Checklist] Retorno antecipado: merged sem id após gravar", {
-            checklistId,
-            mergedKeys: merged ? Object.keys(merged) : null,
-          });
-          notificarErroSalvar("Falha ao montar dados salvos. Tente novamente.");
-          return null;
-        }
         setChecklist(merged);
         checklistRef.current = merged;
         onSaved?.(merged);
-        logChecklist("log", "[Checklist] salvar() concluído com sucesso", { checklistId });
+        logChecklist("log", "[Checklist] salvar() concluído", {
+          checklistId,
+          savedRemote: result.savedRemote,
+        });
         return merged;
       } catch (err) {
         const codigo = err?.code ? ` (${err.code})` : "";
         const detalhe = err?.message ? `: ${err.message}` : "";
-        logChecklist("warn", "[Checklist] Retorno antecipado: exceção em atualizarChecklist", {
+        logChecklist("warn", "[Checklist] Retorno antecipado: exceção em salvar", {
           checklistId,
           code: err?.code,
           message: err?.message,
@@ -3048,6 +3056,9 @@ export default function ChecklistVeiculo({
             </div>
             <div style={{ color: C.muted, fontSize: 11, marginTop: 2 }}>
               {checklist?.numero || "—"}
+              {getChecklistSyncBadge(checklist) && (
+                <span style={{ color: C.orange, fontWeight: 700 }}> · ⏳ Aguardando sincronização</span>
+              )}
               {checklist?.status === "aguardando_entrega" && " · ✅ Coleta concluída"}
               {checklist?.status === "concluido" && " · ✅ Entrega concluída"}
               {checklist?.avulso
