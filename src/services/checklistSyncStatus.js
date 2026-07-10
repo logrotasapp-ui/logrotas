@@ -1,3 +1,5 @@
+export const CHECKLIST_SYNC_BADGE_LABEL = "⏳ Sync pendente";
+
 /** Badge de sync — Fase 2: mídia pendente também exibe badge. */
 export function getChecklistSyncBadge(checklist) {
   const state = checklist?._sync?.state;

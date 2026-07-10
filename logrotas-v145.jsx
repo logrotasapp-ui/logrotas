@@ -67,7 +67,7 @@ import {
   loadChecklist,
   listAvulsosEmAndamentoMerged,
 } from "./src/services/checklistRepository.js";
-import { getChecklistSyncBadge } from "./src/services/checklistSyncStatus.js";
+import { getChecklistSyncBadge, CHECKLIST_SYNC_BADGE_LABEL } from "./src/services/checklistSyncStatus.js";
 import {
   writeChecklistSession,
   readChecklistSession,
@@ -154,7 +154,7 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="v315";
+const APP_VERSION="v316";
 const SUPORTE_EMAIL="suporte@logrotas.com.br";
 const PEDAGIO_AVISO_RESULTADO="Pedágio estimado pelo Google. Pode haver variação — confirme o valor da praça.";
 const PAGE_SWIPE_ORDER=["dashboard","financeiro","despesas","comparador","manutencao","documentos","perfil"];
@@ -4491,7 +4491,7 @@ const Dashboard=({onNav,setShowCalc,setCalcMode,historicoFretes,jornadas=[],manu
                 <div>
                   <div style={{color:C.navy,fontWeight:800,fontSize:14}}>Retomar checklist</div>
                   <div style={{color:C.orange,fontSize:12,marginTop:2,fontWeight:600}}>
-                    {getChecklistSyncBadge(cl)?"⏳ Aguardando sincronização · ":""}
+                    {getChecklistSyncBadge(cl)?`${CHECKLIST_SYNC_BADGE_LABEL} · `:""}
                     Coleta concluída — entrega pendente
                   </div>
                   <div style={{color:C.muted,fontSize:12,marginTop:4}}>Nº {numero} · {data} · {endereco}</div>

@@ -31,7 +31,7 @@ import {
 import { clearChecklistSession } from "../services/checklistSessionService.js";
 import { saveChecklist as saveChecklistToRepository, loadChecklist, captureChecklistMedia } from "../services/checklistRepository.js";
 import { resolveChecklistImagePreview } from "../services/checklistImageResolver.js";
-import { getChecklistSyncBadge } from "../services/checklistSyncStatus.js";
+import { getChecklistSyncBadge, CHECKLIST_SYNC_BADGE_LABEL } from "../services/checklistSyncStatus.js";
 import { incrementUsageCounter, USAGE_COUNTERS } from "../services/usageStatsService.js";
 import {
   stampAndCompressImage,
@@ -688,25 +688,44 @@ class AssinaturaErrorBoundary extends Component {
   }
 }
 
-function AssinaturaPreviewImg({ imagemUrl, bloco }) {
-  const [src, setSrc] = useState(imagemUrl);
+function AssinaturaPreviewImg({ imagemUrl, imagemMediaId, bloco }) {
+  const [src, setSrc] = useState("");
   const objectUrlRef = useRef(null);
   const fallbackTriedRef = useRef(false);
 
   useEffect(() => {
+    let cancelled = false;
     fallbackTriedRef.current = false;
-    setSrc(imagemUrl);
+
+    (async () => {
+      const preview = await resolveChecklistImagePreview({ imagemUrl, imagemMediaId });
+      if (!cancelled) setSrc(preview || "");
+    })();
+
     return () => {
+      cancelled = true;
       if (objectUrlRef.current) {
         URL.revokeObjectURL(objectUrlRef.current);
         objectUrlRef.current = null;
       }
     };
-  }, [imagemUrl]);
+  }, [imagemUrl, imagemMediaId]);
 
   const handleError = async () => {
-    if (!imagemUrl || fallbackTriedRef.current) return;
+    if ((!imagemUrl && !imagemMediaId) || fallbackTriedRef.current) return;
     fallbackTriedRef.current = true;
+    if (imagemMediaId) {
+      try {
+        const preview = await resolveChecklistImagePreview({ imagemMediaId });
+        if (preview) {
+          setSrc(preview);
+          return;
+        }
+      } catch (err) {
+        logChecklist("error", "[Checklist] Falha preview assinatura (mediaId):", bloco, err);
+      }
+    }
+    if (!imagemUrl) return;
     try {
       const blob = await getBlob(ref(storage, imagemUrl));
       const objUrl = URL.createObjectURL(blob);
@@ -819,7 +838,8 @@ function BlocoAssinatura({
 }) {
   const assinSafe = { ...assinaturaVazia(), ...(assin && typeof assin === "object" ? assin : {}) };
   const temAssinaturaSalva =
-    !!assinSafe.imagemUrl?.trim() && !String(assinSafe.imagemUrl).startsWith("data:");
+    !!assinSafe.imagemMediaId ||
+    (!!assinSafe.imagemUrl?.trim() && !String(assinSafe.imagemUrl).startsWith("data:"));
   const mostrarPad = !somenteLeitura && (!temAssinaturaSalva || substituindo);
 
   const handleCampo = (campo, valor) => {
@@ -909,7 +929,11 @@ function BlocoAssinatura({
               borderRadius: 12,
             }}
           >
-            <AssinaturaPreviewImg imagemUrl={assinSafe.imagemUrl} bloco={bloco} />
+            <AssinaturaPreviewImg
+              imagemUrl={assinSafe.imagemUrl}
+              imagemMediaId={assinSafe.imagemMediaId}
+              bloco={bloco}
+            />
             {!somenteLeitura && (
             <button
               type="button"
@@ -1461,6 +1485,8 @@ export default function ChecklistVeiculo({
   });
   const [substituirEntrega, setSubstituirEntrega] = useState({ recebedor: false, prestador: false });
   const fileInputRef = useRef(null);
+  const capturaContextoRef = useRef(null);
+  const fotoFilaRef = useRef(Promise.resolve());
   const responsavelPadRef = useRef(null);
   const prestadorPadRef = useRef(null);
   const recebedorEntregaPadRef = useRef(null);
@@ -2117,12 +2143,14 @@ export default function ChecklistVeiculo({
         });
 
         const dataHora = formatStampDataHora();
+        const base = checklistRef.current || checklist;
+        const assinFresh = base.coleta?.assinaturas?.[bloco] || assinaturaVazia();
         const assinaturas = {
-          ...(atual.coleta?.assinaturas || {}),
+          ...(base.coleta?.assinaturas || {}),
           [bloco]: {
-            ...assinAtual,
-            nome: ident ? ident.nome : (assinAtual.nome || "").trim(),
-            documento: ident ? ident.documento : (assinAtual.documento || "").trim(),
+            ...assinFresh,
+            nome: ident ? ident.nome : (assinFresh.nome || assinAtual.nome || "").trim(),
+            documento: ident ? ident.documento : (assinFresh.documento || assinAtual.documento || "").trim(),
             imagemMediaId: mediaId,
             imagemUrl: "",
             dataHora,
@@ -2130,7 +2158,7 @@ export default function ChecklistVeiculo({
             lng: gps?.lng ?? null,
           },
         };
-        const coletaAtualizada = { ...atual.coleta, assinaturas };
+        const coletaAtualizada = { ...base.coleta, assinaturas };
         const ok = await salvar({ coleta: coletaAtualizada });
         if (ok) {
           padRef.current?.clear?.();
@@ -2190,20 +2218,24 @@ export default function ChecklistVeiculo({
           storageFileName: nomeArquivo,
         });
 
+        const dataHora = formatStampDataHora();
+        const base = checklistRef.current || checklist;
+        const entregaFresh = normalizeEntregaData(base.entrega);
+        const assinFresh = entregaFresh.assinaturas?.[bloco] || assinaturaVazia();
         const assinaturas = {
-          ...entregaNorm.assinaturas,
+          ...entregaFresh.assinaturas,
           [bloco]: {
-            ...assinAtual,
-            nome: ident ? ident.nome : (assinAtual.nome || "").trim(),
-            documento: ident ? ident.documento : (assinAtual.documento || "").trim(),
+            ...assinFresh,
+            nome: ident ? ident.nome : (assinFresh.nome || assinAtual.nome || "").trim(),
+            documento: ident ? ident.documento : (assinFresh.documento || assinAtual.documento || "").trim(),
             imagemMediaId: mediaId,
             imagemUrl: "",
-            dataHora: formatStampDataHora(),
+            dataHora,
             lat: gps?.lat ?? null,
             lng: gps?.lng ?? null,
           },
         };
-        const entregaSalvar = { ...entregaNorm, assinaturas };
+        const entregaSalvar = { ...entregaFresh, assinaturas };
         const ok = await salvar({ entrega: entregaSalvar });
         if (ok) {
           padRef.current?.clear?.();
@@ -2493,6 +2525,7 @@ export default function ChecklistVeiculo({
   };
 
   const abrirCaptura = (slotId, contexto = "coleta") => {
+    capturaContextoRef.current = { slotId, contexto };
     setFotoContexto(contexto);
     setSlotAtivo(slotId);
     fileInputRef.current?.click();
@@ -2530,23 +2563,21 @@ export default function ChecklistVeiculo({
     []
   );
 
-  const handleArquivoFoto = async (e) => {
-    const file = e.target.files?.[0];
-    e.target.value = "";
-    if (!file || !slotAtivo || !uid || !checklist?.id) {
-      logChecklist("warn", "[Checklist] Foto ignorada: arquivo/slot/uid/id ausente", {
-        temArquivo: !!file,
-        slotAtivo,
+  const processarArquivoFoto = async (file, ctx) => {
+    const { slotId: slotCaptura, contexto } = ctx;
+    const isEntrega = contexto === "entrega";
+    const baseChecklist = checklistRef.current || checklist;
+    const checklistId = baseChecklist?.id;
+
+    if (!uid || !checklistId) {
+      logChecklist("warn", "[Checklist] Foto ignorada: uid/id ausente", {
         uid: !!uid,
-        checklistId: checklist?.id,
+        checklistId,
       });
       return;
     }
 
-    const isEntrega = fotoContexto === "entrega";
-    const checklistId = checklist.id;
-    const slotCaptura = slotAtivo;
-    logChecklist("log", "[Checklist] Foto capturada", { slot: slotCaptura, contexto: fotoContexto, checklistId });
+    logChecklist("log", "[Checklist] Foto capturada", { slot: slotCaptura, contexto, checklistId });
 
     if (isEntrega) setProcessingEntregaSlot(slotCaptura);
     else setProcessingSlot(slotCaptura);
@@ -2619,6 +2650,27 @@ export default function ChecklistVeiculo({
       else setProcessingSlot(null);
       setSlotAtivo(null);
     }
+  };
+
+  const handleArquivoFoto = (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    const ctx = capturaContextoRef.current;
+    capturaContextoRef.current = null;
+
+    if (!file || !ctx?.slotId) {
+      logChecklist("warn", "[Checklist] Foto ignorada: arquivo/slot ausente", {
+        temArquivo: !!file,
+        slotId: ctx?.slotId,
+      });
+      return;
+    }
+
+    fotoFilaRef.current = fotoFilaRef.current
+      .then(() => processarArquivoFoto(file, ctx))
+      .catch((err) => {
+        logChecklist("error", "[Checklist] Erro na fila de captura de foto:", err);
+      });
   };
 
   const removerFotoAvaria = async (idx, contexto = "coleta") => {
@@ -3113,7 +3165,7 @@ export default function ChecklistVeiculo({
             <div style={{ color: C.muted, fontSize: 11, marginTop: 2 }}>
               {checklist?.numero || "—"}
               {getChecklistSyncBadge(checklist) && (
-                <span style={{ color: C.orange, fontWeight: 700 }}> · ⏳ Aguardando sincronização</span>
+                <span style={{ color: C.orange, fontWeight: 700 }}> · {CHECKLIST_SYNC_BADGE_LABEL}</span>
               )}
               {checklist?.status === "aguardando_entrega" && " · ✅ Coleta concluída"}
               {checklist?.status === "concluido" && " · ✅ Entrega concluída"}
@@ -3525,7 +3577,7 @@ export default function ChecklistVeiculo({
                   onSubstituir={() => setSubstituirColeta((s) => ({ ...s, [bloco]: true }))}
                   onCampoChange={(campo, valor) => updateAssinaturaCampo(bloco, campo, valor)}
                   onSalvarAssinatura={() => salvarAssinaturaBloco(bloco)}
-                  salvandoAssinatura={salvandoAssinaturaBloco[bloco] || salvando}
+                  salvandoAssinatura={salvandoAssinaturaBloco[bloco]}
                   modoPrestador={isPrestador}
                   prestadorPerfilCompleto={isPrestador && prestadorPerfilOk}
                   prestadorLabel={isPrestador && prestadorPerfilOk ? `${perfil.nome} · ${perfil.documento}` : ""}
@@ -3898,7 +3950,7 @@ export default function ChecklistVeiculo({
                   onSubstituir={() => setSubstituirEntrega((s) => ({ ...s, [bloco]: true }))}
                   onCampoChange={(campo, valor) => updateAssinaturaEntregaCampo(bloco, campo, valor)}
                   onSalvarAssinatura={() => salvarAssinaturaEntregaBloco(bloco)}
-                  salvandoAssinatura={salvandoAssinaturaEntregaBloco[bloco] || salvando}
+                  salvandoAssinatura={salvandoAssinaturaEntregaBloco[bloco]}
                   modoPrestador={isPrestador}
                   prestadorPerfilCompleto={isPrestador && prestadorPerfilOk}
                   prestadorLabel={isPrestador && prestadorPerfilOk ? `${perfil.nome} · ${perfil.documento}` : ""}
