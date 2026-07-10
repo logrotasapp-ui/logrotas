@@ -117,7 +117,7 @@ import {
 } from "./src/services/pacotesService.js";
 import { OFFLINE_KEYS, AUTH_KEYS, readOfflineCache, writeOfflineCache, clearAllLogRotasStorage, clearVehiclesLocalCache, readVehiclesLocalCache, writeVehiclesLocalCache, readProPlanActive, readProTrialDaysLeft, readPerfilLocalFallback, writePerfilLocalCache, readUiState, writeUiState, clearUiState } from "./src/services/offlineStorage.js";
 import { subscribeAuth, signInWithEmail, signInWithGoogle, signOutUser, getAuthErrorMessage, sendPasswordResetEmail, getPasswordResetErrorMessage } from "./src/services/authService.js";
-import { saveUserProfile, loadUserProfile, firestoreToPerfil, perfilToFirestorePayload } from "./src/services/userProfileService.js";
+import { saveUserProfile, loadUserProfile, loadUserProfileWithTimeout, firestoreToPerfil, perfilToFirestorePayload } from "./src/services/userProfileService.js";
 import { compressImageToJpegBlob, uploadEmpresaLogo } from "./src/services/storageService.js";
 import { saveJornada } from "./src/services/jornadaService.js";
 import {
@@ -154,7 +154,7 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="v312";
+const APP_VERSION="v313";
 const SUPORTE_EMAIL="suporte@logrotas.com.br";
 const PEDAGIO_AVISO_RESULTADO="Pedágio estimado pelo Google. Pode haver variação — confirme o valor da praça.";
 const PAGE_SWIPE_ORDER=["dashboard","financeiro","despesas","comparador","manutencao","documentos","perfil"];
@@ -6501,7 +6501,7 @@ export default function App(){
     let cancelled=false;
     (async()=>{
       try{
-        const profile=await loadUserProfile(firebaseUser.uid);
+        const profile=await loadUserProfileWithTimeout(firebaseUser.uid);
         const isGoogle=firebaseUser.providerData?.some(p=>p.providerId==="google.com");
         if(isGoogle&&!profile){
           if(!cancelled){

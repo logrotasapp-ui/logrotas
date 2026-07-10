@@ -68,10 +68,31 @@ export async function saveUserProfile(uid, payload) {
   );
 }
 
+export const PROFILE_GATE_TIMEOUT_MS = 3000;
+
 export async function loadUserProfile(uid) {
   const snap = await getDoc(doc(db, "users", uid));
   if (!snap.exists()) return null;
   return snap.data();
+}
+
+/** Boot gate: evita splash infinita offline quando getDoc não responde. */
+export async function loadUserProfileWithTimeout(
+  uid,
+  timeoutMs = PROFILE_GATE_TIMEOUT_MS
+) {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(
+      () => reject(new Error("PROFILE_GATE_TIMEOUT")),
+      timeoutMs
+    );
+  });
+  try {
+    return await Promise.race([loadUserProfile(uid), timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /** Login social: só lê perfil existente — não cria conta nova no app. */
