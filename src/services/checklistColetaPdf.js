@@ -625,7 +625,8 @@ export async function generateChecklistColetaPdf({
 
   const { cliente, veiculo, servico, origem, destino, coleta, entrega, numero } = checklist || {};
 
-  const LOGO_BOX_MM = 28;
+  const LOGO_BOX_MM = 24;
+  const LOGO_GAP_MM = 4;
   const headerStartY = y;
   const pageCenterX = pageWidth / 2;
 
@@ -642,61 +643,79 @@ export async function generateChecklistColetaPdf({
   }
 
   const empresaNome = perfil?.empresa?.trim();
+  const textWrapW = logoEntry ? contentWidth - LOGO_BOX_MM - LOGO_GAP_MM : contentWidth;
   const empresaLines = [];
   const tituloLines = [];
 
   if (empresaNome) {
     doc.setFont("helvetica", "bold");
     doc.setFontSize(18);
-    empresaLines.push(...wrapLines(doc, stripEmojis(empresaNome), contentWidth));
+    empresaLines.push(...wrapLines(doc, stripEmojis(empresaNome), textWrapW));
     doc.setFont("helvetica", "normal");
     doc.setFontSize(11);
-    tituloLines.push(...wrapLines(doc, stripEmojis(tituloPdf), contentWidth));
+    tituloLines.push(...wrapLines(doc, stripEmojis(tituloPdf), textWrapW));
   } else {
     doc.setFont("helvetica", "bold");
     doc.setFontSize(15);
-    tituloLines.push(...wrapLines(doc, stripEmojis(tituloPdf), contentWidth));
+    tituloLines.push(...wrapLines(doc, stripEmojis(tituloPdf), textWrapW));
   }
 
+  const measureLineWidth = (lines, fontSize, fontStyle) => {
+    doc.setFont("helvetica", fontStyle);
+    doc.setFontSize(fontSize);
+    return lines.reduce((max, ln) => Math.max(max, doc.getTextWidth(ln)), 0);
+  };
+
   let textBlockH = 0;
+  let textBlockW = 0;
   if (empresaLines.length) {
+    textBlockW = Math.max(textBlockW, measureLineWidth(empresaLines, 18, "bold"));
     textBlockH += empresaLines.length * 7 + 2;
   }
   if (tituloLines.length) {
+    const tituloSize = empresaNome ? 11 : 15;
+    const tituloStyle = empresaNome ? "normal" : "bold";
+    textBlockW = Math.max(textBlockW, measureLineWidth(tituloLines, tituloSize, tituloStyle));
     textBlockH += tituloLines.length * (empresaNome ? 5 : 7) + 2;
   }
 
-  const headerBlockH = Math.max(textBlockH, logoEntry ? LOGO_BOX_MM : textBlockH);
+  const headerBlockH = logoEntry ? Math.max(textBlockH, LOGO_BOX_MM) : textBlockH;
+
+  let textX = pageCenterX;
+  let textAlign = "center";
 
   if (logoEntry) {
     try {
+      const combinedW = LOGO_BOX_MM + LOGO_GAP_MM + textBlockW;
+      const blockStartX = (pageWidth - combinedW) / 2;
       const logoBoxY = headerStartY + (headerBlockH - LOGO_BOX_MM) / 2;
       const fit = containFitInBox(
         logoEntry.width,
         logoEntry.height,
-        margin,
+        blockStartX,
         logoBoxY,
         LOGO_BOX_MM,
         LOGO_BOX_MM
       );
       doc.addImage(logoEntry.dataUrl, "JPEG", fit.x, fit.y, fit.w, fit.h);
+      textX = blockStartX + LOGO_BOX_MM + LOGO_GAP_MM;
+      textAlign = "left";
     } catch (err) {
       logChecklist("error", "[Checklist PDF] Logo empresa falhou:", err);
       logoEntry = null;
+      textX = pageCenterX;
+      textAlign = "center";
     }
   }
 
-  let textY = headerStartY;
-  if (headerBlockH > textBlockH) {
-    textY += (headerBlockH - textBlockH) / 2;
-  }
+  let textY = headerStartY + (headerBlockH - textBlockH) / 2;
 
   if (empresaNome) {
     doc.setFont("helvetica", "bold");
     doc.setFontSize(18);
     doc.setTextColor(30, 58, 138);
     empresaLines.forEach((ln) => {
-      doc.text(ln, pageCenterX, textY, { align: "center" });
+      doc.text(ln, textX, textY, textAlign === "center" ? { align: "center" } : undefined);
       textY += 7;
     });
     textY += 2;
@@ -704,7 +723,7 @@ export async function generateChecklistColetaPdf({
     doc.setFontSize(11);
     doc.setTextColor(71, 85, 105);
     tituloLines.forEach((ln) => {
-      doc.text(ln, pageCenterX, textY, { align: "center" });
+      doc.text(ln, textX, textY, textAlign === "center" ? { align: "center" } : undefined);
       textY += 5;
     });
   } else {
@@ -712,7 +731,7 @@ export async function generateChecklistColetaPdf({
     doc.setFontSize(15);
     doc.setTextColor(30, 58, 138);
     tituloLines.forEach((ln) => {
-      doc.text(ln, pageCenterX, textY, { align: "center" });
+      doc.text(ln, textX, textY, textAlign === "center" ? { align: "center" } : undefined);
       textY += 7;
     });
   }

@@ -7232,13 +7232,6 @@ export default function App(){
               )}
               <button
                 type="button"
-                onClick={()=>shareChecklistCompletoWhatsApp({checklist:avulsoPdfShare.checklist,frete:null,perfil})}
-                style={{width:"100%",padding:13,background:"#25D366",border:"none",borderRadius:12,cursor:"pointer",color:"#fff",fontWeight:700,fontSize:14}}
-              >
-                💬 Enviar resumo em texto
-              </button>
-              <button
-                type="button"
                 onClick={()=>setAvulsoPdfShare(null)}
                 style={{width:"100%",padding:12,background:C.subtle,border:`1px solid ${C.border}`,borderRadius:12,cursor:"pointer",color:C.text2,fontWeight:600,fontSize:14}}
               >
