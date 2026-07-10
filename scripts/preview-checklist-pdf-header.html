@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <title>Preview — Cabeçalho PDF Checklist (V320 layout)</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 24px;
+      background: #e8ecf2;
+      font-family: Helvetica, Arial, sans-serif;
+    }
+    h1 {
+      font-size: 14px;
+      color: #1e3a8a;
+      margin: 0 0 16px;
+    }
+    p.note {
+      font-size: 12px;
+      color: #4a607a;
+      max-width: 210mm;
+      margin: 0 0 20px;
+      line-height: 1.5;
+    }
+    .page {
+      width: 210mm;
+      min-height: 80mm;
+      background: #fff;
+      padding: 14mm;
+      margin-bottom: 24px;
+      box-shadow: 0 4px 24px #00000018;
+    }
+    .label {
+      font-size: 10px;
+      color: #8ea3bc;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      margin-bottom: 8px;
+    }
+    /* Espelha generateChecklistColetaPdf: margin 14mm, logo 24mm, gap 10mm */
+    .header {
+      display: flex;
+      flex-direction: row;
+      align-items: center;
+      gap: 10mm;
+      min-height: 24mm;
+    }
+    .logo-box {
+      width: 24mm;
+      height: 24mm;
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border: 1px dashed #c5d0e0;
+      background: #f8fafc;
+      border-radius: 2px;
+    }
+    .logo-box img {
+      max-width: 100%;
+      max-height: 100%;
+      object-fit: contain;
+    }
+    .logo-placeholder {
+      font-size: 9px;
+      color: #8ea3bc;
+      text-align: center;
+      padding: 4px;
+    }
+    .text-block {
+      flex: 1;
+      min-width: 0;
+    }
+    .empresa {
+      font-size: 18px;
+      font-weight: 700;
+      color: #1e3a8a;
+      line-height: 1.25;
+      margin: 0 0 4px;
+    }
+    .titulo {
+      font-size: 11px;
+      font-weight: 400;
+      color: #475569;
+      line-height: 1.35;
+      margin: 0;
+    }
+    .titulo-solo {
+      font-size: 15px;
+      font-weight: 700;
+      color: #1e3a8a;
+    }
+    .ruler {
+      margin-top: 12px;
+      height: 1px;
+      background: repeating-linear-gradient(90deg, #fca5a5 0 9mm, transparent 9mm 10mm);
+      position: relative;
+    }
+    .ruler span {
+      position: absolute;
+      top: 4px;
+      left: 0;
+      font-size: 9px;
+      color: #c0392b;
+    }
+    .ruler span.gap {
+      left: 24mm;
+    }
+    .compare {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      max-width: calc(210mm * 2 + 16px);
+    }
+    @media (max-width: 900px) {
+      .compare { grid-template-columns: 1fr; }
+      .page { width: 100%; }
+    }
+    .old .header { justify-content: center; }
+    .old .header-inner {
+      display: flex;
+      align-items: center;
+      gap: 4mm;
+    }
+  </style>
+</head>
+<body>
+  <h1>Preview — Cabeçalho PDF Checklist</h1>
+  <p class="note">
+    Layout espelha <code>checklistColetaPdf.js</code> (avulso e frete usam o mesmo gerador).
+    Logo: canto superior esquerdo (margem 14&nbsp;mm). Espaço logo↔texto: 10&nbsp;mm (antes 4&nbsp;mm, bloco centralizado).
+  </p>
+
+  <div class="compare">
+    <div>
+      <div class="label">Antes (centralizado, gap 4&nbsp;mm)</div>
+      <div class="page old">
+        <div class="header">
+          <div class="header-inner">
+            <div class="logo-box">
+              <div class="logo-placeholder">LOGO<br />24×24&nbsp;mm</div>
+            </div>
+            <div class="text-block">
+              <p class="empresa">Transportes Silva Ltda</p>
+              <p class="titulo">CHECKLIST DE VEICULO - COLETA</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <div class="label">Depois (esquerda, gap 10&nbsp;mm) — produção</div>
+      <div class="page">
+        <div class="header">
+          <div class="logo-box">
+            <img src="/icon-192.png" alt="Logo exemplo" onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'logo-placeholder',innerHTML:'LOGO<br/>24×24 mm'}))" />
+          </div>
+          <div class="text-block">
+            <p class="empresa">Transportes Silva Ltda</p>
+            <p class="titulo">CHECKLIST DE VEICULO - COLETA</p>
+          </div>
+        </div>
+        <div class="ruler">
+          <span>← margem 14&nbsp;mm</span>
+          <span class="gap" style="left: calc(14mm + 24mm);">gap 10&nbsp;mm →</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="page" style="margin-top: 8px;">
+    <div class="label">Variantes de título (mesmo gerador)</div>
+    <div class="header" style="margin-bottom: 16px;">
+      <div class="logo-box"><div class="logo-placeholder">LOGO</div></div>
+      <div class="text-block">
+        <p class="empresa">Transportes Silva Ltda</p>
+        <p class="titulo">CHECKLIST DE VEICULO - COMPLETO</p>
+      </div>
+    </div>
+    <div class="header">
+      <div class="logo-box"><div class="logo-placeholder">LOGO</div></div>
+      <div class="text-block">
+        <p class="empresa">Transportes Silva Ltda</p>
+        <p class="titulo">CHECKLIST DE VEICULO - ENTREGA</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="page">
+    <div class="label">Sem logo — título centralizado (inalterado)</div>
+    <div class="header" style="justify-content: center;">
+      <p class="titulo-solo" style="text-align: center; margin: 0;">CHECKLIST DE VEICULO - COLETA</p>
+    </div>
+  </div>
+</body>
+</html>
