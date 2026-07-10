@@ -1,6 +1,7 @@
 import { ref, getBlob } from "firebase/storage";
 import { logChecklist } from "./checklistLogSanitizer.js";
 import { storage } from "../firebase.js";
+import { getChecklistMediaBlob } from "./checklistMediaStore.js";
 import {
   CHECKLIST_TIPOS_SERVICO,
   CHECKLIST_MOTIVOS,
@@ -206,7 +207,46 @@ function drawFotoCell(doc, {
 
 /**
  * Firebase Storage SDK (getBlob) -> orientação EXIF -> dataURL + dimensões (timeout 10s por imagem)
+ * Fallback: blob local via mediaId/imagemMediaId (Fase 2d — PDF offline).
  */
+async function fetchChecklistImageForPdf(
+  { url, mediaId, imagemMediaId },
+  context = ""
+) {
+  const resolvedMediaId = mediaId || imagemMediaId;
+  const resolvedUrl = url?.trim() || "";
+
+  if (resolvedUrl) {
+    return fetchImageDataUrl(resolvedUrl, context);
+  }
+
+  if (resolvedMediaId) {
+    try {
+      const blob = await Promise.race([
+        getChecklistMediaBlob(resolvedMediaId),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error("timeout 10s")), IMAGE_FETCH_TIMEOUT_MS)
+        ),
+      ]);
+      if (blob) {
+        logChecklist("log", "[Checklist PDF] Imagem OK via IndexedDB:", context);
+        return await preparePdfImage(blob);
+      }
+    } catch (err) {
+      logChecklist(
+        "error",
+        "[Checklist PDF] Falha ao carregar blob local (placeholder no PDF):",
+        context,
+        err
+      );
+    }
+    return null;
+  }
+
+  logChecklist("warn", "[Checklist PDF] Imagem ausente:", context);
+  return null;
+}
+
 async function fetchImageDataUrl(urlOrPath, context = "") {
   if (!urlOrPath) {
     logChecklist("warn", "[Checklist PDF] Imagem ausente:", context);
@@ -271,29 +311,41 @@ async function preloadChecklistImages({
     ...fotosGrid.map((foto) => {
       const slotLabel = slotLabelForFoto(foto, fotoSlots);
       return {
-        mapKey: `foto:${foto.tipo}:${foto.url}`,
-        promise: fetchImageDataUrl(foto.url, `foto:${slotLabel}`),
+        mapKey: `foto:${foto.tipo}:${foto.mediaId || foto.url}`,
+        promise: fetchChecklistImageForPdf(
+          { url: foto.url, mediaId: foto.mediaId },
+          `foto:${slotLabel}`
+        ),
       };
     }),
     ...assinBlocks.map(({ key }) => {
       const assin = coleta?.assinaturas?.[key] || {};
       return {
         mapKey: `assinatura:${key}`,
-        promise: fetchImageDataUrl(assin.imagemUrl, `assinatura:${key}`),
+        promise: fetchChecklistImageForPdf(
+          { url: assin.imagemUrl, imagemMediaId: assin.imagemMediaId },
+          `assinatura:${key}`
+        ),
       };
     }),
     ...entregaFotosGrid.map((foto) => {
       const slotLabel = slotLabelForFoto(foto, entregaFotoSlots);
       return {
-        mapKey: `entrega-foto:${foto.tipo}:${foto.url}`,
-        promise: fetchImageDataUrl(foto.url, `entrega-foto:${slotLabel}`),
+        mapKey: `entrega-foto:${foto.tipo}:${foto.mediaId || foto.url}`,
+        promise: fetchChecklistImageForPdf(
+          { url: foto.url, mediaId: foto.mediaId },
+          `entrega-foto:${slotLabel}`
+        ),
       };
     }),
     ...entregaAssinBlocks.map(({ key }) => {
       const assin = entrega?.assinaturas?.[key] || {};
       return {
         mapKey: `entrega-assinatura:${key}`,
-        promise: fetchImageDataUrl(assin.imagemUrl, `entrega-assinatura:${key}`),
+        promise: fetchChecklistImageForPdf(
+          { url: assin.imagemUrl, imagemMediaId: assin.imagemMediaId },
+          `entrega-assinatura:${key}`
+        ),
       };
     }),
   ];

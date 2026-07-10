@@ -29,9 +29,18 @@ import {
   aplicarLimiteAvulsosSalvos,
 } from "../services/checklistService.js";
 import { clearChecklistSession } from "../services/checklistSessionService.js";
-import { saveChecklist as saveChecklistToRepository, loadChecklist, captureChecklistMedia } from "../services/checklistRepository.js";
+import { saveChecklist as saveChecklistToRepository, loadChecklist, captureChecklistMedia, isNavigatorOnline } from "../services/checklistRepository.js";
+import {
+  subscribeChecklistUploadProgress,
+  scheduleChecklistMediaUpload,
+} from "../services/checklistMediaUploadQueue.js";
 import { resolveChecklistImagePreview } from "../services/checklistImageResolver.js";
-import { getChecklistSyncBadge, CHECKLIST_SYNC_BADGE_LABEL } from "../services/checklistSyncStatus.js";
+import {
+  getChecklistSyncBadge,
+  getChecklistPendingMediaLabel,
+  getChecklistPendingMediaBreakdown,
+} from "../services/checklistSyncStatus.js";
+import { countPendingChecklistMedia } from "../services/checklistOfflineStore.js";
 import { incrementUsageCounter, USAGE_COUNTERS } from "../services/usageStatsService.js";
 import {
   stampAndCompressImage,
@@ -215,41 +224,10 @@ function preserveLocalFotoPreviews(localFotos, savedFotos) {
   return [...merged, ...extras];
 }
 
-function fotoMídiaPendenteSync(foto) {
-  return !!foto && !!foto.mediaId && !foto.url;
-}
-
-/** Pendência para PDF (exige URL Storage) — Fase 4 liberará via IndexedDB. */
-function fotoUploadPendente(foto) {
-  return (
-    !!foto &&
-    (foto.uploadStatus === "uploading" ||
-      fotoMídiaPendenteSync(foto) ||
-      (!!foto.previewUrl && !foto.url && !foto.mediaId))
-  );
-}
-
-function fotosUploadPendentes(checklist) {
-  const coleta = checklist?.coleta?.fotos || [];
-  const entrega = checklist?.entrega?.fotos || [];
-  return [...coleta, ...entrega].filter(fotoUploadPendente);
-}
-
 function fotosUploadFalharam(checklist) {
   const coleta = checklist?.coleta?.fotos || [];
   const entrega = checklist?.entrega?.fotos || [];
   return [...coleta, ...entrega].filter((f) => f.uploadStatus === "failed");
-}
-
-async function aguardarUploadsFotos(checklistRef, timeoutMs = 90000) {
-  const start = Date.now();
-  while (Date.now() - start < timeoutMs) {
-    const atual = checklistRef.current;
-    if (fotosUploadFalharam(atual).length) return false;
-    if (!fotosUploadPendentes(atual).length) return true;
-    await new Promise((r) => setTimeout(r, 400));
-  }
-  return !fotosUploadPendentes(checklistRef.current).length;
 }
 
 function AvisoEtapaTravada() {
@@ -1484,6 +1462,7 @@ export default function ChecklistVeiculo({
     prestador: false,
   });
   const [substituirEntrega, setSubstituirEntrega] = useState({ recebedor: false, prestador: false });
+  const [uploadSyncProgress, setUploadSyncProgress] = useState(null);
   const fileInputRef = useRef(null);
   const capturaContextoRef = useRef(null);
   const fotoFilaRef = useRef(Promise.resolve());
@@ -1502,6 +1481,9 @@ export default function ChecklistVeiculo({
   checklistRef.current = checklist;
   etapaRef.current = etapa;
 
+  const pendingMediaBreakdown = getChecklistPendingMediaBreakdown(checklist);
+  const pendingMediaLabel = getChecklistPendingMediaLabel(checklist);
+  const syncBadgeAtivo = getChecklistSyncBadge(checklist);
   const validacao = coletaCompletaLocal(checklist, perfil);
   const validacaoEntrega = entregaCompletaLocal(checklist, perfil);
   const prestadorPerfilOk = perfilPrestadorCompleto(perfil);
@@ -1678,6 +1660,42 @@ export default function ChecklistVeiculo({
     const t = setTimeout(() => setToastMsg(""), 4500);
     return () => clearTimeout(t);
   }, [toastMsg]);
+
+  // Fase 2c/2d — escuta progresso da fila UPLOAD_MEDIA e atualiza checklist na UI
+  useEffect(() => {
+    if (!checklist?.id) return undefined;
+    return subscribeChecklistUploadProgress((evt) => {
+      if (evt.checklistId !== checklist.id) return;
+      if (evt.phase === "uploading") {
+        setUploadSyncProgress({ current: evt.current, total: evt.total });
+      } else if (evt.phase === "progress" && evt.checklist) {
+        setUploadSyncProgress({
+          current: evt.current,
+          total: evt.total,
+          pending: evt.pending,
+        });
+        setChecklist(evt.checklist);
+        checklistRef.current = evt.checklist;
+        onSaved?.(evt.checklist);
+      } else if (evt.phase === "done") {
+        setUploadSyncProgress(null);
+        if (evt.checklist) {
+          setChecklist(evt.checklist);
+          checklistRef.current = evt.checklist;
+          onSaved?.(evt.checklist);
+        }
+      }
+    });
+  }, [checklist?.id, onSaved]);
+
+  // Fase 2c — dispara fila ao abrir checklist com mídia pendente (se online)
+  useEffect(() => {
+    if (!uid || !checklist?.id) return;
+    const pending = countPendingChecklistMedia(checklist);
+    if (pending > 0 && isNavigatorOnline()) {
+      scheduleChecklistMediaUpload({ uid, checklistId: checklist.id });
+    }
+  }, [uid, checklist?.id]);
 
   useEffect(() => {
     if (checklist.entrega?.conferencia?.conforme === false) {
@@ -1925,19 +1943,6 @@ export default function ChecklistVeiculo({
       setToastMsg(msg);
       return;
     }
-    if (fotosUploadPendentes(atual).length) {
-      setToastMsg("Aguardando envio das fotos…");
-      const pronto = await aguardarUploadsFotos(checklistRef);
-      if (!pronto) {
-        const msg = fotosUploadFalharam(checklistRef.current).length
-          ? "Algumas fotos falharam no envio. Tente novamente antes de gerar o PDF."
-          : "Ainda há fotos sendo enviadas. Aguarde e tente de novo.";
-        setErro(msg);
-        setToastMsg(msg);
-        return;
-      }
-      atual = checklistRef.current || checklist;
-    }
     if (pdfBlobCache && pdfModalTipo === "coleta") {
       logChecklist("log", "[Checklist] Gerar PDF: reutilizando cache");
       setPdfModalTipo("coleta");
@@ -1993,19 +1998,6 @@ export default function ChecklistVeiculo({
       setToastMsg(msg);
       return;
     }
-    if (fotosUploadPendentes(atual).length) {
-      setToastMsg("Aguardando envio das fotos…");
-      const pronto = await aguardarUploadsFotos(checklistRef);
-      if (!pronto) {
-        const msg = fotosUploadFalharam(checklistRef.current).length
-          ? "Algumas fotos falharam no envio. Tente novamente antes de gerar o PDF."
-          : "Ainda há fotos sendo enviadas. Aguarde e tente de novo.";
-        setErro(msg);
-        setToastMsg(msg);
-        return;
-      }
-      atual = checklistRef.current || checklist;
-    }
     if (pdfBlobCache && pdfModalTipo === "entrega") {
       setShowPdfShare(true);
       if (etapaRef.current === 6) setEtapa(6);
@@ -2056,19 +2048,6 @@ export default function ChecklistVeiculo({
       setErro(msg);
       setToastMsg(msg);
       return;
-    }
-    if (fotosUploadPendentes(atual).length) {
-      setToastMsg("Aguardando envio das fotos…");
-      const pronto = await aguardarUploadsFotos(checklistRef);
-      if (!pronto) {
-        const msg = fotosUploadFalharam(checklistRef.current).length
-          ? "Algumas fotos falharam no envio. Tente novamente antes de gerar o PDF."
-          : "Ainda há fotos sendo enviadas. Aguarde e tente de novo.";
-        setErro(msg);
-        setToastMsg(msg);
-        return;
-      }
-      atual = checklistRef.current || checklist;
     }
     if (pdfBlobCache && pdfModalTipo === "completo") {
       setShowPdfShare(true);
@@ -3164,8 +3143,15 @@ export default function ChecklistVeiculo({
             </div>
             <div style={{ color: C.muted, fontSize: 11, marginTop: 2 }}>
               {checklist?.numero || "—"}
-              {getChecklistSyncBadge(checklist) && (
-                <span style={{ color: C.orange, fontWeight: 700 }}> · {CHECKLIST_SYNC_BADGE_LABEL}</span>
+              {syncBadgeAtivo && (
+                <span style={{ color: C.orange, fontWeight: 700 }}>
+                  {" · "}
+                  {uploadSyncProgress
+                    ? `⏳ Enviando ${uploadSyncProgress.current}/${uploadSyncProgress.total}…`
+                    : pendingMediaLabel
+                      ? `⏳ ${pendingMediaLabel} pendente${pendingMediaBreakdown.total > 1 ? "s" : ""} de sync`
+                      : "⏳ Sync pendente"}
+                </span>
               )}
               {checklist?.status === "aguardando_entrega" && " · ✅ Coleta concluída"}
               {checklist?.status === "concluido" && " · ✅ Entrega concluída"}

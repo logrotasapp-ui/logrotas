@@ -67,7 +67,8 @@ import {
   loadChecklist,
   listAvulsosEmAndamentoMerged,
 } from "./src/services/checklistRepository.js";
-import { getChecklistSyncBadge, CHECKLIST_SYNC_BADGE_LABEL } from "./src/services/checklistSyncStatus.js";
+import { initChecklistConnectivity } from "./src/services/checklistConnectivityService.js";
+import { getChecklistSyncBadge, getChecklistPendingMediaLabel } from "./src/services/checklistSyncStatus.js";
 import {
   writeChecklistSession,
   readChecklistSession,
@@ -154,7 +155,7 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="v316";
+const APP_VERSION="v317";
 const SUPORTE_EMAIL="suporte@logrotas.com.br";
 const PEDAGIO_AVISO_RESULTADO="Pedágio estimado pelo Google. Pode haver variação — confirme o valor da praça.";
 const PAGE_SWIPE_ORDER=["dashboard","financeiro","despesas","comparador","manutencao","documentos","perfil"];
@@ -4491,7 +4492,7 @@ const Dashboard=({onNav,setShowCalc,setCalcMode,historicoFretes,jornadas=[],manu
                 <div>
                   <div style={{color:C.navy,fontWeight:800,fontSize:14}}>Retomar checklist</div>
                   <div style={{color:C.orange,fontSize:12,marginTop:2,fontWeight:600}}>
-                    {getChecklistSyncBadge(cl)?`${CHECKLIST_SYNC_BADGE_LABEL} · `:""}
+                    {getChecklistSyncBadge(cl)?`⏳ ${getChecklistPendingMediaLabel(cl)||"Sync pendente"} · `:""}
                     Coleta concluída — entrega pendente
                   </div>
                   <div style={{color:C.muted,fontSize:12,marginTop:4}}>Nº {numero} · {data} · {endereco}</div>
@@ -6960,6 +6961,12 @@ export default function App(){
     const frete=historicoFretes.find((f)=>f.id===checklistScreen.checklist.freteId);
     if(frete)setChecklistScreen((s)=>({...s,frete}));
   },[historicoFretes,checklistScreen?.checklist?.freteId,checklistScreen?.frete]);
+
+  // V317 — Fase 2d: processa fila UPLOAD_MEDIA ao reconectar
+  useEffect(()=>{
+    if(screen!=="app"||!firebaseUser?.uid||!profileGateOk)return undefined;
+    return initChecklistConnectivity(firebaseUser.uid);
+  },[screen,firebaseUser?.uid,profileGateOk]);
 
   // V294 — restaura o modal de calculadora/fechamento aberto ao reabrir (uma vez, já no app)
   useEffect(()=>{

@@ -25,12 +25,10 @@ import {
   hasChecklistMediaBlob,
 } from "./checklistMediaStore.js";
 import { logChecklist } from "./checklistLogSanitizer.js";
+import { scheduleChecklistMediaUpload } from "./checklistMediaUploadQueue.js";
+import { isNavigatorOnline } from "./checklistNetwork.js";
 
-export { getChecklistMediaBlob, hasChecklistMediaBlob };
-
-export function isNavigatorOnline() {
-  return typeof navigator === "undefined" ? true : navigator.onLine !== false;
-}
+export { getChecklistMediaBlob, hasChecklistMediaBlob, isNavigatorOnline };
 
 function timestampMs(value) {
   if (!value) return 0;
@@ -272,6 +270,9 @@ export async function saveChecklist({ uid, checklistId, patch, baseChecklist }) 
       checklistId,
       pendingMedia,
     });
+    if (isNavigatorOnline()) {
+      scheduleChecklistMediaUpload({ uid, checklistId });
+    }
   }
 
   return {
