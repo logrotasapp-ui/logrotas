@@ -28,7 +28,7 @@ import {
   proximoEstadoAcessorio,
   aplicarLimiteAvulsosSalvos,
 } from "../services/checklistService.js";
-import { clearChecklistSession } from "../services/checklistSessionService.js";
+import { clearChecklistSession, etapaInicialParaChecklist } from "../services/checklistSessionService.js";
 import { saveChecklist as saveChecklistToRepository, loadChecklist, captureChecklistMedia, isNavigatorOnline } from "../services/checklistRepository.js";
 import {
   subscribeChecklistUploadProgress,
@@ -65,6 +65,27 @@ import {
 } from "../services/checklistColetaPdf.js";
 import { sharePdfFileViaSystem } from "../services/deliveryReportPdf.js";
 import { logChecklist } from "../services/checklistLogSanitizer.js";
+
+function mensagemErroChecklist(err, contexto = "salvar") {
+  const code = String(err?.code || "");
+  const msg = String(err?.message || "").toLowerCase();
+  if (code === "permission-denied" || msg.includes("permission")) {
+    return "Sem permissão para salvar. Faça login novamente.";
+  }
+  if (
+    code === "unavailable" ||
+    msg.includes("network") ||
+    msg.includes("offline") ||
+    msg.includes("failed to fetch")
+  ) {
+    return "Sem conexão no momento. Os dados ficam no aparelho e sincronizam quando voltar.";
+  }
+  if (contexto === "salvar") {
+    const detalhe = err?.message ? `: ${String(err.message).slice(0, 80)}` : "";
+    return `Não foi possível salvar${detalhe}. Tente novamente.`;
+  }
+  return "Ocorreu um erro. Tente novamente.";
+}
 
 /** Cache em memória de objectURLs por storagePath — evita re-fetch a cada render. */
 const storageBlobUrlCache = new Map();
@@ -1434,6 +1455,7 @@ export default function ChecklistVeiculo({
     return 1;
   });
   const [salvando, setSalvando] = useState(false);
+  const salvandoRef = useRef(false);
   const [erro, setErro] = useState("");
   const [tentouFinalizarColeta, setTentouFinalizarColeta] = useState(false);
   const [processingSlot, setProcessingSlot] = useState(null);
@@ -1480,6 +1502,7 @@ export default function ChecklistVeiculo({
   onEtapaChangeRef.current = onEtapaChange;
   checklistRef.current = checklist;
   etapaRef.current = etapa;
+  salvandoRef.current = salvando;
 
   const pendingMediaBreakdown = getChecklistPendingMediaBreakdown(checklist);
   const pendingMediaLabel = getChecklistPendingMediaLabel(checklist);
@@ -1503,19 +1526,30 @@ export default function ChecklistVeiculo({
     setChecklist((c) => ({ ...c, id: initial.id }));
   }, [initial?.id, checklist?.id]);
 
-  // Restaura etapa só ao abrir/retomar outro checklist — não a cada onSaved do pai
+  // v318a — reidrata checklist e etapa ao abrir/retomar (IndexedDB + sessão)
   useEffect(() => {
-    if (!initial?.id || etapaBootstrappedIdRef.current === initial.id) return;
-    etapaBootstrappedIdRef.current = initial.id;
-
-    let etapaInicial = 1;
-    if (initial?.status === "concluido") etapaInicial = 6;
-    else if (initial?.status === "aguardando_entrega") etapaInicial = 5;
-    else if (initialEtapa >= 1 && initialEtapa <= 6) etapaInicial = initialEtapa;
-
-    setEtapa(etapaInicial);
-    etapaReportedRef.current = etapaInicial;
-  }, [initial?.id, initialEtapa, initial?.status]);
+    if (!uid || !initial?.id) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const fresh = await loadChecklist(uid, initial.id);
+        if (cancelled) return;
+        const source = fresh || initial;
+        const normalized = normalizeChecklist(source);
+        setChecklist(normalized);
+        checklistRef.current = normalized;
+        const etapaCorreta = etapaInicialParaChecklist(source, initialEtapa);
+        setEtapa(etapaCorreta);
+        etapaReportedRef.current = etapaCorreta;
+        etapaBootstrappedIdRef.current = initial.id;
+      } catch (err) {
+        logChecklist("warn", "[Checklist] Falha ao reidratar ao abrir", err);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [uid, initial?.id]);
 
   // Reidrata previewUrl a partir do IndexedDB após kill do app / retomar sessão
   useEffect(() => {
@@ -1666,6 +1700,7 @@ export default function ChecklistVeiculo({
     if (!checklist?.id) return undefined;
     return subscribeChecklistUploadProgress((evt) => {
       if (evt.checklistId !== checklist.id) return;
+      if (salvandoRef.current && (evt.phase === "progress" || evt.phase === "done")) return;
       if (evt.phase === "uploading") {
         setUploadSyncProgress({ current: evt.current, total: evt.total });
       } else if (evt.phase === "progress" && evt.checklist) {
@@ -1890,17 +1925,12 @@ export default function ChecklistVeiculo({
         });
         return merged;
       } catch (err) {
-        const codigo = err?.code ? ` (${err.code})` : "";
-        const detalhe = err?.message ? `: ${err.message}` : "";
         logChecklist("warn", "[Checklist] Retorno antecipado: exceção em salvar", {
           checklistId,
           code: err?.code,
           message: err?.message,
         });
-        notificarErroSalvar(
-          `Não foi possível salvar${codigo}${detalhe}. Verifique sua conexão.`,
-          err
-        );
+        notificarErroSalvar(mensagemErroChecklist(err, "salvar"), err);
         return null;
       } finally {
         setSalvando(false);
@@ -2436,24 +2466,25 @@ export default function ChecklistVeiculo({
     }
     if (id === etapa) return;
     void (async () => {
+      let ok = true;
       const atual = checklistRef.current;
       if (etapa === 2 && id !== 2 && atual?.coleta) {
         logChecklist("log", "[Checklist] Auto-save vistoria ao trocar aba", { de: etapa, para: id });
-        await salvar({ coleta: atual.coleta });
+        ok = !!(await salvar({ coleta: atual.coleta }));
       }
-      if (etapa === 3 && id !== 3 && atual?.coleta) {
+      if (ok && etapa === 3 && id !== 3 && atual?.coleta) {
         logChecklist("log", "[Checklist] Auto-save fotos ao trocar aba", { de: etapa, para: id });
-        await salvar({ coleta: atual.coleta });
+        ok = !!(await salvar({ coleta: atual.coleta }));
       }
-      if (etapa === 4 && id !== 4) {
+      if (ok && etapa === 4 && id !== 4) {
         logChecklist("log", "[Checklist] Auto-save assinaturas ao trocar aba", { de: etapa, para: id });
-        await persistirAssinaturasColeta({ finalizar: false });
+        ok = !!(await persistirAssinaturasColeta({ finalizar: false }));
       }
-      if (etapa === 6 && id !== 6 && atual?.entrega) {
+      if (ok && etapa === 6 && id !== 6 && atual?.entrega) {
         logChecklist("log", "[Checklist] Auto-save entrega ao trocar aba", { de: etapa, para: id });
-        await salvar({ entrega: normalizeEntregaData(atual.entrega) });
+        ok = !!(await salvar({ entrega: normalizeEntregaData(atual.entrega) }));
       }
-      setEtapa(id);
+      if (ok) setEtapa(id);
     })();
   };
 
@@ -2803,7 +2834,8 @@ export default function ChecklistVeiculo({
       checklistRef.current = next;
       return next;
     });
-    await salvar({ entrega });
+    const saved = await salvar({ entrega });
+    if (!saved) setToastMsg("Não foi possível salvar o recebedor. Tente novamente.");
   };
 
   const usarOutraPessoa = async () => {
@@ -2817,7 +2849,8 @@ export default function ChecklistVeiculo({
       checklistRef.current = next;
       return next;
     });
-    await salvar({ entrega });
+    const saved = await salvar({ entrega });
+    if (!saved) setToastMsg("Não foi possível salvar o recebedor. Tente novamente.");
   };
 
   const marcarConforme = async () => {
@@ -2840,7 +2873,8 @@ export default function ChecklistVeiculo({
       checklistRef.current = next;
       return next;
     });
-    await salvar({ entrega });
+    const saved = await salvar({ entrega });
+    if (!saved) setToastMsg("Não foi possível salvar a conferência. Tente novamente.");
   };
 
   const confirmarDivergencia = async () => {
@@ -2863,7 +2897,8 @@ export default function ChecklistVeiculo({
       checklistRef.current = next;
       return next;
     });
-    await salvar({ entrega });
+    const saved = await salvar({ entrega });
+    if (!saved) setToastMsg("Não foi possível salvar a divergência. Tente novamente.");
   };
 
   const voltarParaConforme = async () => {
@@ -2886,7 +2921,8 @@ export default function ChecklistVeiculo({
       checklistRef.current = next;
       return next;
     });
-    await salvar({ entrega });
+    const saved = await salvar({ entrega });
+    if (!saved) setToastMsg("Não foi possível salvar a conferência. Tente novamente.");
   };
 
   const ciclarEstadoEntregaItem = (item) => {

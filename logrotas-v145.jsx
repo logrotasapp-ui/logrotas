@@ -155,7 +155,7 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="v317";
+const APP_VERSION="v318";
 const SUPORTE_EMAIL="suporte@logrotas.com.br";
 const PEDAGIO_AVISO_RESULTADO="Pedágio estimado pelo Google. Pode haver variação — confirme o valor da praça.";
 const PAGE_SWIPE_ORDER=["dashboard","financeiro","despesas","comparador","manutencao","documentos","perfil"];
@@ -6815,8 +6815,14 @@ export default function App(){
     setGerandoAvulsoPdf(true);
     setAvulsoPdfShare(null);
     try{
-      const {blob,filename}=await generateChecklistCompletoPdf({checklist:checklistSalvo,frete:null,perfil});
-      setAvulsoPdfShare({blob,filename,checklist:checklistSalvo});
+      const uid=firebaseUser?.uid;
+      let doc=checklistSalvo;
+      if(uid){
+        const loaded=await loadChecklist(uid,checklistSalvo.id);
+        if(loaded)doc=loaded;
+      }
+      const {blob,filename}=await generateChecklistCompletoPdf({checklist:doc,frete:null,perfil});
+      setAvulsoPdfShare({blob,filename,checklist:doc});
     }catch(err){
       logChecklist("error","[Checklist] Falha ao gerar PDF do avulso salvo:",err);
       setToastAvulso("Não foi possível gerar o PDF.");
@@ -6824,7 +6830,7 @@ export default function App(){
     }finally{
       setGerandoAvulsoPdf(false);
     }
-  },[gerandoAvulsoPdf,perfil]);
+  },[gerandoAvulsoPdf,perfil,firebaseUser?.uid]);
 
   const handleAddDespesa=useCallback(async(item)=>{
     const uid=firebaseUser?.uid;

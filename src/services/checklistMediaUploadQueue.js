@@ -13,10 +13,10 @@ import { atualizarChecklist } from "./checklistService.js";
 import { isNavigatorOnline } from "./checklistNetwork.js";
 import { isChecklistDownloadUrl } from "./storageService.js";
 import { logChecklist } from "./checklistLogSanitizer.js";
+import { withChecklistDocumentLock } from "./checklistDocumentMutex.js";
 
 const uploadListeners = new Set();
 let queueMutex = Promise.resolve();
-const activeChecklists = new Set();
 
 function notifyUploadProgress(payload) {
   uploadListeners.forEach((fn) => {
@@ -256,13 +256,8 @@ export async function processChecklistMediaUploadQueue({ uid, checklistId }) {
     return { uploaded: 0, failed: 0, checklist: null };
   }
 
-  const run = async () => {
-    if (activeChecklists.has(checklistId)) {
-      return { uploaded: 0, failed: 0, checklist: null, skipped: true };
-    }
-    activeChecklists.add(checklistId);
-
-    try {
+  const run = () =>
+    withChecklistDocumentLock(checklistId, async () => {
       let local = await getChecklistLocal(checklistId);
       if (!local || local.uid !== uid) {
         return { uploaded: 0, failed: 0, checklist: null };
@@ -352,10 +347,7 @@ export async function processChecklistMediaUploadQueue({ uid, checklistId }) {
       });
 
       return { uploaded, failed, checklist: finalChecklist };
-    } finally {
-      activeChecklists.delete(checklistId);
-    }
-  };
+    });
 
   queueMutex = queueMutex.then(run).catch((err) => {
     logChecklist("error", "[Checklist] Erro na fila UPLOAD_MEDIA", err);

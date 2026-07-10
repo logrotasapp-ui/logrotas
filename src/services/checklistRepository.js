@@ -27,6 +27,7 @@ import {
 import { logChecklist } from "./checklistLogSanitizer.js";
 import { scheduleChecklistMediaUpload } from "./checklistMediaUploadQueue.js";
 import { isNavigatorOnline } from "./checklistNetwork.js";
+import { withChecklistDocumentLock } from "./checklistDocumentMutex.js";
 
 export { getChecklistMediaBlob, hasChecklistMediaBlob, isNavigatorOnline };
 
@@ -199,6 +200,7 @@ export async function createChecklist({ uid, avulso = false, freteId = null, dad
 export async function saveChecklist({ uid, checklistId, patch, baseChecklist }) {
   if (!uid || !checklistId) throw new Error("uid e checklistId obrigatórios");
 
+  return withChecklistDocumentLock(checklistId, async () => {
   let local = await getChecklistLocal(checklistId);
 
   if (!local && baseChecklist) {
@@ -280,6 +282,7 @@ export async function saveChecklist({ uid, checklistId, patch, baseChecklist }) 
     savedLocally: true,
     savedRemote,
   };
+  });
 }
 
 /** Carrega checklist: prioriza local se local_only ou offline. */
@@ -381,12 +384,28 @@ export async function listAvulsosEmAndamentoMerged(uid) {
     logChecklist("warn", "[Checklist] listarAvulsosEmAndamento remoto falhou", err);
   }
 
-  const byId = new Map(remote.map((c) => [c.id, c]));
+  const byId = new Map(
+    remote
+      .filter((c) => c.status === "aguardando_entrega")
+      .map((c) => [c.id, c])
+  );
   localList.forEach((l) => {
-    if (l._sync?.state === "local_only" || !byId.has(l.id)) {
-      byId.set(l.id, stripChecklistStorageMeta(l));
+    if (l.status === "concluido") {
+      byId.delete(l.id);
+      return;
+    }
+    const stripped = stripChecklistStorageMeta(l);
+    const remoteItem = byId.get(l.id);
+    if (l._sync?.state === "local_only" || !remoteItem) {
+      byId.set(l.id, stripped);
+      return;
+    }
+    if (timestampMs(l.atualizadoEm) > timestampMs(remoteItem.atualizadoEm)) {
+      byId.set(l.id, stripped);
     }
   });
 
-  return [...byId.values()].sort((a, b) => timestampMs(b.atualizadoEm) - timestampMs(a.atualizadoEm));
+  return [...byId.values()]
+    .filter((c) => c.status === "aguardando_entrega")
+    .sort((a, b) => timestampMs(b.atualizadoEm) - timestampMs(a.atualizadoEm));
 }
