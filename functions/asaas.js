@@ -6,11 +6,16 @@ const { onCall, onRequest, HttpsError } = require("firebase-functions/v2/https")
 const { logger } = require("firebase-functions");
 const admin = require("firebase-admin");
 
-const db = admin.firestore();
+function getDb() {
+  return admin.firestore();
+}
 
 const USERS_COLLECTION = "users";
 const FUNCTION_REGION = "southamerica-east1";
 const ASAAS_API_BASE = "https://api.asaas.com/v3";
+
+const ASAAS_API_KEY_SECRET = "ASAAS_API_KEY";
+const ASAAS_WEBHOOK_TOKEN_SECRET = "ASAAS_WEBHOOK_TOKEN";
 
 /** IDs de plano no painel Asaas (referência; cobrança via value na API). */
 const ASAAS_PLAN_IDS = {
@@ -176,7 +181,7 @@ async function fetchFirstInvoiceUrl(subscriptionId) {
 }
 
 async function findUserByAsaasSubscriptionId(subscriptionId) {
-  const snap = await db
+  const snap = await getDb()
     .collection(USERS_COLLECTION)
     .where("asaasSubscriptionId", "==", subscriptionId)
     .limit(1)
@@ -205,8 +210,10 @@ function mapWebhookEventToStatus(event) {
  * Sucesso: { success: true, invoiceUrl, subscriptionId }
  */
 const createAsaasSubscription = onCall(
-  { region: FUNCTION_REGION, maxInstances: 10 },
+  { region: FUNCTION_REGION, maxInstances: 10, secrets: [ASAAS_API_KEY_SECRET] },
   async (request) => {
+    const db = getDb();
+
     if (!request.auth?.uid) {
       throw new HttpsError(
         "unauthenticated",
@@ -326,8 +333,10 @@ const createAsaasSubscription = onCall(
  * Sucesso: { success: true }
  */
 const cancelAsaasSubscription = onCall(
-  { region: FUNCTION_REGION, maxInstances: 10 },
+  { region: FUNCTION_REGION, maxInstances: 10, secrets: [ASAAS_API_KEY_SECRET] },
   async (request) => {
+    const db = getDb();
+
     if (!request.auth?.uid) {
       throw new HttpsError(
         "unauthenticated",
@@ -388,7 +397,11 @@ const cancelAsaasSubscription = onCall(
  * Sempre responde 200 após processar (ou se usuário não encontrado).
  */
 const webhookAsaas = onRequest(
-  { region: FUNCTION_REGION, maxInstances: 10 },
+  {
+    region: FUNCTION_REGION,
+    maxInstances: 10,
+    secrets: [ASAAS_API_KEY_SECRET, ASAAS_WEBHOOK_TOKEN_SECRET],
+  },
   async (req, res) => {
     if (req.method !== "POST") {
       res.status(405).send("Method Not Allowed");
