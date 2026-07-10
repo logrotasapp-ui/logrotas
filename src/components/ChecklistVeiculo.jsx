@@ -26,7 +26,9 @@ import {
   inicializarEstadosEntrega,
   proximoEstadoAcessorio,
   aplicarLimiteAvulsosSalvos,
+  buscarChecklistPorId,
 } from "../services/checklistService.js";
+import { clearChecklistSession } from "../services/checklistSessionService.js";
 import { incrementUsageCounter, USAGE_COUNTERS } from "../services/usageStatsService.js";
 import {
   stampAndCompressImage,
@@ -1382,9 +1384,16 @@ export default function ChecklistVeiculo({
   onClose,
   onSaved,
   onAvulsoFinalizado,
+  initialEtapa,
+  onEtapaChange,
 }) {
   const [checklist, setChecklist] = useState(() => normalizeChecklist(initial));
-  const [etapa, setEtapa] = useState(1);
+  const [etapa, setEtapa] = useState(() => {
+    if (initialEtapa >= 1 && initialEtapa <= 6) return initialEtapa;
+    if (initial?.status === "aguardando_entrega") return 5;
+    if (initial?.status === "concluido") return 6;
+    return 1;
+  });
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState("");
   const [tentouFinalizarColeta, setTentouFinalizarColeta] = useState(false);
@@ -1442,6 +1451,62 @@ export default function ChecklistVeiculo({
     logChecklist("warn", "[Checklist] State sem id — sincronizando da prop", { propId: initial.id });
     setChecklist((c) => ({ ...c, id: initial.id }));
   }, [initial?.id, checklist?.id]);
+
+  // Restaura etapa ao retomar checklist (ex.: após share sheet / PWA morto)
+  useEffect(() => {
+    if (initialEtapa >= 1 && initialEtapa <= 6) {
+      setEtapa(initialEtapa);
+      return;
+    }
+    const st = initial?.status;
+    if (st === "aguardando_entrega") setEtapa(5);
+    else if (st === "concluido") setEtapa(6);
+  }, [initial?.id, initialEtapa, initial?.status]);
+
+  useEffect(() => {
+    onEtapaChange?.(etapa);
+  }, [etapa, onEtapaChange]);
+
+  // Re-sincroniza do Firestore ao voltar do app externo (WhatsApp / share sheet)
+  useEffect(() => {
+    if (!uid || !checklist?.id) return;
+
+    let cancelled = false;
+    const resync = async () => {
+      try {
+        const fresh = await buscarChecklistPorId(uid, checklist.id);
+        if (cancelled || !fresh?.id) return;
+        const normalized = normalizeChecklist(fresh);
+        setChecklist(normalized);
+        checklistRef.current = normalized;
+        onSaved?.(normalized);
+        if (fresh.status === "concluido") {
+          clearChecklistSession();
+          return;
+        }
+        if (fresh.status === "aguardando_entrega" && etapaRef.current < 5) {
+          setEtapa(5);
+        }
+      } catch (err) {
+        logChecklist("warn", "[Checklist] Falha ao re-sincronizar ao voltar:", err);
+      }
+    };
+
+    const onVisible = () => {
+      if (document.visibilityState === "visible") resync();
+    };
+    const onPageShow = (e) => {
+      if (e.persisted) resync();
+    };
+
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("pageshow", onPageShow);
+    return () => {
+      cancelled = true;
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("pageshow", onPageShow);
+    };
+  }, [uid, checklist?.id, onSaved]);
 
   useEffect(() => {
     if (!uid || !initial?.id) return;
@@ -2886,6 +2951,7 @@ export default function ChecklistVeiculo({
       };
       const ok = await salvar({ entrega: entregaAtualizada, status: "concluido" });
       if (ok) {
+        clearChecklistSession();
         const atualizado = checklistRef.current || checklist;
         if (uid) {
           if (atualizado?.avulso) {

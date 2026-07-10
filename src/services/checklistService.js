@@ -2,6 +2,7 @@ import {
   collection,
   doc,
   getDocs,
+  getDoc,
   addDoc,
   updateDoc,
   deleteDoc,
@@ -525,11 +526,31 @@ export function isChecklistAvulsoSalvo(checklist) {
   return !!checklist?.avulso && checklist?.status === "concluido";
 }
 
+/** Checklist avulso com coleta feita e entrega pendente. */
+export function isChecklistAvulsoEmAndamento(checklist) {
+  return !!checklist?.avulso && checklist?.status === "aguardando_entrega";
+}
+
 function timestampMs(value) {
   if (!value) return 0;
   if (typeof value?.toDate === "function") return value.toDate().getTime();
   const t = new Date(value).getTime();
   return Number.isNaN(t) ? 0 : t;
+}
+
+/** Lista checklists avulsos aguardando entrega (coleta já finalizada). */
+export async function listarChecklistsAvulsosEmAndamento(uid) {
+  if (!uid) return [];
+
+  const q = query(
+    colRef(uid),
+    where("avulso", "==", true),
+    where("status", "==", "aguardando_entrega")
+  );
+  const snap = await getDocs(q);
+  return snap.docs
+    .map((d) => ({ ...d.data(), id: d.id }))
+    .sort((a, b) => timestampMs(b.atualizadoEm) - timestampMs(a.atualizadoEm));
 }
 
 /** Lista os N checklists avulsos finalizados mais recentes. */
@@ -610,6 +631,14 @@ export async function buscarChecklistPorFrete(uid, freteId) {
 
   const d = snap.docs[0];
   return { ...d.data(), id: d.id };
+}
+
+export async function buscarChecklistPorId(uid, checklistId) {
+  if (!uid || !checklistId) return null;
+
+  const snap = await getDoc(doc(db, "users", uid, COLLECTION, checklistId));
+  if (!snap.exists()) return null;
+  return { ...snap.data(), id: snap.id };
 }
 
 export async function listarChecklists(uid) {

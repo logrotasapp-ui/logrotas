@@ -60,7 +60,13 @@ import DeliveryMap from "./src/components/DeliveryMap.js";
 import NavigationMap from "./src/components/NavigationMap.jsx";
 import ProgressOverlay from "./src/components/ProgressOverlay.jsx";
 import ChecklistVeiculo from "./src/components/ChecklistVeiculo.jsx";
-import { criarChecklist, buscarChecklistPorFrete, criarChecklistAvulso, listarChecklistsAvulsosRecentes, resumoChecklistAvulso } from "./src/services/checklistService.js";
+import { criarChecklist, buscarChecklistPorFrete, buscarChecklistPorId, criarChecklistAvulso, listarChecklistsAvulsosRecentes, listarChecklistsAvulsosEmAndamento, resumoChecklistAvulso } from "./src/services/checklistService.js";
+import {
+  writeChecklistSession,
+  readChecklistSession,
+  clearChecklistSession,
+  etapaInicialParaChecklist,
+} from "./src/services/checklistSessionService.js";
 import {
   registrarConclusaoCalculadora,
   dispensarAvaliacao,
@@ -134,14 +140,14 @@ import {
   TrendingUpIcon, TrendingDownIcon, DollarSignIcon, MapPinIcon,
   EyeIcon, EyeOffIcon, MailIcon, RouteIcon, InfoIcon,
   LogOutIcon, EditIcon, PenLineIcon, SaveIcon, ChevronLeftIcon, ChevronRightIcon,
-  ThumbsUpIcon, ThumbsDownIcon, SettingsIcon,
+  ThumbsUpIcon, ThumbsDownIcon, SettingsIcon, RefreshCwIcon,
 } from "lucide-react";
 
 // ── OPENROUTESERVICE — autocomplete e distância real ─────────────────────────
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="v309";
+const APP_VERSION="v310";
 const SUPORTE_EMAIL="suporte@logrotas.com.br";
 const PEDAGIO_AVISO_RESULTADO="Pedágio estimado pelo Google. Pode haver variação — confirme o valor da praça.";
 const PAGE_SWIPE_ORDER=["dashboard","financeiro","despesas","comparador","manutencao","documentos","perfil"];
@@ -4254,7 +4260,7 @@ const FechamentoDia=({uid,perfil,setPerfil,vehicles=[],onSalvar,onClose})=>{
 };
 
 // ── DASHBOARD ─────────────────────────────────────────────────────────────────
-const Dashboard=({onNav,setShowCalc,setCalcMode,historicoFretes,jornadas=[],manutencoes,docs,despesas=[],perfil,onNovoChecklist,onUltimosChecklists,ultimosAvulsosCount=0,onFecharDia})=>{
+const Dashboard=({onNav,setShowCalc,setCalcMode,historicoFretes,jornadas=[],manutencoes,docs,despesas=[],perfil,onNovoChecklist,onUltimosChecklists,ultimosAvulsosCount=0,avulsosEmAndamento=[],onRetomarChecklist,onFecharDia})=>{
   const[showReferralSoon,setShowReferralSoon]=useState(false);
   const hoje=new Date();hoje.setHours(0,0,0,0);
   const docsVencendo=(docs||[]).filter(d=>{
@@ -4465,6 +4471,24 @@ const Dashboard=({onNav,setShowCalc,setCalcMode,historicoFretes,jornadas=[],manu
               <div style={{color:C.muted,fontSize:12,marginTop:2}}>Checklist avulso de veículo</div>
             </div>
           </button>
+          {avulsosEmAndamento.map((cl)=>{
+            const {numero,data,endereco}=resumoChecklistAvulso(cl);
+            return(
+              <button
+                key={cl.id}
+                type="button"
+                onClick={()=>onRetomarChecklist?.(cl)}
+                style={{gridColumn:"1 / -1",background:C.orangeLight,border:`1px solid ${C.orange}44`,borderRadius:14,padding:"13px 15px",cursor:"pointer",textAlign:"left",display:"flex",alignItems:"center",gap:11,boxShadow:"0 1px 4px #1E3A8A08"}}
+              >
+                <div style={{background:C.orange+"22",borderRadius:10,padding:8,flexShrink:0}}><RefreshCwIcon size={16} color={C.orange}/></div>
+                <div>
+                  <div style={{color:C.navy,fontWeight:800,fontSize:14}}>Retomar checklist</div>
+                  <div style={{color:C.orange,fontSize:12,marginTop:2,fontWeight:600}}>Coleta concluída — entrega pendente</div>
+                  <div style={{color:C.muted,fontSize:12,marginTop:4}}>Nº {numero} · {data} · {endereco}</div>
+                </div>
+              </button>
+            );
+          })}
           <button
             type="button"
             onClick={()=>onUltimosChecklists?.()}
@@ -6407,6 +6431,8 @@ export default function App(){
   const[perfil,setPerfil]=useState({nome:"",empresa:"",empresaLogoUrl:"",email:"",telefone:"",documento:"",tipo:"Motorista Autônomo",veiculo:"",servicosFechamento:[],precoCombustivel:""});
   const[checklistScreen,setChecklistScreen]=useState(null);
   const[ultimosAvulsos,setUltimosAvulsos]=useState([]);
+  const[avulsosEmAndamento,setAvulsosEmAndamento]=useState([]);
+  const checklistRestoredRef=useRef(false);
   const[showUltimosAvulsosModal,setShowUltimosAvulsosModal]=useState(false);
   const[avulsoPdfShare,setAvulsoPdfShare]=useState(null);
   const[gerandoAvulsoPdf,setGerandoAvulsoPdf]=useState(false);
@@ -6581,31 +6607,44 @@ export default function App(){
         logChecklist("error","[Checklist] Checklist sem id após buscar/criar",{freteId:frete.id,checklist});
         return;
       }
+      const etapa=etapaInicialParaChecklist(checklist);
       logChecklist("log","[Checklist] Abrindo checklist",{checklistId:checklist.id,freteId:frete.id,novo:!existente?.id});
-      setChecklistScreen({frete,checklist});
+      setChecklistScreen({frete,checklist,resumeEtapa:etapa});
+      writeChecklistSession({
+        checklistId:checklist.id,
+        avulso:false,
+        freteId:frete.id,
+        etapa,
+      });
     }catch(err){
       logChecklist("error","[Checklist] Falha ao abrir/criar checklist:",err);
     }
   },[firebaseUser?.uid]);
 
-  const refreshUltimosAvulsos=useCallback(async()=>{
+  const refreshAvulsosDashboard=useCallback(async()=>{
     const uid=firebaseUser?.uid;
     if(!uid){
       setUltimosAvulsos([]);
+      setAvulsosEmAndamento([]);
       return;
     }
     try{
-      const lista=await listarChecklistsAvulsosRecentes(uid);
-      setUltimosAvulsos(lista);
+      const[concluidos,emAndamento]=await Promise.all([
+        listarChecklistsAvulsosRecentes(uid),
+        listarChecklistsAvulsosEmAndamento(uid),
+      ]);
+      setUltimosAvulsos(concluidos);
+      setAvulsosEmAndamento(emAndamento);
     }catch(err){
-      logChecklist("error","[Checklist] Falha ao listar avulsos recentes:",err);
+      logChecklist("error","[Checklist] Falha ao listar avulsos:",err);
       setUltimosAvulsos([]);
+      setAvulsosEmAndamento([]);
     }
   },[firebaseUser?.uid]);
 
   useEffect(()=>{
-    refreshUltimosAvulsos();
-  },[refreshUltimosAvulsos]);
+    refreshAvulsosDashboard();
+  },[refreshAvulsosDashboard]);
 
   useEffect(()=>{
     const uid=firebaseUser?.uid;
@@ -6675,11 +6714,33 @@ export default function App(){
     }
     try{
       const checklist=await criarChecklistAvulso(uid,{});
-      setChecklistScreen({frete:null,checklist});
+      setChecklistScreen({frete:null,checklist,resumeEtapa:1});
+      writeChecklistSession({
+        checklistId:checklist.id,
+        avulso:true,
+        freteId:null,
+        etapa:1,
+      });
     }catch(err){
       logChecklist("error","[Checklist] Falha ao criar checklist avulso:",err);
     }
   },[firebaseUser?.uid]);
+
+  const handleRetomarChecklistAvulso=useCallback((checklist)=>{
+    if(!checklist?.id)return;
+    const sess=readChecklistSession();
+    const etapa=etapaInicialParaChecklist(
+      checklist,
+      sess?.checklistId===checklist.id?sess.etapa:undefined
+    );
+    setChecklistScreen({frete:null,checklist,resumeEtapa:etapa});
+    writeChecklistSession({
+      checklistId:checklist.id,
+      avulso:true,
+      freteId:null,
+      etapa,
+    });
+  },[]);
 
   const handleUltimosChecklists=useCallback(async()=>{
     const uid=firebaseUser?.uid;
@@ -6818,6 +6879,38 @@ export default function App(){
       setScreen("login");
     }
   },[splashDone,authReady,firebaseUser,profileGateOk]);
+
+  // V310 — restaura checklist aberto após PWA morto (ex.: share PDF no WhatsApp)
+  useEffect(()=>{
+    if(screen!=="app"||!firebaseUser?.uid||!profileGateOk||checklistRestoredRef.current)return;
+    checklistRestoredRef.current=true;
+    (async()=>{
+      const sess=readChecklistSession();
+      if(!sess?.checklistId)return;
+      try{
+        const checklist=await buscarChecklistPorId(firebaseUser.uid,sess.checklistId);
+        if(!checklist?.id||checklist.status==="concluido"){
+          clearChecklistSession();
+          return;
+        }
+        let frete=null;
+        if(sess.freteId){
+          frete=historicoFretes.find((f)=>f.id===sess.freteId)||null;
+        }
+        const etapa=etapaInicialParaChecklist(checklist,sess.etapa);
+        setChecklistScreen({frete,checklist,resumeEtapa:etapa});
+      }catch(err){
+        logChecklist("error","[Checklist] Falha ao restaurar sessão:",err);
+      }
+    })();
+  },[screen,firebaseUser?.uid,profileGateOk,historicoFretes]);
+
+  // V310 — vincula frete ao checklist restaurado quando histórico carregar
+  useEffect(()=>{
+    if(!checklistScreen?.checklist?.freteId||checklistScreen.frete)return;
+    const frete=historicoFretes.find((f)=>f.id===checklistScreen.checklist.freteId);
+    if(frete)setChecklistScreen((s)=>({...s,frete}));
+  },[historicoFretes,checklistScreen?.checklist?.freteId,checklistScreen?.frete]);
 
   // V294 — restaura o modal de calculadora/fechamento aberto ao reabrir (uma vez, já no app)
   useEffect(()=>{
@@ -7000,7 +7093,7 @@ export default function App(){
         );})}
       </div>
       <div ref={contentSwipeRef} {...contentSwipeHandlers} style={{maxWidth:820,margin:"0 auto",padding:`20px 14px ${showNavActiveBanner?"128px":"80px"}`,touchAction:"pan-y pinch-zoom"}}>
-        {page==="dashboard"   &&<Dashboard onNav={setPage} setShowCalc={setShowCalc} setCalcMode={setCalcMode} historicoFretes={historicoFretes} jornadas={jornadas} manutencoes={manutencoes} docs={docs} despesas={despesas} perfil={perfil} onNovoChecklist={handleNovoChecklistAvulso} onUltimosChecklists={handleUltimosChecklists} ultimosAvulsosCount={ultimosAvulsos.length} onFecharDia={()=>setShowFechamento(true)}/>}
+        {page==="dashboard"   &&<Dashboard onNav={setPage} setShowCalc={setShowCalc} setCalcMode={setCalcMode} historicoFretes={historicoFretes} jornadas={jornadas} manutencoes={manutencoes} docs={docs} despesas={despesas} perfil={perfil} onNovoChecklist={handleNovoChecklistAvulso} onUltimosChecklists={handleUltimosChecklists} ultimosAvulsosCount={ultimosAvulsos.length} avulsosEmAndamento={avulsosEmAndamento} onRetomarChecklist={handleRetomarChecklistAvulso} onFecharDia={()=>setShowFechamento(true)}/>}
         {page==="financeiro"  &&<Financeiro historicoFretes={historicoFretes} manutencoes={manutencoes} despesas={despesas} jornadas={jornadas}/>}
         {page==="despesas"    &&<Despesas despesas={despesas} onAddDespesa={handleAddDespesa} onUpdateDespesa={handleUpdateDespesa} onDeleteDespesa={handleDeleteDespesa}/>}
         {page==="comparador"  &&<Comparador historicoFretes={historicoFretes} jornadas={jornadas} onAddFrete={handleAddFrete} onUpdateFrete={handleUpdateFrete} onDeleteFrete={handleDeleteFrete} onUpdateJornada={handleUpdateJornada} onDeleteJornada={handleDeleteJornada} perfil={perfil} uid={firebaseUser?.uid} onOpenChecklist={handleOpenChecklist}/>}
@@ -7016,14 +7109,28 @@ export default function App(){
           frete={checklistScreen.frete}
           uid={firebaseUser?.uid}
           perfil={perfil}
-          onClose={()=>{setChecklistScreen(null);refreshUltimosAvulsos();}}
-          onAvulsoFinalizado={refreshUltimosAvulsos}
+          initialEtapa={checklistScreen.resumeEtapa}
+          onClose={()=>{clearChecklistSession();setChecklistScreen(null);refreshAvulsosDashboard();}}
+          onAvulsoFinalizado={refreshAvulsosDashboard}
           onSaved={(c)=>{
             if(!c?.id){
               logChecklist("warn","[Checklist] onSaved ignorado: checklist sem id",c);
               return;
             }
             setChecklistScreen(s=>({...s,checklist:c}));
+            if(c.status==="concluido")clearChecklistSession();
+          }}
+          onEtapaChange={(etapa)=>{
+            setChecklistScreen((prev)=>{
+              if(!prev?.checklist?.id)return prev;
+              writeChecklistSession({
+                checklistId:prev.checklist.id,
+                avulso:!!prev.checklist.avulso||!prev.frete,
+                freteId:prev.frete?.id||prev.checklist.freteId||null,
+                etapa,
+              });
+              return {...prev,resumeEtapa:etapa};
+            });
           }}
         />
       )}

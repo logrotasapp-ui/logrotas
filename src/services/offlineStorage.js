@@ -11,6 +11,7 @@ export const OFFLINE_KEYS = {
   avaliacaoPendentes: "logrotas_avaliacao_pendentes",
   vehicles: "logrotas_vehicles",
   uiState: "logrotas_ui_state",
+  checklistSessao: "logrotas_checklist_sessao",
 };
 
 /**
