@@ -745,6 +745,15 @@ const payWithCard = onCall(
       };
     } catch (err) {
       if (err instanceof HttpsError) throw err;
+      logger.error("payWithCard — erro completo API Asaas", {
+        uid,
+        faturaId,
+        step: "payWithCard",
+        status: err?.status ?? null,
+        errors: err?.body?.errors ?? null,
+        asaasResponse: err?.body ?? null,
+        errMessage: err?.message,
+      });
       mapAsaasErrorToHttps(err, { uid, faturaId, step: "payWithCard" });
     }
   }
