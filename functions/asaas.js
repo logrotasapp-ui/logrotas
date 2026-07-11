@@ -77,6 +77,20 @@ function normalizeCpfCnpj(raw) {
   return digits;
 }
 
+function resolveNumeroFatura(payment, faturaId) {
+  const invoiceNumber = payment?.invoiceNumber;
+  if (invoiceNumber != null && String(invoiceNumber).trim() !== "") {
+    return String(invoiceNumber).trim();
+  }
+
+  const paymentId = String(payment?.id || faturaId || "").trim();
+  if (paymentId.startsWith("pay_")) {
+    return `#${paymentId.slice(4).toUpperCase()}`;
+  }
+
+  return paymentId || faturaId;
+}
+
 function resolveMobilePhone(userData) {
   const digits = String(userData?.telefoneDigits || userData?.telefone || "").replace(
     /\D/g,
@@ -480,8 +494,15 @@ const getFatura = onCall(
         };
       }
 
+      console.log("[getFatura] invoiceNumber no payment:", {
+        existe:
+          payment?.invoiceNumber != null && String(payment.invoiceNumber).trim() !== "",
+        invoiceNumber: payment?.invoiceNumber ?? null,
+        temSubscription: !!payment?.subscription,
+      });
+
       return {
-        numeroFatura: payment?.id || payment?.invoiceNumber || faturaId,
+        numeroFatura: resolveNumeroFatura(payment, faturaId),
         valor: payment?.value ?? null,
         vencimento: payment?.dueDate ?? null,
         descricao: payment?.description != null ? String(payment.description) : null,
