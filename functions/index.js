@@ -11,6 +11,7 @@ const {
   webhookAsaas,
   cancelAsaasSubscription,
   getFatura,
+  getFaturaPendente,
   getPixQrCode,
   payWithCard,
 } = require("./asaas");
@@ -410,5 +411,6 @@ exports.createAsaasSubscription = createAsaasSubscription;
 exports.webhookAsaas = webhookAsaas;
 exports.cancelAsaasSubscription = cancelAsaasSubscription;
 exports.getFatura = getFatura;
+exports.getFaturaPendente = getFaturaPendente;
 exports.getPixQrCode = getPixQrCode;
 exports.payWithCard = payWithCard;

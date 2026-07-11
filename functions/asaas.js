@@ -212,6 +212,32 @@ async function fetchFirstInvoiceUrl(subscriptionId) {
   );
 }
 
+const OPEN_PAYMENT_STATUSES = ["PENDING", "OVERDUE"];
+
+function pickMostRecentPayment(payments) {
+  if (!payments.length) return null;
+
+  return [...payments].sort((a, b) => {
+    const dateA = String(a?.dateCreated || a?.dueDate || "");
+    const dateB = String(b?.dateCreated || b?.dueDate || "");
+    return dateB.localeCompare(dateA);
+  })[0];
+}
+
+/** Cobrança em aberto mais recente da assinatura (PENDING ou OVERDUE). */
+async function fetchMostRecentOpenPaymentForSubscription(subscriptionId) {
+  const results = await Promise.all(
+    OPEN_PAYMENT_STATUSES.map((status) =>
+      asaasFetch(
+        `/payments?subscription=${encodeURIComponent(subscriptionId)}&status=${status}&limit=100`
+      )
+    )
+  );
+
+  const payments = results.flatMap((result) => result?.data || []);
+  return pickMostRecentPayment(payments);
+}
+
 async function findUserByAsaasSubscriptionId(subscriptionId) {
   const snap = await getDb()
     .collection(USERS_COLLECTION)
@@ -517,6 +543,52 @@ const getFatura = onCall(
 );
 
 /**
+ * Busca fatura em aberto da assinatura do usuário logado.
+ * Consulta Asaas: GET /v3/payments?subscription={id}&status=PENDING|OVERDUE
+ * Sucesso: { temFaturaPendente, faturaId?, valor?, vencimento? }
+ */
+const getFaturaPendente = onCall(
+  { region: FUNCTION_REGION, maxInstances: 10, secrets: [ASAAS_API_KEY_SECRET] },
+  async (request) => {
+    if (!request.auth?.uid) {
+      throw new HttpsError(
+        "unauthenticated",
+        "Faça login para consultar sua fatura.",
+        { reason: "nao-autenticado" }
+      );
+    }
+
+    const uid = request.auth.uid;
+
+    try {
+      const userSnap = await getDb().collection(USERS_COLLECTION).doc(uid).get();
+      const asaasSubscriptionId = userSnap.exists
+        ? userSnap.data()?.asaasSubscriptionId
+        : null;
+
+      if (!asaasSubscriptionId) {
+        return { temFaturaPendente: false };
+      }
+
+      const payment = await fetchMostRecentOpenPaymentForSubscription(asaasSubscriptionId);
+      if (!payment?.id) {
+        return { temFaturaPendente: false };
+      }
+
+      return {
+        temFaturaPendente: true,
+        faturaId: payment.id,
+        valor: payment.value ?? null,
+        vencimento: payment.dueDate ?? null,
+      };
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      mapAsaasErrorToHttps(err, { uid, step: "getFaturaPendente" });
+    }
+  }
+);
+
+/**
  * Obtém QR Code Pix de uma fatura no Asaas.
  * Entrada: { faturaId: string }
  * Sucesso: { encodedImage, payload, expirationDate? }
@@ -784,6 +856,7 @@ module.exports = {
   webhookAsaas,
   cancelAsaasSubscription,
   getFatura,
+  getFaturaPendente,
   getPixQrCode,
   payWithCard,
 };
