@@ -543,6 +543,120 @@ const getPixQrCode = onCall(
   }
 );
 
+/**
+ * Paga fatura existente com cartão de crédito no Asaas.
+ * Endpoint: POST /v3/payments/{faturaId}/payWithCreditCard
+ * Entrada: { faturaId, cartao, titular, remoteIp }
+ * Sucesso: { success: true, status }
+ */
+const payWithCard = onCall(
+  { region: FUNCTION_REGION, maxInstances: 10, secrets: [ASAAS_API_KEY_SECRET] },
+  async (request) => {
+    if (!request.auth?.uid) {
+      throw new HttpsError(
+        "unauthenticated",
+        "Faça login para pagar com cartão.",
+        { reason: "nao-autenticado" }
+      );
+    }
+
+    const uid = request.auth.uid;
+    const faturaId = String(request.data?.faturaId || "").trim();
+    const cartao = request.data?.cartao || {};
+    const titular = request.data?.titular || {};
+    const remoteIp = String(request.data?.remoteIp || "").trim();
+
+    if (!faturaId) {
+      throw new HttpsError(
+        "invalid-argument",
+        "ID da fatura é obrigatório.",
+        { reason: "fatura-id-ausente" }
+      );
+    }
+
+    const holderName = String(cartao.nome || "").trim();
+    const cardNumber = String(cartao.numero || "").replace(/\D/g, "");
+    const expiryMonth = String(cartao.validadeMes || "").replace(/\D/g, "").padStart(2, "0");
+    let expiryYear = String(cartao.validadeAno || "").replace(/\D/g, "");
+    if (expiryYear.length === 2) {
+      expiryYear = `20${expiryYear}`;
+    }
+    const ccv = String(cartao.cvv || "").replace(/\D/g, "");
+
+    if (!holderName || !cardNumber || expiryMonth.length !== 2 || !expiryYear || !ccv) {
+      throw new HttpsError(
+        "invalid-argument",
+        "Dados do cartão incompletos ou inválidos.",
+        { reason: "cartao-invalido" }
+      );
+    }
+
+    const holderInfoName = String(titular.nome || "").trim();
+    const email = String(titular.email || "").trim().toLowerCase();
+    const cpfCnpj = normalizeCpfCnpj(titular.cpfCnpj);
+    const phone = String(titular.telefone || "").replace(/\D/g, "");
+    const postalCode = String(titular.cep || "").replace(/\D/g, "");
+    const addressNumber = String(titular.numeroEndereco || "").trim();
+
+    if (!holderInfoName || !email || !cpfCnpj || !phone || !postalCode || !addressNumber) {
+      throw new HttpsError(
+        "invalid-argument",
+        "Dados do titular incompletos ou inválidos.",
+        { reason: "titular-invalido" }
+      );
+    }
+
+    if (!remoteIp) {
+      throw new HttpsError(
+        "invalid-argument",
+        "IP do cliente (remoteIp) é obrigatório.",
+        { reason: "remote-ip-ausente" }
+      );
+    }
+
+    try {
+      const payment = await asaasFetch(
+        `/payments/${encodeURIComponent(faturaId)}/payWithCreditCard`,
+        {
+          method: "POST",
+          body: {
+            creditCard: {
+              holderName,
+              number: cardNumber,
+              expiryMonth,
+              expiryYear,
+              ccv,
+            },
+            creditCardHolderInfo: {
+              name: holderInfoName,
+              email,
+              cpfCnpj,
+              postalCode,
+              addressNumber,
+              phone,
+            },
+            remoteIp,
+          },
+        }
+      );
+
+      logger.info("Pagamento com cartão processado", {
+        uid,
+        faturaId,
+        status: payment?.status,
+      });
+
+      return {
+        success: true,
+        status: payment?.status ?? null,
+      };
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      mapAsaasErrorToHttps(err, { uid, faturaId, step: "payWithCard" });
+    }
+  }
+);
+
 // ── Webhook HTTP ──────────────────────────────────────────────────────────────
 
 /**
@@ -650,4 +764,5 @@ module.exports = {
   cancelAsaasSubscription,
   getFatura,
   getPixQrCode,
+  payWithCard,
 };
