@@ -11,6 +11,7 @@ const {
   webhookAsaas,
   cancelAsaasSubscription,
   getFatura,
+  getPixQrCode,
 } = require("./asaas");
 
 admin.initializeApp();
@@ -378,3 +379,4 @@ exports.createAsaasSubscription = createAsaasSubscription;
 exports.webhookAsaas = webhookAsaas;
 exports.cancelAsaasSubscription = cancelAsaasSubscription;
 exports.getFatura = getFatura;
+exports.getPixQrCode = getPixQrCode;

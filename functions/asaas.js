@@ -495,6 +495,54 @@ const getFatura = onCall(
   }
 );
 
+/**
+ * Obtém QR Code Pix de uma fatura no Asaas.
+ * Entrada: { faturaId: string }
+ * Sucesso: { encodedImage, payload, expirationDate? }
+ */
+const getPixQrCode = onCall(
+  { region: FUNCTION_REGION, maxInstances: 10, secrets: [ASAAS_API_KEY_SECRET] },
+  async (request) => {
+    if (!request.auth?.uid) {
+      throw new HttpsError(
+        "unauthenticated",
+        "Faça login para consultar o Pix.",
+        { reason: "nao-autenticado" }
+      );
+    }
+
+    const uid = request.auth.uid;
+    const faturaId = String(request.data?.faturaId || "").trim();
+    if (!faturaId) {
+      throw new HttpsError(
+        "invalid-argument",
+        "ID da fatura é obrigatório.",
+        { reason: "fatura-id-ausente" }
+      );
+    }
+
+    try {
+      const pixQrCode = await asaasFetch(
+        `/payments/${encodeURIComponent(faturaId)}/pixQrCode`
+      );
+
+      const result = {
+        encodedImage: pixQrCode?.encodedImage ?? null,
+        payload: pixQrCode?.payload ?? null,
+      };
+
+      if (pixQrCode?.expirationDate != null) {
+        result.expirationDate = pixQrCode.expirationDate;
+      }
+
+      return result;
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      mapAsaasErrorToHttps(err, { uid, faturaId, step: "getPixQrCode" });
+    }
+  }
+);
+
 // ── Webhook HTTP ──────────────────────────────────────────────────────────────
 
 /**
@@ -601,4 +649,5 @@ module.exports = {
   webhookAsaas,
   cancelAsaasSubscription,
   getFatura,
+  getPixQrCode,
 };
