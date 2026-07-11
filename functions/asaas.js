@@ -463,29 +463,30 @@ const getFatura = onCall(
 
     try {
       const payment = await asaasFetch(`/payments/${encodeURIComponent(faturaId)}`);
-      console.log("[getFatura] GET /v3/payments/{faturaId} raw:", JSON.stringify(payment));
 
-      let nome = "";
-      let email = "";
-      const customerRef = payment?.customer;
+      const customerId =
+        typeof payment?.customer === "string"
+          ? payment.customer.trim()
+          : payment?.customer?.id
+            ? String(payment.customer.id).trim()
+            : "";
 
-      if (customerRef && typeof customerRef === "object") {
-        nome = String(customerRef.name || "").trim();
-        email = String(customerRef.email || "").trim().toLowerCase();
-      } else if (customerRef) {
-        const customer = await fetchAsaasCustomer(String(customerRef).trim());
-        console.log("[getFatura] GET /v3/customers/{customerId} raw:", JSON.stringify(customer));
-        nome = String(customer?.name || "").trim();
-        email = String(customer?.email || "").trim().toLowerCase();
+      let comprador = { nome: "", email: "" };
+      if (customerId) {
+        const customer = await fetchAsaasCustomer(customerId);
+        comprador = {
+          nome: String(customer?.name || "").trim(),
+          email: String(customer?.email || "").trim().toLowerCase(),
+        };
       }
 
       return {
-        numeroFatura: payment?.invoiceNumber || payment?.id || faturaId,
+        numeroFatura: payment?.id || payment?.invoiceNumber || faturaId,
         valor: payment?.value ?? null,
         vencimento: payment?.dueDate ?? null,
-        descricao: payment?.description ?? null,
+        descricao: payment?.description != null ? String(payment.description) : null,
         status: payment?.status ?? null,
-        comprador: { nome, email },
+        comprador,
       };
     } catch (err) {
       if (err instanceof HttpsError) throw err;
