@@ -71,6 +71,12 @@ function normalizePlanType(raw) {
   return PLANS[key] ? key : null;
 }
 
+function normalizeCpfCnpj(raw) {
+  const digits = String(raw || "").replace(/\D/g, "");
+  if (digits.length !== 11 && digits.length !== 14) return null;
+  return digits;
+}
+
 function resolveMobilePhone(userData) {
   const digits = String(userData?.telefoneDigits || userData?.telefone || "").replace(
     /\D/g,
@@ -141,15 +147,27 @@ async function asaasFetch(path, options = {}) {
   return parsed;
 }
 
-async function createAsaasCustomer({ uid, nome, email, mobilePhone }) {
+async function createAsaasCustomer({ uid, nome, email, mobilePhone, cpfCnpj }) {
   const payload = {
     name: nome,
     email,
     externalReference: uid,
+    cpfCnpj,
   };
   if (mobilePhone) payload.mobilePhone = mobilePhone;
 
   return asaasFetch("/customers", { method: "POST", body: payload });
+}
+
+async function fetchAsaasCustomer(customerId) {
+  return asaasFetch(`/customers/${encodeURIComponent(customerId)}`);
+}
+
+async function updateAsaasCustomerCpfCnpj(customerId, cpfCnpj) {
+  return asaasFetch(`/customers/${encodeURIComponent(customerId)}`, {
+    method: "PUT",
+    body: { cpfCnpj },
+  });
 }
 
 async function createAsaasSubscriptionRecord({ customerId, plan, nextDueDate }) {
@@ -206,7 +224,7 @@ function mapWebhookEventToStatus(event) {
 
 /**
  * Cria assinatura Asaas para usuário autenticado.
- * Entrada: { planType: "FRETE" | "COMPLETO" }
+ * Entrada: { planType: "FRETE" | "COMPLETO", cpfCnpj: string }
  * Sucesso: { success: true, invoiceUrl, subscriptionId }
  */
 const createAsaasSubscription = onCall(
@@ -229,6 +247,15 @@ const createAsaasSubscription = onCall(
         "invalid-argument",
         'Plano inválido. Use "FRETE" ou "COMPLETO".',
         { reason: "plano-invalido" }
+      );
+    }
+
+    const cpfCnpj = normalizeCpfCnpj(request.data?.cpfCnpj);
+    if (!cpfCnpj) {
+      throw new HttpsError(
+        "invalid-argument",
+        "CPF ou CNPJ é obrigatório e deve ser válido.",
+        { reason: "cpf-cnpj-invalido" }
       );
     }
 
@@ -269,6 +296,7 @@ const createAsaasSubscription = onCall(
           nome,
           email,
           mobilePhone: resolveMobilePhone(userData),
+          cpfCnpj,
         });
         asaasCustomerId = customer?.id;
         if (!asaasCustomerId) {
@@ -277,10 +305,27 @@ const createAsaasSubscription = onCall(
         await userRef.set(
           {
             asaasCustomerId,
+            cpfCnpj,
             updatedAt: admin.firestore.FieldValue.serverTimestamp(),
           },
           { merge: true }
         );
+      } else {
+        const existingCustomer = await fetchAsaasCustomer(asaasCustomerId);
+        if (!normalizeCpfCnpj(existingCustomer?.cpfCnpj)) {
+          await updateAsaasCustomerCpfCnpj(asaasCustomerId, cpfCnpj);
+          await userRef.set(
+            {
+              cpfCnpj,
+              updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            },
+            { merge: true }
+          );
+          logger.info("Customer Asaas existente atualizado com CPF/CNPJ", {
+            uid,
+            asaasCustomerId,
+          });
+        }
       }
 
       const nextDueDate = tomorrowIsoDate();
@@ -390,6 +435,65 @@ const cancelAsaasSubscription = onCall(
   }
 );
 
+/**
+ * Consulta fatura (cobrança) no Asaas.
+ * Entrada: { faturaId: string }
+ * Sucesso: { numeroFatura, valor, vencimento, descricao, status, comprador }
+ */
+const getFatura = onCall(
+  { region: FUNCTION_REGION, maxInstances: 10, secrets: [ASAAS_API_KEY_SECRET] },
+  async (request) => {
+    if (!request.auth?.uid) {
+      throw new HttpsError(
+        "unauthenticated",
+        "Faça login para consultar a fatura.",
+        { reason: "nao-autenticado" }
+      );
+    }
+
+    const uid = request.auth.uid;
+    const faturaId = String(request.data?.faturaId || "").trim();
+    if (!faturaId) {
+      throw new HttpsError(
+        "invalid-argument",
+        "ID da fatura é obrigatório.",
+        { reason: "fatura-id-ausente" }
+      );
+    }
+
+    try {
+      const payment = await asaasFetch(`/payments/${encodeURIComponent(faturaId)}`);
+      console.log("[getFatura] GET /v3/payments/{faturaId} raw:", JSON.stringify(payment));
+
+      let nome = "";
+      let email = "";
+      const customerRef = payment?.customer;
+
+      if (customerRef && typeof customerRef === "object") {
+        nome = String(customerRef.name || "").trim();
+        email = String(customerRef.email || "").trim().toLowerCase();
+      } else if (customerRef) {
+        const customer = await fetchAsaasCustomer(String(customerRef).trim());
+        console.log("[getFatura] GET /v3/customers/{customerId} raw:", JSON.stringify(customer));
+        nome = String(customer?.name || "").trim();
+        email = String(customer?.email || "").trim().toLowerCase();
+      }
+
+      return {
+        numeroFatura: payment?.invoiceNumber || payment?.id || faturaId,
+        valor: payment?.value ?? null,
+        vencimento: payment?.dueDate ?? null,
+        descricao: payment?.description ?? null,
+        status: payment?.status ?? null,
+        comprador: { nome, email },
+      };
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      mapAsaasErrorToHttps(err, { uid, faturaId, step: "getFatura" });
+    }
+  }
+);
+
 // ── Webhook HTTP ──────────────────────────────────────────────────────────────
 
 /**
@@ -495,4 +599,5 @@ module.exports = {
   createAsaasSubscription,
   webhookAsaas,
   cancelAsaasSubscription,
+  getFatura,
 };

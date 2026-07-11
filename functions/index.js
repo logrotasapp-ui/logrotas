@@ -10,6 +10,7 @@ const {
   createAsaasSubscription,
   webhookAsaas,
   cancelAsaasSubscription,
+  getFatura,
 } = require("./asaas");
 
 admin.initializeApp();
@@ -376,3 +377,4 @@ exports.registerWithBetaCode = onCall(
 exports.createAsaasSubscription = createAsaasSubscription;
 exports.webhookAsaas = webhookAsaas;
 exports.cancelAsaasSubscription = cancelAsaasSubscription;
+exports.getFatura = getFatura;
