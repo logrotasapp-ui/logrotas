@@ -61,6 +61,12 @@ function normalizeTipoPerfil(raw) {
   return PROFILE_LABELS[slug] ? slug : null;
 }
 
+function buildTrialAcessoValidoAte() {
+  const expiresAt = new Date();
+  expiresAt.setDate(expiresAt.getDate() + 14);
+  return admin.firestore.Timestamp.fromDate(expiresAt);
+}
+
 function buildUserProfilePayload({
   nome,
   email,
@@ -68,15 +74,14 @@ function buildUserProfilePayload({
   telefoneDigits,
   profileSlug,
   codigoBeta,
+  accessMode,
 }) {
-  return {
+  const base = {
     nome,
     email,
     telefone,
     telefoneDigits,
     perfil: profileSlug,
-    tipoAcesso: "beta",
-    codigoUsado: codigoBeta,
     documento: "",
     profile: profileSlug,
     tipo: PROFILE_LABELS[profileSlug],
@@ -84,10 +89,25 @@ function buildUserProfilePayload({
     empresa: "",
     servicosFechamento: [],
     precoCombustivel: "",
-    betaAccess: true,
-    codigoBetaUsado: codigoBeta,
     createdAt: admin.firestore.FieldValue.serverTimestamp(),
     updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  };
+
+  if (accessMode === "beta") {
+    return {
+      ...base,
+      tipoAcesso: "beta",
+      codigoUsado: codigoBeta,
+      codigoBetaUsado: codigoBeta,
+      betaAccess: true,
+      acessoVitalicio: true,
+    };
+  }
+
+  return {
+    ...base,
+    tipoAcesso: "trial",
+    acessoValidoAte: buildTrialAcessoValidoAte(),
   };
 }
 
@@ -193,7 +213,7 @@ async function claimBetaCodeInTransaction(code, email) {
     if (!snap.exists) {
       throw new HttpsError(
         "failed-precondition",
-        "Código beta inválido. Verifique e tente novamente.",
+        "Código beta inválido ou já utilizado.",
         { reason: "codigo-invalido" }
       );
     }
@@ -202,7 +222,7 @@ async function claimBetaCodeInTransaction(code, email) {
     if (data.used === true) {
       throw new HttpsError(
         "failed-precondition",
-        "Este código beta já foi utilizado.",
+        "Código beta inválido ou já utilizado.",
         { reason: "codigo-ja-usado" }
       );
     }
@@ -233,9 +253,10 @@ async function releaseBetaCode(code) {
 // ── Callable ──────────────────────────────────────────────────────────────────
 
 /**
- * Cadastro fechado: site envia código beta + dados; function cria Auth + users/{uid}.
+ * Cadastro: site envia dados + código beta opcional; function cria Auth + users/{uid}.
+ * Sem código: trial 14 dias. Com código válido: acesso vitalício beta.
  *
- * Entrada: { email, senha, nome, telefone, tipoPerfil, codigoBeta }
+ * Entrada: { email, senha, nome, telefone, tipoPerfil, codigoBeta? }
  * Sucesso: { uid, email }
  */
 exports.registerWithBetaCode = onCall(
@@ -253,9 +274,10 @@ exports.registerWithBetaCode = onCall(
     const telefone = String(data.telefone || "").trim();
     const tipoPerfil = data.tipoPerfil;
     const codigoBeta = normalizeBetaCode(data.codigoBeta);
+    const hasBetaCode = codigoBeta !== "";
 
     // ── 1. Validação de entrada ─────────────────────────────────────────────
-    if (!email || !senha || !nome || !telefone || !tipoPerfil || !codigoBeta) {
+    if (!email || !senha || !nome || !telefone || !tipoPerfil) {
       throw new HttpsError(
         "invalid-argument",
         "Preencha todos os campos obrigatórios.",
@@ -303,8 +325,12 @@ exports.registerWithBetaCode = onCall(
     // ── 4. Dedup telefone ───────────────────────────────────────────────────
     await assertPhoneAvailable(telefoneDigits);
 
-    // ── 3 + 7. Reservar código beta (transação atômica, uso único) ──────────
-    await claimBetaCodeInTransaction(codigoBeta, email);
+    // ── 3 + 7. Reservar código beta (somente se informado) ──────────────────
+    let claimedBetaCode = null;
+    if (hasBetaCode) {
+      await claimBetaCodeInTransaction(codigoBeta, email);
+      claimedBetaCode = codigoBeta;
+    }
 
     let uid = null;
 
@@ -317,22 +343,24 @@ exports.registerWithBetaCode = onCall(
       });
       uid = userRecord.uid;
 
-      // ── 6. Perfil Firestore (shape do app + betaAccess) ───────────────────
+      // ── 6. Perfil Firestore (trial ou beta) ───────────────────────────────
       const profilePayload = buildUserProfilePayload({
         nome,
         email,
         telefone,
         telefoneDigits,
         profileSlug,
-        codigoBeta,
+        codigoBeta: claimedBetaCode,
+        accessMode: hasBetaCode ? "beta" : "trial",
       });
 
       await db.collection(USERS_COLLECTION).doc(uid).set(profilePayload);
 
-      logger.info("Cadastro beta concluído", {
+      logger.info("Cadastro concluído", {
         uid,
         email,
-        codigoBeta,
+        tipoAcesso: hasBetaCode ? "beta" : "trial",
+        codigoBeta: claimedBetaCode,
         profileSlug,
       });
 
@@ -342,7 +370,9 @@ exports.registerWithBetaCode = onCall(
         message: "Conta criada com sucesso. Você já pode entrar no app.",
       };
     } catch (err) {
-      await releaseBetaCode(codigoBeta);
+      if (claimedBetaCode) {
+        await releaseBetaCode(claimedBetaCode);
+      }
 
       if (uid) {
         try {
@@ -360,7 +390,7 @@ exports.registerWithBetaCode = onCall(
 
       logger.error("registerWithBetaCode falhou", {
         email,
-        codigoBeta,
+        codigoBeta: claimedBetaCode,
         err: err?.message,
         code: err?.code,
       });
