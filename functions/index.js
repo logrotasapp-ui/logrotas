@@ -25,6 +25,11 @@ const BETA_CODES_COLLECTION = "betaCodes";
 const USERS_COLLECTION = "users";
 const RATE_LIMIT_COLLECTION = "registerRateLimits";
 
+const BETA_CODE_PREFIX = "BETA-LR-";
+const BETA_CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+const MAX_BETA_CODES_PER_CALL = 50;
+const MAX_BETA_CODE_COLLISION_RETRIES = 24;
+
 const PROFILE_LABELS = {
   caminhoneiro: "Caminhoneiro",
   guincheiro: "Guincheiro",
@@ -252,6 +257,52 @@ async function releaseBetaCode(code) {
   }
 }
 
+function randomBetaCodeSuffix(length = 4) {
+  let out = "";
+  for (let i = 0; i < length; i++) {
+    out += BETA_CODE_CHARS[Math.floor(Math.random() * BETA_CODE_CHARS.length)];
+  }
+  return out;
+}
+
+function buildRandomBetaCode() {
+  return `${BETA_CODE_PREFIX}${randomBetaCodeSuffix(4)}`;
+}
+
+async function assertAdmin(uid) {
+  const snap = await db.collection(USERS_COLLECTION).doc(uid).get();
+  if (!snap.exists || snap.data()?.role !== "admin") {
+    throw new HttpsError(
+      "permission-denied",
+      "Acesso restrito a administradores.",
+      { reason: "nao-admin" }
+    );
+  }
+}
+
+/** Cria um código beta único em betaCodes/{code}; retenta se já existir. */
+async function createUniqueBetaCode() {
+  for (let attempt = 0; attempt < MAX_BETA_CODE_COLLISION_RETRIES; attempt++) {
+    const code = buildRandomBetaCode();
+    const codeRef = db.collection(BETA_CODES_COLLECTION).doc(code);
+    const created = await db.runTransaction(async (tx) => {
+      const snap = await tx.get(codeRef);
+      if (snap.exists) return null;
+      tx.set(codeRef, {
+        used: false,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+      return code;
+    });
+    if (created) return created;
+  }
+  throw new HttpsError(
+    "internal",
+    "Não foi possível gerar código único. Tente novamente.",
+    { reason: "colisao-codigo" }
+  );
+}
+
 // ── Callable ──────────────────────────────────────────────────────────────────
 
 /**
@@ -400,6 +451,71 @@ exports.registerWithBetaCode = onCall(
       throw new HttpsError(
         "internal",
         "Não foi possível concluir o cadastro. Tente novamente.",
+        { reason: "erro-interno" }
+      );
+    }
+  }
+);
+
+/**
+ * Gera códigos beta aleatórios (admin). Formato BETA-LR-XXXX.
+ *
+ * Entrada: { quantidade } — inteiro 1..50
+ * Sucesso: { success: true, codigos: string[] }
+ */
+exports.generateBetaCodes = onCall(
+  {
+    region: FUNCTION_REGION,
+    maxInstances: 10,
+  },
+  async (request) => {
+    if (!request.auth?.uid) {
+      throw new HttpsError(
+        "unauthenticated",
+        "Faça login para gerar códigos beta.",
+        { reason: "nao-autenticado" }
+      );
+    }
+
+    const uid = request.auth.uid;
+
+    try {
+      await assertAdmin(uid);
+
+      const quantidade = Number(request.data?.quantidade);
+      if (
+        !Number.isInteger(quantidade) ||
+        quantidade < 1 ||
+        quantidade > MAX_BETA_CODES_PER_CALL
+      ) {
+        throw new HttpsError(
+          "invalid-argument",
+          `Informe uma quantidade entre 1 e ${MAX_BETA_CODES_PER_CALL}.`,
+          { reason: "quantidade-invalida" }
+        );
+      }
+
+      const codigos = [];
+      for (let i = 0; i < quantidade; i++) {
+        const code = await createUniqueBetaCode();
+        codigos.push(code);
+      }
+
+      logger.info("Códigos beta gerados", { uid, quantidade, codigos });
+
+      return { success: true, codigos };
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+
+      logger.error("generateBetaCodes falhou", {
+        uid,
+        err: err?.message,
+        code: err?.code,
+      });
+
+      throw new HttpsError(
+        "internal",
+        "Não foi possível gerar os códigos beta. Tente novamente.",
         { reason: "erro-interno" }
       );
     }
