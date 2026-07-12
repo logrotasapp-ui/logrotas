@@ -199,6 +199,87 @@ async function updateAsaasCustomerCpfCnpj(customerId, cpfCnpj) {
   });
 }
 
+/** Busca logradouro/bairro/cidade/UF via ViaCEP (API pública). */
+async function fetchAddressByCep(postalCode) {
+  const cep = String(postalCode || "").replace(/\D/g, "");
+  if (cep.length !== 8) return null;
+
+  try {
+    const response = await fetch(`https://viacep.com.br/ws/${cep}/json/`);
+    if (!response.ok) return null;
+
+    const data = await response.json();
+    if (data?.erro) return null;
+
+    return {
+      logradouro: String(data.logradouro || "").trim(),
+      bairro: String(data.bairro || "").trim(),
+      localidade: String(data.localidade || "").trim(),
+      uf: String(data.uf || "").trim(),
+    };
+  } catch (err) {
+    logger.warn("ViaCEP indisponível", { cep, err: err?.message });
+    return null;
+  }
+}
+
+async function updateAsaasCustomerAddress(customerId, { postalCode, addressNumber, address }) {
+  const payload = {
+    postalCode,
+    addressNumber,
+  };
+
+  if (address?.logradouro) payload.address = address.logradouro;
+  if (address?.bairro) payload.province = address.bairro;
+  if (address?.localidade) payload.cityName = address.localidade;
+  if (address?.uf) payload.state = address.uf;
+
+  return asaasFetch(`/customers/${encodeURIComponent(customerId)}`, {
+    method: "PUT",
+    body: payload,
+  });
+}
+
+async function syncCustomerAddressBeforeCardPayment({
+  asaasCustomerId,
+  postalCode,
+  addressNumber,
+  uid,
+  faturaId,
+}) {
+  const address = await fetchAddressByCep(postalCode);
+  if (!address) {
+    logger.warn("payWithCard — CEP não resolvido via ViaCEP", {
+      uid,
+      faturaId,
+      postalCode,
+    });
+    return;
+  }
+
+  try {
+    await updateAsaasCustomerAddress(asaasCustomerId, {
+      postalCode,
+      addressNumber,
+      address,
+    });
+    logger.info("payWithCard — endereço do customer Asaas atualizado", {
+      uid,
+      faturaId,
+      asaasCustomerId,
+    });
+  } catch (err) {
+    logger.error("payWithCard — falha ao atualizar endereço do customer Asaas", {
+      uid,
+      faturaId,
+      asaasCustomerId,
+      err: err?.message,
+      status: err?.status,
+      errors: err?.body?.errors ?? null,
+    });
+  }
+}
+
 async function createAsaasSubscriptionRecord({ customerId, plan, nextDueDate }) {
   return asaasFetch("/subscriptions", {
     method: "POST",
@@ -723,6 +804,24 @@ const payWithCard = onCall(
     }
 
     try {
+      const userSnap = await getDb().collection(USERS_COLLECTION).doc(uid).get();
+      const asaasCustomerId = userSnap.data()?.asaasCustomerId;
+
+      if (asaasCustomerId) {
+        await syncCustomerAddressBeforeCardPayment({
+          asaasCustomerId,
+          postalCode,
+          addressNumber,
+          uid,
+          faturaId,
+        });
+      } else {
+        logger.warn("payWithCard — asaasCustomerId ausente no Firestore", {
+          uid,
+          faturaId,
+        });
+      }
+
       const payment = await asaasFetch(
         `/payments/${encodeURIComponent(faturaId)}/payWithCreditCard`,
         {
