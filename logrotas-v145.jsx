@@ -160,6 +160,7 @@ const SUPORTE_EMAIL="suporte@logrotas.com.br";
 const PEDAGIO_AVISO_RESULTADO="Pedágio estimado pelo Google. Pode haver variação — confirme o valor da praça.";
 const PAGE_SWIPE_ORDER=["dashboard","financeiro","despesas","comparador","manutencao","documentos","perfil"];
 const PAGE_SWIPE_MIN_PX=50;
+const SPLASH_MS=1500;
 
 const OfflineRestoredBanner=({show})=>show?(
   <div style={{background:"#F0F9FF",border:"1px solid #BAE6FD",borderRadius:8,padding:"6px 12px",marginBottom:10,fontSize:11,color:"#0369A1",fontWeight:600,textAlign:"center"}}>
@@ -6508,6 +6509,9 @@ export default function App(){
   const[firebaseUser,setFirebaseUser]=useState(null);
   const[profileGateOk,setProfileGateOk]=useState(false);
   const[splashDone,setSplashDone]=useState(false);
+  const[loadingExiting,setLoadingExiting]=useState(false);
+  const[appVisible,setAppVisible]=useState(false);
+  const navTabRefs=useRef({});
   const filtrarMesAtual=(arr)=>{
     const m=hoje.getMonth();
     const y=hoje.getFullYear();
@@ -6534,7 +6538,7 @@ export default function App(){
         setTrialDias(readProTrialDaysLeft());
       }
       setSplashDone(true);
-    },4000);
+    },SPLASH_MS);
     return()=>clearTimeout(t);
   },[]);
 
@@ -6981,12 +6985,32 @@ export default function App(){
 
   useEffect(()=>{
     if(!splashDone||!authReady)return;
+    let next=null;
     if(firebaseUser){
-      if(profileGateOk)setScreen("app");
+      if(profileGateOk)next="app";
     }else{
-      setScreen("login");
+      next="login";
     }
+    if(!next)return;
+    setLoadingExiting(true);
+    const t=setTimeout(()=>setScreen(next),320);
+    return()=>clearTimeout(t);
   },[splashDone,authReady,firebaseUser,profileGateOk]);
+
+  useEffect(()=>{
+    if(screen==="app"){
+      const id=requestAnimationFrame(()=>setAppVisible(true));
+      return()=>{cancelAnimationFrame(id);setAppVisible(false);};
+    }
+    setAppVisible(false);
+  },[screen]);
+
+  useEffect(()=>{
+    const tabEl=navTabRefs.current[page];
+    if(tabEl?.scrollIntoView){
+      tabEl.scrollIntoView({behavior:"smooth",inline:"center",block:"nearest"});
+    }
+  },[page,screen]);
 
   // V310 — restaura checklist aberto após PWA morto (ex.: share PDF no WhatsApp)
   useEffect(()=>{
@@ -7151,7 +7175,7 @@ export default function App(){
   });
 
   if(screen==="loading"){return(
-    <div style={{position:"fixed",inset:0,width:"100%",height:"100%",maxHeight:"100dvh",overflow:"hidden",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"flex-end",paddingBottom:"calc(env(safe-area-inset-bottom, 0px) + 80px)",boxSizing:"border-box"}}>
+    <div style={{position:"fixed",inset:0,width:"100%",height:"100%",maxHeight:"100dvh",overflow:"hidden",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"flex-end",paddingBottom:"calc(env(safe-area-inset-bottom, 0px) + 80px)",boxSizing:"border-box",opacity:loadingExiting?0:1,transition:"opacity 0.32s ease",background:C.bg}}>
       <link href="https://fonts.googleapis.com/css2?family=Sora:wght@700;800;900&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet"/>
       {/* Imagem de fundo cobrindo tela inteira */}
       <img src={SPLASH_B64} alt="LogRotas" style={{position:"absolute",inset:0,width:"100%",height:"100%",objectFit:"cover",objectPosition:"center"}}/>
@@ -7180,7 +7204,7 @@ export default function App(){
   );}
 
   return(
-    <div style={{minHeight:"100vh",background:C.bg,fontFamily:"'DM Sans',sans-serif",color:C.text}}>
+    <div style={{minHeight:"100vh",background:C.bg,fontFamily:"'DM Sans',sans-serif",color:C.text,opacity:appVisible?1:0,transition:"opacity 0.35s ease"}}>
       <link href="https://fonts.googleapis.com/css2?family=Sora:wght@700;800;900&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet"/>
       <div style={{position:"sticky",top:0,zIndex:100,background:C.surface+"F8",backdropFilter:"blur(12px)",borderBottom:`1px solid ${C.border}`,padding:"0 18px",height:54,display:"flex",alignItems:"center",justifyContent:"space-between",boxShadow:"0 1px 8px #1E3A8A08"}}>
         <div style={{display:"flex",alignItems:"center",gap:8}}>
@@ -7201,7 +7225,7 @@ export default function App(){
       </div>
       <div style={{background:C.surface,borderBottom:`1px solid ${C.border}`,display:"flex",overflowX:"auto",padding:"0 6px",scrollbarWidth:"none"}}>
         {NAV.map(n=>{const active=page===n.id;return(
-          <button key={n.id} onClick={()=>setPage(n.id)} style={{display:"flex",alignItems:"center",gap:5,padding:"10px 12px",border:"none",background:"none",cursor:"pointer",color:active?C.orange:C.muted,fontWeight:active?700:500,fontSize:12,borderBottom:active?`2px solid ${C.orange}`:"2px solid transparent",whiteSpace:"nowrap",transition:"all .15s"}}>
+          <button key={n.id} ref={el=>{if(el)navTabRefs.current[n.id]=el;}} onClick={()=>setPage(n.id)} style={{display:"flex",alignItems:"center",gap:5,padding:"10px 12px",border:"none",background:"none",cursor:"pointer",color:active?C.orange:C.muted,fontWeight:active?700:500,fontSize:12,borderBottom:active?`2px solid ${C.orange}`:"2px solid transparent",whiteSpace:"nowrap",transition:"all .15s",flexShrink:0}}>
             <n.icon size={13}/>{n.label}
           </button>
         );})}
