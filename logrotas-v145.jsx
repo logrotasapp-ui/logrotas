@@ -159,8 +159,8 @@ const APP_VERSION="v320";
 const SUPORTE_EMAIL="suporte@logrotas.com.br";
 const PEDAGIO_AVISO_RESULTADO="Pedágio estimado pelo Google. Pode haver variação — confirme o valor da praça.";
 const PAGE_SWIPE_ORDER=["dashboard","financeiro","despesas","comparador","manutencao","documentos","perfil"];
-const PAGE_SWIPE_MIN_PX=50;
-const PAGE_SWIPE_H_MIN_RATIO=0.65;
+const PAGE_SWIPE_MIN_PX=30;
+const PAGE_SWIPE_H_MIN_RATIO=0.8;
 const SPLASH_MS=1500;
 
 const OfflineRestoredBanner=({show})=>show?(
@@ -7161,19 +7161,19 @@ export default function App(){
     });
   },[]);
 
-  const swipePage=useCallback((eData,dir)=>{
-    if(eData.absX<PAGE_SWIPE_MIN_PX)return;
-    if(eData.absX<=eData.absY*PAGE_SWIPE_H_MIN_RATIO)return;
-    goSwipePage(dir);
+  const handlePageSwiped=useCallback((e)=>{
+    if(e.absX<PAGE_SWIPE_MIN_PX)return;
+    if(e.absX<=e.absY*PAGE_SWIPE_H_MIN_RATIO)return;
+    goSwipePage(e.deltaX<0?"left":"right");
   },[goSwipePage]);
 
   const{ref:contentSwipeRef,...contentSwipeHandlers}=useSwipeable({
-    delta:PAGE_SWIPE_MIN_PX,
+    delta:15,
     preventScrollOnSwipe:true,
     trackTouch:true,
-    trackMouse:false,
-    onSwipedLeft:e=>swipePage(e,"left"),
-    onSwipedRight:e=>swipePage(e,"right"),
+    trackMouse:true,
+    swipeDuration:Infinity,
+    onSwiped:handlePageSwiped,
   });
 
   if(screen==="loading"){return(
@@ -7232,7 +7232,8 @@ export default function App(){
           </button>
         );})}
       </div>
-      <div ref={contentSwipeRef} {...contentSwipeHandlers} style={{flex:1,minHeight:0,width:"100%",maxWidth:820,margin:"0 auto",padding:`20px 14px ${showNavActiveBanner?"128px":"80px"}`,touchAction:"pan-y pinch-zoom",boxSizing:"border-box"}}>
+      <div ref={contentSwipeRef} {...contentSwipeHandlers} style={{flex:1,minHeight:0,width:"100%",maxWidth:820,margin:"0 auto",overflowY:"auto",overflowX:"hidden",WebkitOverflowScrolling:"touch",padding:`20px 14px ${showNavActiveBanner?"128px":"80px"}`,touchAction:"pan-y pinch-zoom",boxSizing:"border-box"}}>
+        <div style={{minHeight:"100%",width:"100%"}}>
         {page==="dashboard"   &&<Dashboard onNav={setPage} setShowCalc={setShowCalc} setCalcMode={setCalcMode} historicoFretes={historicoFretes} jornadas={jornadas} manutencoes={manutencoes} docs={docs} despesas={despesas} perfil={perfil} onNovoChecklist={handleNovoChecklistAvulso} onUltimosChecklists={handleUltimosChecklists} ultimosAvulsosCount={ultimosAvulsos.length} avulsosEmAndamento={avulsosEmAndamento} onRetomarChecklist={handleRetomarChecklistAvulso} onFecharDia={()=>setShowFechamento(true)}/>}
         {page==="financeiro"  &&<Financeiro historicoFretes={historicoFretes} manutencoes={manutencoes} despesas={despesas} jornadas={jornadas}/>}
         {page==="despesas"    &&<Despesas despesas={despesas} onAddDespesa={handleAddDespesa} onUpdateDespesa={handleUpdateDespesa} onDeleteDespesa={handleDeleteDespesa}/>}
@@ -7240,6 +7241,7 @@ export default function App(){
         {page==="manutencao"  &&<Manutencao manutencoes={manutencoes} onAddManutencao={handleAddManutencao} onUpdateManutencao={handleUpdateManutencao} onDeleteManutencao={handleDeleteManutencao}/>}
         {page==="documentos"  &&<Documentos docs={docs} onAddDocumento={handleAddDocumento} onDeleteDocumento={handleDeleteDocumento}/>}
         {page==="perfil"      &&<Perfil uid={firebaseUser?.uid} metaMes={metaMes} setMetaMes={setMetaMes} faturamentoMes={faturamentoMes} saldoLiquidoMes={saldoLiquidoMes} vehicles={vehicles} setVehicles={setVehicles} perfil={perfil} setPerfil={setPerfil} onLimpar={limparTudo}/>}
+        </div>
       </div>
       {page!=="dashboard"&&(<button onClick={()=>{setCalcMode(null);setShowCalc(true);}} style={{position:"fixed",bottom:22,right:18,width:52,height:52,borderRadius:"50%",background:C.orange,border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",boxShadow:`0 4px 20px ${C.orange}55`,zIndex:90}}><RouteIcon size={22} color="#fff"/></button>)}
       {checklistScreen?.checklist?.id&&(
