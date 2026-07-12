@@ -163,6 +163,7 @@ const SUPORTE_EMAIL="suporte@logrotas.com.br";
 const PEDAGIO_AVISO_RESULTADO="Pedágio estimado pelo Google. Pode haver variação — confirme o valor da praça.";
 const PAGE_SWIPE_ORDER=["dashboard","financeiro","despesas","comparador","manutencao","documentos","perfil"];
 const PAGE_SWIPE_MIN_PX=30;
+const PAGE_SWIPE_DELTA=28;
 const PAGE_SWIPE_H_MIN_RATIO=0.8;
 const SPLASH_MS=1500;
 
@@ -7302,12 +7303,22 @@ export default function App(){
     goSwipePage(e.deltaX<0?"left":"right");
   },[goSwipePage]);
 
+  const handlePageSwiping=useCallback((e)=>{
+    const absDx=Math.abs(e.deltaX);
+    const absDy=Math.abs(e.deltaY);
+    if(absDx>absDy*PAGE_SWIPE_H_MIN_RATIO&&absDx>PAGE_SWIPE_MIN_PX){
+      if(e.event?.cancelable)e.event.preventDefault();
+    }
+  },[]);
+
   const{ref:contentSwipeRef,...contentSwipeHandlers}=useSwipeable({
-    delta:15,
-    preventScrollOnSwipe:true,
+    delta:PAGE_SWIPE_DELTA,
+    preventScrollOnSwipe:false,
     trackTouch:true,
     trackMouse:true,
     swipeDuration:Infinity,
+    touchEventOptions:{passive:false},
+    onSwiping:handlePageSwiping,
     onSwiped:handlePageSwiped,
   });
 
