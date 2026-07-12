@@ -117,7 +117,9 @@ import {
   countPacotes,
 } from "./src/services/pacotesService.js";
 import { OFFLINE_KEYS, AUTH_KEYS, readOfflineCache, writeOfflineCache, clearAllLogRotasStorage, clearVehiclesLocalCache, readVehiclesLocalCache, writeVehiclesLocalCache, readProPlanActive, readProTrialDaysLeft, readPerfilLocalFallback, writePerfilLocalCache, readUiState, writeUiState, clearUiState } from "./src/services/offlineStorage.js";
-import { planStateFromPerfil, perfilTemCamposAcesso } from "./src/services/planoService.js";
+import { planStateFromPerfil, perfilTemCamposAcesso, getPlanoAtual } from "./src/services/planoService.js";
+import { podeUsar, incrementarUso, FREE_LIMITS, checarLimiteFree, MSG_LIMITE } from "./src/services/usoService.js";
+import LimiteAtingido from "./src/components/LimiteAtingido.jsx";
 import { subscribeAuth, signInWithEmail, signInWithGoogle, signOutUser, getAuthErrorMessage, sendPasswordResetEmail, getPasswordResetErrorMessage } from "./src/services/authService.js";
 import { saveUserProfile, loadUserProfile, loadUserProfileWithTimeout, firestoreToPerfil, perfilToFirestorePayload } from "./src/services/userProfileService.js";
 import { compressImageToJpegBlob, uploadEmpresaLogo } from "./src/services/storageService.js";
@@ -1563,8 +1565,8 @@ const OtimizarEntregasModal=({onClose,perfil,plan,uid,resumeNavigation=false,onN
   // V290 — contador monotônico da sequência de pacotes (por sessão de rota)
   const seqRef=useRef(0);
 
-  const isPro=plan==="pro";
-  const LIMITE=isPro?Infinity:10;
+  const isPago=getPlanoAtual(perfil).isPago;
+  const LIMITE=isPago?Infinity:10;
   const atingiuLimite=paradas.length>=LIMITE;
 
   // V166 — GPS do motorista no mapa (e como origem da otimização)
@@ -2346,7 +2348,7 @@ const OtimizarEntregasModal=({onClose,perfil,plan,uid,resumeNavigation=false,onN
       <ScannerModule
         disabled={atingiuLimite||processandoFoto}
         maxToAdd={Number.isFinite(LIMITE)?LIMITE-paradas.length:999}
-        isPro={isPro}
+        isPro={isPago}
         onSuccess={handleScannerSuccess}
         onError={setErroFoto}
         onProcessingChange={setProcessandoFoto}
@@ -2394,7 +2396,7 @@ const OtimizarEntregasModal=({onClose,perfil,plan,uid,resumeNavigation=false,onN
       </div>
 
       {/* Banner limite atingido */}
-      {atingiuLimite&&!isPro&&(
+      {atingiuLimite&&!isPago&&(
         <div style={{background:"linear-gradient(135deg,#FFF7ED,#FFEDD5)",border:"1.5px solid #FED7AA",borderRadius:13,padding:"14px 16px",marginBottom:14,display:"flex",alignItems:"center",gap:12}}>
           <span style={{fontSize:24}}>🔒</span>
           <div style={{flex:1}}>
@@ -2529,7 +2531,7 @@ const OtimizarEntregasModal=({onClose,perfil,plan,uid,resumeNavigation=false,onN
               )}
             </span>
             <div style={{display:"flex",alignItems:"center",gap:8}}>
-              {!isPro&&(
+              {!isPago&&(
                 <span style={{color:atingiuLimite?C.red:C.muted,fontSize:11,fontWeight:600}}>
                   {paradas.length}/10
                 </span>
@@ -3052,7 +3054,7 @@ const OtimizarEntregasModal=({onClose,perfil,plan,uid,resumeNavigation=false,onN
             <ScannerModule
               disabled={adicionandoNav||reotimizando}
               maxToAdd={1}
-              isPro={isPro}
+              isPro={isPago}
               onSuccess={handleNavScannerSuccess}
               onError={setErroNavAdd}
               onProcessingChange={setAdicionandoNav}
@@ -3522,7 +3524,9 @@ const TripCalcModal=({onClose,vehicles,onConcluido})=>{
   );
 };
 
-const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHistorico,onConcluido,perfil})=>{
+const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHistorico,onConcluido,perfil,uid})=>{
+  const isPago=getPlanoAtual(perfil).isPago;
+  const[limiteFrete,setLimiteFrete]=useState(false);
   const[stops,setStops]=useState([{id:1,v:"",coords:null},{id:2,v:"",coords:null}]);
   const[vehicleId,setVehicleId]=useState("carro");
   const[fuelPrice,setFuelPrice]=useState("");
@@ -3556,6 +3560,13 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
   const skipVehicleReset=useRef(true);
 
   useEffect(()=>{ warmGeocodeProximity(); }, []);
+
+  useEffect(()=>{
+    if(!uid||isPago)return;
+    (async()=>{
+      setLimiteFrete(!(await podeUsar(uid,"frete",FREE_LIMITS.frete)));
+    })();
+  },[uid,isPago]);
 
   useEffect(()=>{
     const cached=readOfflineCache(OFFLINE_KEYS.frete);
@@ -3705,6 +3716,10 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
 
   const calcular=async()=>{
     setErro("");
+    if(!isPago&&uid){
+      const ok=await podeUsar(uid,"frete",FREE_LIMITS.frete);
+      if(!ok){setLimiteFrete(true);return;}
+    }
     const pedagioAutoVal=await aplicarPedagioAuto(stops);
     const pedagioCalc=pedagioAutoVal??pedagioTotal;
     const out=calculateRouteCosts({
@@ -3729,8 +3744,12 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
     });
     if(!out.ok){setErro(out.error);return;}
     setErro("");
+    if(!isPago&&uid)void incrementarUso(uid,"frete");
     setResult(out.result);
     onConcluido?.("frete");
+    if(!isPago&&uid){
+      setLimiteFrete(!(await podeUsar(uid,"frete",FREE_LIMITS.frete)));
+    }
   };
 
   const TRAILER_OPTS=[
@@ -3750,6 +3769,9 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
         <button onClick={onClose} style={{background:C.subtle,border:`1px solid ${C.border}`,borderRadius:10,padding:8,cursor:"pointer",color:C.muted,display:"flex"}}><XIcon size={15}/></button>
       </div>
       <OfflineRestoredBanner show={offlineRestored}/>
+      {limiteFrete&&!isPago&&(
+        <LimiteAtingido mensagem={MSG_LIMITE.frete} style={{marginBottom:14}}/>
+      )}
 
       <div style={{display:"flex",flexDirection:"column",gap:14,overflowX:"hidden",maxWidth:"100%",minWidth:0}}>
 
@@ -3928,8 +3950,8 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
         )}
 
         {/* Botão calcular */}
-        <button onClick={calcular}
-          style={{width:"100%",padding:"15px",background:isElec?C.electric:C.orange,border:"none",borderRadius:14,cursor:"pointer",color:"#fff",fontWeight:800,fontSize:15,fontFamily:"'Sora',sans-serif",display:"flex",alignItems:"center",justifyContent:"center",gap:9,boxShadow:`0 4px 20px ${isElec?C.electric:C.orange}55`,letterSpacing:0.3}}>
+        <button onClick={calcular} disabled={limiteFrete&&!isPago}
+          style={{width:"100%",padding:"15px",background:isElec?C.electric:C.orange,border:"none",borderRadius:14,cursor:limiteFrete&&!isPago?"not-allowed":"pointer",color:"#fff",fontWeight:800,fontSize:15,fontFamily:"'Sora',sans-serif",display:"flex",alignItems:"center",justifyContent:"center",gap:9,boxShadow:`0 4px 20px ${isElec?C.electric:C.orange}55`,letterSpacing:0.3,opacity:limiteFrete&&!isPago?0.55:1}}>
           <RouteIcon size={17}/> Calcular Rota Agora
         </button>
 
@@ -5293,7 +5315,9 @@ const Comparador=({historicoFretes,jornadas=[],onAddFrete,onUpdateFrete,onDelete
 
 // ── DESPESAS ──────────────────────────────────────────────────────────────────
 const INIT_CAT_DESP=["Café da manhã","Almoço","Jantar","Hotel","Combustível","Outros"];
-const Despesas=({despesas,onAddDespesa,onUpdateDespesa,onDeleteDespesa})=>{
+const Despesas=({despesas,onAddDespesa,onUpdateDespesa,onDeleteDespesa,uid,perfil})=>{
+  const isPago=getPlanoAtual(perfil).isPago;
+  const[limiteDesp,setLimiteDesp]=useState(false);
   const[categorias,setCategorias]=useState(INIT_CAT_DESP);
   const[showAdd,setShowAdd]=useState(false);
   const[showManageCat,setShowManageCat]=useState(false);
@@ -5312,12 +5336,36 @@ const Despesas=({despesas,onAddDespesa,onUpdateDespesa,onDeleteDespesa})=>{
   // então não aparecem mais na lista de Despesas para não duplicar.
   const despMes=filtrarPorMesData(despesas,mesSel,anoSel).filter(d=>!d.jornadaId);
   const total=despMes.reduce((a,d)=>a+(d.valor||0),0);
+
+  useEffect(()=>{
+    if(!uid||isPago)return;
+    (async()=>{
+      setLimiteDesp(!(await podeUsar(uid,"despesas",FREE_LIMITS.despesas)));
+    })();
+  },[uid,isPago]);
+
+  const abrirRegistrar=async()=>{
+    if(!editingId&&!isPago&&uid){
+      const{bloqueado}=await checarLimiteFree(uid,perfil,"despesas");
+      if(bloqueado){setLimiteDesp(true);return;}
+    }
+    setShowAdd(true);
+  };
+
   const add=async()=>{
     if(editingId){
       await onUpdateDespesa?.({id:editingId,...form,valor:parseNumeroBR(form.valor)||0});
       setEditingId(null);
     } else {
+      if(!isPago&&uid){
+        const{bloqueado}=await checarLimiteFree(uid,perfil,"despesas");
+        if(bloqueado){setLimiteDesp(true);setShowAdd(false);return;}
+      }
       await onAddDespesa?.({...form,valor:parseNumeroBR(form.valor)||0});
+      if(!isPago&&uid){
+        void incrementarUso(uid,"despesas");
+        setLimiteDesp(!(await podeUsar(uid,"despesas",FREE_LIMITS.despesas)));
+      }
     }
     setForm({categoria:"Café da manhã",descricao:"",valor:"",date:""});
     setShowAdd(false);
@@ -5332,9 +5380,13 @@ const Despesas=({despesas,onAddDespesa,onUpdateDespesa,onDeleteDespesa})=>{
         <h1 style={{color:C.navy,fontSize:22,fontWeight:900,fontFamily:"'Sora',sans-serif",margin:0}}>Despesas</h1>
         <div style={{display:"flex",gap:8}}>
           <button onClick={()=>setShowManageCat(true)} style={{background:C.subtle,border:`1px solid ${C.border}`,borderRadius:10,padding:"8px 12px",cursor:"pointer",color:C.text2,fontSize:12,fontWeight:600,display:"flex",alignItems:"center",gap:5}}><EditIcon size={12}/> Categorias</button>
-          <PrimaryBtn onClick={()=>setShowAdd(true)} small><PlusIcon size={12}/> Registrar</PrimaryBtn>
+          <PrimaryBtn onClick={abrirRegistrar} small disabled={limiteDesp&&!isPago}><PlusIcon size={12}/> Registrar</PrimaryBtn>
         </div>
       </div>
+
+      {limiteDesp&&!isPago&&(
+        <LimiteAtingido mensagem={MSG_LIMITE.despesas}/>
+      )}
 
       <MonthNav mes={mesSel} ano={anoSel} onPrev={prevMes} onNext={nextMes}/>
 
@@ -5451,7 +5503,9 @@ const maintMetaParts=(item)=>{
   if(item.km!=null&&String(item.km).trim()!=="")parts.push(`${formatKm(item.km)} km`);
   return parts;
 };
-const Manutencao=({manutencoes:items,onAddManutencao,onUpdateManutencao,onDeleteManutencao})=>{
+const Manutencao=({manutencoes:items,onAddManutencao,onUpdateManutencao,onDeleteManutencao,uid,perfil})=>{
+  const isPago=getPlanoAtual(perfil).isPago;
+  const[limiteManut,setLimiteManut]=useState(false);
   const[stypes,setStypes]=useState(INIT_STYPE);const[showAdd,setShowAdd]=useState(false);const[showManage,setShowManage]=useState(false);const[del,setDel]=useState(null);const[editTIdx,setEditTIdx]=useState(null);const[editTVal,setEditTVal]=useState("");const[newType,setNewType]=useState("");const[form,setForm]=useState({type:"",vehicle:"",km:"",cost:"",nextKm:"",date:""});const[editingId,setEditingId]=useState(null);
   const hoje=new Date();
   const[mesSel,setMesSel]=useState(hoje.getMonth());
@@ -5468,6 +5522,22 @@ const Manutencao=({manutencoes:items,onAddManutencao,onUpdateManutencao,onDelete
     setEditingId(item.id);
     setShowAdd(true);
   };
+
+  useEffect(()=>{
+    if(!uid||isPago)return;
+    (async()=>{
+      setLimiteManut(!(await podeUsar(uid,"manutencao",FREE_LIMITS.manutencao)));
+    })();
+  },[uid,isPago]);
+
+  const abrirRegistrar=async()=>{
+    if(!isPago&&uid){
+      const{bloqueado}=await checarLimiteFree(uid,perfil,"manutencao");
+      if(bloqueado){setLimiteManut(true);return;}
+    }
+    setShowAdd(true);
+  };
+
   const save=async()=>{
     const payload={...form,cost:parseNumeroBR(form.cost)||0};
     if(editingId){
@@ -5475,14 +5545,25 @@ const Manutencao=({manutencoes:items,onAddManutencao,onUpdateManutencao,onDelete
       await onUpdateManutencao?.({id:editingId,...payload,status:orig?.status||"ok"});
       setEditingId(null);
     } else {
+      if(!isPago&&uid){
+        const{bloqueado}=await checarLimiteFree(uid,perfil,"manutencao");
+        if(bloqueado){setLimiteManut(true);closeModal();return;}
+      }
       await onAddManutencao?.({...payload,status:"ok"});
+      if(!isPago&&uid){
+        void incrementarUso(uid,"manutencao");
+        setLimiteManut(!(await podeUsar(uid,"manutencao",FREE_LIMITS.manutencao)));
+      }
     }
     resetForm();
     setShowAdd(false);
   };
   return(
     <div style={{display:"flex",flexDirection:"column",gap:18}}>
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}><h1 style={{color:C.navy,fontSize:22,fontWeight:900,fontFamily:"'Sora',sans-serif",margin:0}}>Manutenção</h1><PrimaryBtn onClick={()=>setShowAdd(true)} small><PlusIcon size={12}/> Registrar</PrimaryBtn></div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}><h1 style={{color:C.navy,fontSize:22,fontWeight:900,fontFamily:"'Sora',sans-serif",margin:0}}>Manutenção</h1><PrimaryBtn onClick={abrirRegistrar} small disabled={limiteManut&&!isPago}><PlusIcon size={12}/> Registrar</PrimaryBtn></div>
+      {limiteManut&&!isPago&&(
+        <LimiteAtingido mensagem={MSG_LIMITE.manutencao}/>
+      )}
       <MonthNav mes={mesSel} ano={anoSel} onPrev={prevMes} onNext={nextMes}/>
       {itemsMes.length>0&&(
         <div style={{background:"linear-gradient(135deg,#FFFBEB,#FEF3C7)",border:`1px solid ${C.amber}44`,borderRadius:14,padding:"14px 18px",boxShadow:"0 2px 8px #F59E0B18"}}>
@@ -5497,7 +5578,7 @@ const Manutencao=({manutencoes:items,onAddManutencao,onUpdateManutencao,onDelete
           <div style={{fontSize:44,marginBottom:12}}>🔧</div>
           <div style={{color:C.navy,fontWeight:800,fontSize:15,fontFamily:"'Sora',sans-serif",marginBottom:6}}>Nenhuma manutenção em {MESES_PT[mesSel]}</div>
           <div style={{color:C.muted,fontSize:14,lineHeight:1.6,marginBottom:14}}>Registre trocas de óleo, pneus e revisões para nunca perder um prazo importante.</div>
-          <button onClick={()=>setShowAdd(true)} style={{background:C.amber,border:"none",borderRadius:12,padding:"10px 20px",cursor:"pointer",color:"#fff",fontWeight:700,fontSize:14}}>
+          <button onClick={()=>abrirRegistrar()} style={{background:C.amber,border:"none",borderRadius:12,padding:"10px 20px",cursor:limiteManut&&!isPago?"not-allowed":"pointer",color:"#fff",fontWeight:700,fontSize:14,opacity:limiteManut&&!isPago?0.5:1}}>
             🔧 Registrar primeira manutenção
           </button>
         </div>
@@ -5587,10 +5668,41 @@ const getDocStatus=(dias)=>{
   return{color:C.green,bg:C.greenLight,label:`Válido · ${dias} dias`,icon:"✅"};
 };
 
-const Documentos=({docs,onAddDocumento,onDeleteDocumento})=>{
+const Documentos=({docs,onAddDocumento,onDeleteDocumento,uid,perfil})=>{
+  const isPago=getPlanoAtual(perfil).isPago;
+  const[limiteDocs,setLimiteDocs]=useState(false);
   const[showAdd,setShowAdd]=useState(false);
   const[del,setDel]=useState(null);
   const[form,setForm]=useState({type:"CNH",vehicle:"",number:"",expiry:""});
+
+  useEffect(()=>{
+    if(!uid||isPago)return;
+    (async()=>{
+      setLimiteDocs(!(await podeUsar(uid,"documentos",FREE_LIMITS.documentos)));
+    })();
+  },[uid,isPago]);
+
+  const abrirAdicionar=async()=>{
+    if(!isPago&&uid){
+      const{bloqueado}=await checarLimiteFree(uid,perfil,"documentos");
+      if(bloqueado){setLimiteDocs(true);return;}
+    }
+    setShowAdd(true);
+  };
+
+  const salvarDocumento=async()=>{
+    if(!isPago&&uid){
+      const{bloqueado}=await checarLimiteFree(uid,perfil,"documentos");
+      if(bloqueado){setLimiteDocs(true);setShowAdd(false);return;}
+    }
+    await onAddDocumento?.({...form,status:"ok"});
+    if(!isPago&&uid){
+      void incrementarUso(uid,"documentos");
+      setLimiteDocs(!(await podeUsar(uid,"documentos",FREE_LIMITS.documentos)));
+    }
+    setForm({type:"CNH",vehicle:"",number:"",expiry:""});
+    setShowAdd(false);
+  };
 
   const docsComStatus=docs.map(doc=>{
     const dias=calcDiasRestantes(doc.expiry);
@@ -5604,8 +5716,12 @@ const Documentos=({docs,onAddDocumento,onDeleteDocumento})=>{
     <div style={{display:"flex",flexDirection:"column",gap:18}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
         <h1 style={{color:C.navy,fontSize:22,fontWeight:900,fontFamily:"'Sora',sans-serif",margin:0}}>Documentos</h1>
-        <PrimaryBtn onClick={()=>setShowAdd(true)} small><PlusIcon size={12}/> Adicionar</PrimaryBtn>
+        <PrimaryBtn onClick={abrirAdicionar} small disabled={limiteDocs&&!isPago}><PlusIcon size={12}/> Adicionar</PrimaryBtn>
       </div>
+
+      {limiteDocs&&!isPago&&(
+        <LimiteAtingido mensagem={MSG_LIMITE.documentos}/>
+      )}
 
       {alertasVermelhos>0&&(
         <div style={{background:C.redLight,border:`1px solid ${C.red}44`,borderRadius:12,padding:"12px 16px",display:"flex",gap:9,alignItems:"center"}}>
@@ -5662,7 +5778,7 @@ const Documentos=({docs,onAddDocumento,onDeleteDocumento})=>{
       </Card>
 
       {showAdd&&(<ModalWrap><ModalHeader title="Novo Documento" icon={FileTextIcon} iconColor={C.navy} onClose={()=>setShowAdd(false)}/>
-        <ModalFormLayout footer={<PrimaryBtn onClick={async()=>{await onAddDocumento?.({...form,status:"ok"});setForm({type:"CNH",vehicle:"",number:"",expiry:""});setShowAdd(false);}} style={{width:"100%"}}>Salvar →</PrimaryBtn>}>
+        <ModalFormLayout footer={<PrimaryBtn onClick={salvarDocumento} style={{width:"100%"}}>Salvar →</PrimaryBtn>}>
           <div style={{display:"flex",flexDirection:"column",gap:12}}>
             <SelectField label="Tipo" value={form.type} onChange={v=>setForm(f=>({...f,type:v}))} options={["CNH","CRLV","Seguro","Tacógrafo","Licença ANTT","Outros"]}/>
             {form.type!=="CNH"&&<Field label="Veículo / Titular" value={form.vehicle} onChange={v=>setForm(f=>({...f,vehicle:v}))} placeholder="Caminhão MB 1620"/>}
@@ -7255,10 +7371,10 @@ export default function App(){
         <div style={{minHeight:"100%",width:"100%"}}>
         {page==="dashboard"   &&<Dashboard onNav={setPage} setShowCalc={setShowCalc} setCalcMode={setCalcMode} historicoFretes={historicoFretes} jornadas={jornadas} manutencoes={manutencoes} docs={docs} despesas={despesas} perfil={perfil} onNovoChecklist={handleNovoChecklistAvulso} onUltimosChecklists={handleUltimosChecklists} ultimosAvulsosCount={ultimosAvulsos.length} avulsosEmAndamento={avulsosEmAndamento} onRetomarChecklist={handleRetomarChecklistAvulso} onFecharDia={()=>setShowFechamento(true)}/>}
         {page==="financeiro"  &&<Financeiro historicoFretes={historicoFretes} manutencoes={manutencoes} despesas={despesas} jornadas={jornadas}/>}
-        {page==="despesas"    &&<Despesas despesas={despesas} onAddDespesa={handleAddDespesa} onUpdateDespesa={handleUpdateDespesa} onDeleteDespesa={handleDeleteDespesa}/>}
+        {page==="despesas"    &&<Despesas despesas={despesas} onAddDespesa={handleAddDespesa} onUpdateDespesa={handleUpdateDespesa} onDeleteDespesa={handleDeleteDespesa} uid={firebaseUser?.uid} perfil={perfil}/>}
         {page==="comparador"  &&<Comparador historicoFretes={historicoFretes} jornadas={jornadas} onAddFrete={handleAddFrete} onUpdateFrete={handleUpdateFrete} onDeleteFrete={handleDeleteFrete} onUpdateJornada={handleUpdateJornada} onDeleteJornada={handleDeleteJornada} perfil={perfil} uid={firebaseUser?.uid} onOpenChecklist={handleOpenChecklist}/>}
-        {page==="manutencao"  &&<Manutencao manutencoes={manutencoes} onAddManutencao={handleAddManutencao} onUpdateManutencao={handleUpdateManutencao} onDeleteManutencao={handleDeleteManutencao}/>}
-        {page==="documentos"  &&<Documentos docs={docs} onAddDocumento={handleAddDocumento} onDeleteDocumento={handleDeleteDocumento}/>}
+        {page==="manutencao"  &&<Manutencao manutencoes={manutencoes} onAddManutencao={handleAddManutencao} onUpdateManutencao={handleUpdateManutencao} onDeleteManutencao={handleDeleteManutencao} uid={firebaseUser?.uid} perfil={perfil}/>}
+        {page==="documentos"  &&<Documentos docs={docs} onAddDocumento={handleAddDocumento} onDeleteDocumento={handleDeleteDocumento} uid={firebaseUser?.uid} perfil={perfil}/>}
         {page==="perfil"      &&<Perfil uid={firebaseUser?.uid} metaMes={metaMes} setMetaMes={setMetaMes} faturamentoMes={faturamentoMes} saldoLiquidoMes={saldoLiquidoMes} vehicles={vehicles} setVehicles={setVehicles} perfil={perfil} setPerfil={setPerfil} onLimpar={limparTudo}/>}
         </div>
       </div>
@@ -7387,7 +7503,7 @@ export default function App(){
         onOtimizar={()=>setCalcMode("otimizar")}
         onClose={()=>handleCalcModalClose()}/>}
       {showCalc&&calcMode==="viagem"&&<TripCalcModal onClose={()=>handleCalcModalClose()} onConcluido={handleCalcConcluida} vehicles={vehicles}/>}
-      {showCalc&&calcMode==="frete"&&<RouteCalcModal onClose={()=>handleCalcModalClose()} onConcluido={handleCalcConcluida} vehicles={vehicles} valorKmPadrao={valorKm} adicionalPadrao={adicionalFixo} onSalvarHistorico={handleAddFrete} perfil={perfil}/>}
+      {showCalc&&calcMode==="frete"&&<RouteCalcModal onClose={()=>handleCalcModalClose()} onConcluido={handleCalcConcluida} vehicles={vehicles} valorKmPadrao={valorKm} adicionalPadrao={adicionalFixo} onSalvarHistorico={handleAddFrete} perfil={perfil} uid={firebaseUser?.uid}/>}
       {showCalc&&calcMode==="otimizar"&&<OtimizarEntregasModal uid={firebaseUser?.uid} resumeNavigation={resumeNav} onNavigationResumed={()=>setResumeNav(false)} onClose={()=>handleCalcModalClose(()=>setResumeNav(false))} onConcluido={handleCalcConcluida} perfil={perfil} plan={plan}/>}
       {showFechamento&&<FechamentoDia uid={firebaseUser?.uid} perfil={perfil} setPerfil={setPerfil} vehicles={vehicles} onSalvar={handleSaveJornada} onClose={()=>setShowFechamento(false)}/>}
       <AvaliacaoAppModal

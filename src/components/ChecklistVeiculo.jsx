@@ -42,6 +42,9 @@ import {
 } from "../services/checklistSyncStatus.js";
 import { countPendingChecklistMedia } from "../services/checklistOfflineStore.js";
 import { incrementUsageCounter, USAGE_COUNTERS } from "../services/usageStatsService.js";
+import { checarLimiteFree, incrementarUso } from "../services/usoService.js";
+import { getPlanoAtual } from "../services/planoService.js";
+import LimiteAtingido from "./LimiteAtingido.jsx";
 import {
   stampAndCompressImage,
   compressImageToJpegBlob,
@@ -1542,6 +1545,7 @@ export default function ChecklistVeiculo({
     prestador: false,
   });
   const [substituirEntrega, setSubstituirEntrega] = useState({ recebedor: false, prestador: false });
+  const [limiteChecklistMsg, setLimiteChecklistMsg] = useState("");
   const [uploadSyncProgress, setUploadSyncProgress] = useState(null);
   const fileInputRef = useRef(null);
   const capturaContextoRef = useRef(null);
@@ -3148,6 +3152,15 @@ export default function ChecklistVeiculo({
       }
     }
 
+    if (uid && perfil) {
+      const { bloqueado, mensagem } = await checarLimiteFree(uid, perfil, "checklist");
+      if (bloqueado) {
+        setLimiteChecklistMsg(mensagem);
+        return;
+      }
+    }
+    setLimiteChecklistMsg("");
+
     const val = entregaCompletaLocal({ ...atual, entrega: entregaNorm }, perfil);
     if (!val.completa) {
       setErro(`Complete a entrega: ${val.faltando.slice(0, 3).join(", ")}${val.faltando.length > 3 ? "…" : ""}`);
@@ -3163,6 +3176,9 @@ export default function ChecklistVeiculo({
       };
       const ok = await salvar({ entrega: entregaAtualizada, status: "concluido" });
       if (ok) {
+        if (uid && !getPlanoAtual(perfil).isPago) {
+          void incrementarUso(uid, "checklist");
+        }
         clearChecklistSession();
         setToastMsg("Entrega salva no aparelho. Sincroniza quando houver internet.");
         const atualizado = checklistRef.current || checklist;
@@ -4063,6 +4079,10 @@ export default function ChecklistVeiculo({
                 />
               );
             })}
+
+            {limiteChecklistMsg && (
+              <LimiteAtingido mensagem={limiteChecklistMsg} style={{ marginBottom: 12 }} />
+            )}
 
             <button
               type="button"

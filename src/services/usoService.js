@@ -1,6 +1,8 @@
 import { doc, getDoc, updateDoc, serverTimestamp, increment } from "firebase/firestore";
 import { db } from "../firebase.js";
 
+import { getPlanoAtual } from "./planoService.js";
+
 /** Fuso do Brasil para definir o mês corrente (chave YYYY-MM). */
 const TZ_BRASIL = "America/Sao_Paulo";
 
@@ -20,6 +22,20 @@ export const FREE_LIMITS = {
   manutencao: 3,
   documentos: 3,
   checklist: 2,
+};
+
+/** Mensagens padrão de limite FREE (parte B). */
+export const MSG_LIMITE = {
+  frete:
+    "Você atingiu o limite grátis de cálculos de frete deste mês. Assine para uso ilimitado.",
+  despesas:
+    "Você atingiu o limite grátis de despesas deste mês. Assine para uso ilimitado.",
+  manutencao:
+    "Você atingiu o limite grátis de manutenções deste mês. Assine para uso ilimitado.",
+  documentos:
+    "Você atingiu o limite grátis de documentos deste mês. Assine para uso ilimitado.",
+  checklist:
+    "Você atingiu o limite grátis de checklists deste mês. Assine para uso ilimitado.",
 };
 
 function isUsoChaveValida(chave) {
@@ -115,4 +131,19 @@ export async function podeUsar(uid, chave, limite) {
   if (!Number.isFinite(limite) || limite < 0) return true;
   const uso = await getUsoMes(uid);
   return (uso[chave] || 0) < limite;
+}
+
+/**
+ * Checa limite mensal só para usuário FREE.
+ * @returns {Promise<{ bloqueado: boolean, mensagem: string }>}
+ */
+export async function checarLimiteFree(uid, perfil, chave) {
+  if (getPlanoAtual(perfil).isPago) {
+    return { bloqueado: false, mensagem: "" };
+  }
+  const ok = await podeUsar(uid, chave, FREE_LIMITS[chave]);
+  return {
+    bloqueado: !ok,
+    mensagem: ok ? "" : MSG_LIMITE[chave] || "",
+  };
 }
