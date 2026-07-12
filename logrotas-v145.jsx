@@ -4129,6 +4129,7 @@ const FechamentoDia=({uid,perfil,setPerfil,vehicles=[],onSalvar,onClose})=>{
   const[valor,setValor]=useState("");
   const[combustivelInput,setCombustivelInput]=useState("");
   const[pedagio,setPedagio]=useState("");
+  const[observacoes,setObservacoes]=useState("");
   const[salvando,setSalvando]=useState(false);
   const[erro,setErro]=useState("");
   const[veredito,setVeredito]=useState(null);
@@ -4155,6 +4156,19 @@ const FechamentoDia=({uid,perfil,setPerfil,vehicles=[],onSalvar,onClose})=>{
     if(uid){try{await saveUserProfile(uid,perfilToFirestorePayload(novoPerfil));}catch{/* offline: fica só no estado */}}
   };
 
+  const removerServico=async(nome)=>{
+    const novaLista=servicosCustom.filter(s=>s.toLowerCase()!==nome.toLowerCase());
+    const novoPerfil={...perfil,servicosFechamento:novaLista};
+    setPerfil(novoPerfil);
+    if(servico.toLowerCase()===nome.toLowerCase()){
+      const restantes=[...SERVICOS_BASE,...novaLista.filter(s=>!SERVICOS_BASE.includes(s))];
+      setServico(restantes[0]||"Uber");
+    }
+    if(uid){try{await saveUserProfile(uid,perfilToFirestorePayload(novoPerfil));}catch{/* offline: fica só no estado */}}
+  };
+
+  const isServicoCustom=(nome)=>servicosCustom.some(s=>s.toLowerCase()===nome.toLowerCase());
+
   const salvar=async()=>{
     setErro("");
     if(kmNum<=0){setErro("Informe o km rodado hoje.");return;}
@@ -4172,6 +4186,7 @@ const FechamentoDia=({uid,perfil,setPerfil,vehicles=[],onSalvar,onClose})=>{
         pedagioOutros:pedagioNum,
         custoTotal,
         lucro,
+        observacoes:observacoes.trim(),
       };
       await onSalvar?.(dados);
       setVeredito(dados);
@@ -4201,6 +4216,12 @@ const FechamentoDia=({uid,perfil,setPerfil,vehicles=[],onSalvar,onClose})=>{
           <div style={{background:C.subtle,border:`1px solid ${C.border}`,borderRadius:12,padding:"11px 14px",color:C.muted,fontSize:12,lineHeight:1.5}}>
             ✅ Lançado no Financeiro: entrada de {formatMoeda(veredito.valorRecebido)} e saída de {formatMoeda(veredito.custoTotal)} em Despesas.
           </div>
+          {veredito.observacoes&&(
+            <div style={{background:"#fff",border:`1px solid ${C.border}`,borderRadius:12,padding:"12px 14px"}}>
+              <div style={{color:C.muted,fontSize:11,fontWeight:700,letterSpacing:0.4,textTransform:"uppercase",marginBottom:6}}>Observações</div>
+              <div style={{color:C.text2,fontSize:13,lineHeight:1.5,whiteSpace:"pre-wrap"}}>{veredito.observacoes}</div>
+            </div>
+          )}
           <PrimaryBtn onClick={onClose} variant="navy" style={{width:"100%"}}>Concluir</PrimaryBtn>
         </div>
       </ModalWrap>
@@ -4221,12 +4242,24 @@ const FechamentoDia=({uid,perfil,setPerfil,vehicles=[],onSalvar,onClose})=>{
           <div style={{display:"flex",flexDirection:"column",gap:6}}>
             <label style={{color:C.text2,fontSize:14,fontWeight:700,letterSpacing:0.4}}>Serviço</label>
             <div style={{display:"flex",flexWrap:"wrap",gap:7}}>
-              {servicos.map(s=>(
-                <button key={s} type="button" onClick={()=>setServico(s)}
-                  style={{background:servico===s?C.navy:C.subtle,border:`1.5px solid ${servico===s?C.navy:C.border}`,borderRadius:20,padding:"7px 14px",cursor:"pointer",color:servico===s?"#fff":C.text2,fontSize:13,fontWeight:700}}>
-                  {s}
-                </button>
-              ))}
+              {servicos.map(s=>{
+                const custom=isServicoCustom(s);
+                const ativo=servico===s;
+                return(
+                  <button key={s} type="button" onClick={()=>setServico(s)}
+                    style={{position:"relative",background:ativo?C.navy:C.subtle,border:`1.5px solid ${ativo?C.navy:C.border}`,borderRadius:20,padding:custom?"7px 28px 7px 14px":"7px 14px",cursor:"pointer",color:ativo?"#fff":C.text2,fontSize:13,fontWeight:700}}>
+                    {s}
+                    {custom&&(
+                      <span role="button" tabIndex={0} aria-label={`Remover ${s}`}
+                        onClick={(e)=>{e.stopPropagation();removerServico(s);}}
+                        onKeyDown={(e)=>{if(e.key==="Enter"||e.key===" "){e.stopPropagation();e.preventDefault();removerServico(s);}}}
+                        style={{position:"absolute",right:8,top:"50%",transform:"translateY(-50%)",width:18,height:18,borderRadius:"50%",background:ativo?"#ffffff33":"#fff",border:`1px solid ${ativo?"#ffffff55":C.border}`,color:ativo?"#fff":C.muted,fontSize:14,lineHeight:"16px",textAlign:"center",fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>
+                        ×
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
               <button type="button" onClick={()=>setShowAddServ(v=>!v)}
                 style={{background:"#fff",border:`1.5px dashed ${C.orange}`,borderRadius:20,padding:"7px 14px",cursor:"pointer",color:C.orange,fontSize:13,fontWeight:700}}>
                 ＋ Adicionar serviço
@@ -4247,6 +4280,11 @@ const FechamentoDia=({uid,perfil,setPerfil,vehicles=[],onSalvar,onClose})=>{
           <Field label="💰 Valor recebido" value={valor} onChange={setValor} placeholder="Ex: 240,00" prefix="R$" calc/>
           <Field label="⛽ Combustível abastecido (valor total)" value={combustivelInput} onChange={setCombustivelInput} placeholder="Ex: 100,00" prefix="R$" calc/>
           <Field label="🅿️ Pedágio / outros gastos (opcional)" value={pedagio} onChange={setPedagio} placeholder="Ex: 12,50" prefix="R$" calc/>
+          <div style={{display:"flex",flexDirection:"column",gap:5}}>
+            <label style={{color:C.text2,fontSize:14,fontWeight:700,letterSpacing:0.4}}>📝 Observações (opcional)</label>
+            <textarea value={observacoes} onChange={e=>setObservacoes(e.target.value)} placeholder="Anotações livres do dia…" rows={3} autoComplete="off"
+              style={{width:"100%",background:C.subtle,border:`1.5px solid ${C.border}`,borderRadius:10,color:C.text,padding:"10px 12px",fontSize:14,outline:"none",boxSizing:"border-box",resize:"vertical",minHeight:72,fontFamily:"inherit",lineHeight:1.45}}/>
+          </div>
 
           {(valorNum>0||kmNum>0||combustivel>0)&&(
             <div style={{display:"flex",flexDirection:"column",gap:8,marginTop:2}}>
@@ -4771,7 +4809,7 @@ const Comparador=({historicoFretes,jornadas=[],onAddFrete,onUpdateFrete,onDelete
   const[detalheJornada,setDetalheJornada]=useState(null);
   const[editJornada,setEditJornada]=useState(null);
   const[delJornada,setDelJornada]=useState(null);
-  const[formJ,setFormJ]=useState({servico:"",date:"",km:"",valorRecebido:"",combustivel:"",pedagio:""});
+  const[formJ,setFormJ]=useState({servico:"",date:"",km:"",valorRecebido:"",combustivel:"",pedagio:"",observacoes:""});
   const[savingJ,setSavingJ]=useState(false);
   const abrirEditJornada=(j)=>{
     setFormJ({
@@ -4781,6 +4819,7 @@ const Comparador=({historicoFretes,jornadas=[],onAddFrete,onUpdateFrete,onDelete
       valorRecebido:j.valorRecebido!=null?String(j.valorRecebido):"",
       combustivel:j.combustivelCalculado!=null?String(j.combustivelCalculado):"",
       pedagio:j.pedagioOutros!=null?String(j.pedagioOutros):"",
+      observacoes:j.observacoes||"",
     });
     setEditJornada(j);
     setDetalheJornada(null);
@@ -4801,6 +4840,7 @@ const Comparador=({historicoFretes,jornadas=[],onAddFrete,onUpdateFrete,onDelete
       combustivelCalculado:combustivel,
       pedagioOutros:pedagio,
       custoTotal,lucro,
+      observacoes:(formJ.observacoes||"").trim(),
     };
     setSavingJ(true);
     try{
@@ -4929,6 +4969,7 @@ const Comparador=({historicoFretes,jornadas=[],onAddFrete,onUpdateFrete,onDelete
                     </div>
                     <div style={{color:C.muted,fontSize:12,marginTop:4}}>
                       {jornadaDataHora(h)} · {h.km||0} km
+                      {h.observacoes?` · ${h.observacoes.length>40?`${h.observacoes.slice(0,40)}…`:h.observacoes}`:""}
                     </div>
                     <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginTop:8,gap:10}}>
                       <div style={{color:C.green,fontWeight:800,fontSize:15,fontFamily:"'Sora',sans-serif"}}>{freteMoeda(h.valorRecebido||0)}</div>
@@ -5164,7 +5205,7 @@ const Comparador=({historicoFretes,jornadas=[],onAddFrete,onUpdateFrete,onDelete
         const lucroKmJ=km>0?roundMoney(lucro/km):0;
         const pos=lucro>=0;
         const dataJ=jornadaDataHora(j);
-        const msg=`${servicoEmoji(j.servico)} *${j.servico||"Jornada"}* — Fechamento do dia\n\n📅 ${dataJ}\n🛣️ ${km} km\n⛽ Combustível: ${freteMoeda(j.combustivelCalculado||0)}\n🅿️ Pedágio/outros: ${freteMoeda(j.pedagioOutros||0)}\n💸 Custo total: ${freteMoeda(j.custoTotal||0)}\n💰 Recebido: ${freteMoeda(j.valorRecebido||0)}\n🟢 Lucro: ${freteMoeda(lucro)}\n\n_Gerado pelo LogRotas_`;
+        const msg=`${servicoEmoji(j.servico)} *${j.servico||"Jornada"}* — Fechamento do dia\n\n📅 ${dataJ}\n🛣️ ${km} km\n⛽ Combustível: ${freteMoeda(j.combustivelCalculado||0)}\n🅿️ Pedágio/outros: ${freteMoeda(j.pedagioOutros||0)}\n💸 Custo total: ${freteMoeda(j.custoTotal||0)}\n💰 Recebido: ${freteMoeda(j.valorRecebido||0)}\n🟢 Lucro: ${freteMoeda(lucro)}${j.observacoes?`\n📝 Obs: ${j.observacoes}`:""}\n\n_Gerado pelo LogRotas_`;
         return(
           <ModalWrap maxW={440}>
             <div style={{position:"relative",marginBottom:16}}>
@@ -5185,6 +5226,12 @@ const Comparador=({historicoFretes,jornadas=[],onAddFrete,onUpdateFrete,onDelete
               <FreteDetRow label="Valor recebido" value={freteMoeda(j.valorRecebido||0)} valueStyle={{color:C.navy}} rowStyle={FRETE_DET_HIGHLIGHT({background:C.navyLight,marginTop:12})}/>
               <FreteDetRow label="🟢 Lucro" value={freteMoeda(lucro)} valueStyle={{color:pos?C.green:C.red,fontWeight:"bold"}} rowStyle={FRETE_DET_HIGHLIGHT({background:pos?C.greenLight:C.redLight,marginTop:8})}/>
               <FreteDetRow label="Lucro por km" value={freteMoedaKm(lucroKmJ)} valueStyle={{color:pos?C.green:C.red}} rowStyle={FRETE_DET_HIGHLIGHT({background:pos?C.greenLight:C.redLight,marginTop:8})}/>
+              {j.observacoes&&(
+                <div style={{marginTop:12,background:C.subtle,border:`1px solid ${C.border}`,borderRadius:10,padding:"12px 14px"}}>
+                  <div style={{color:C.muted,fontSize:11,fontWeight:700,letterSpacing:0.4,textTransform:"uppercase",marginBottom:6}}>Observações</div>
+                  <div style={{color:C.text2,fontSize:13,lineHeight:1.5,whiteSpace:"pre-wrap"}}>{j.observacoes}</div>
+                </div>
+              )}
             </div>
             <div style={{display:"flex",gap:9,marginTop:16}}>
               <button onClick={()=>{setDelJornada(j);setDetalheJornada(null);}}
@@ -5221,6 +5268,11 @@ const Comparador=({historicoFretes,jornadas=[],onAddFrete,onUpdateFrete,onDelete
               <Field label="Valor recebido" value={formJ.valorRecebido} onChange={v=>setFormJ(f=>({...f,valorRecebido:v}))} placeholder="Ex: 240,00" prefix="R$"/>
               <Field label="Combustível (valor total)" value={formJ.combustivel} onChange={v=>setFormJ(f=>({...f,combustivel:v}))} placeholder="Ex: 100,00" prefix="R$"/>
               <Field label="Pedágio / outros" value={formJ.pedagio} onChange={v=>setFormJ(f=>({...f,pedagio:v}))} placeholder="Ex: 12,50" prefix="R$"/>
+              <div style={{display:"flex",flexDirection:"column",gap:5}}>
+                <label style={{color:C.text2,fontSize:14,fontWeight:700,letterSpacing:0.4}}>Observações (opcional)</label>
+                <textarea value={formJ.observacoes} onChange={e=>setFormJ(f=>({...f,observacoes:e.target.value}))} placeholder="Anotações livres do dia…" rows={3}
+                  style={{width:"100%",background:C.subtle,border:`1.5px solid ${C.border}`,borderRadius:10,color:C.text,padding:"10px 12px",fontSize:14,outline:"none",boxSizing:"border-box",resize:"vertical",minHeight:72,fontFamily:"inherit",lineHeight:1.45}}/>
+              </div>
               <div style={{background:C.navyLight,borderRadius:10,padding:"10px 14px",display:"flex",justifyContent:"space-between"}}>
                 <span style={{color:C.text2,fontSize:12}}>Lucro calculado</span>
                 <span style={{color:lucroPrev>=0?C.green:C.red,fontWeight:800,fontSize:14}}>{formatMoeda(lucroPrev)}</span>
