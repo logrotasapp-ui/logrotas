@@ -99,18 +99,33 @@ function resolveMobilePhone(userData) {
   return digits || undefined;
 }
 
-function mapAsaasErrorToHttps(err, context) {
+function getAsaasErrorDescription(err) {
+  const description = err?.body?.errors?.[0]?.description;
+  if (description != null && String(description).trim()) {
+    return String(description).trim();
+  }
+  return null;
+}
+
+function mapAsaasErrorToHttps(err, context = {}) {
+  const { useAsaasDescription, ...logContext } = context;
+  const asaasDescription = useAsaasDescription ? getAsaasErrorDescription(err) : null;
+
   logger.error("Erro API Asaas", {
-    ...context,
+    ...logContext,
     err: err?.message,
     status: err?.status,
-    body: err?.body,
+    errors: err?.body?.errors ?? null,
   });
-  throw new HttpsError(
-    "internal",
-    "Não foi possível processar o pagamento. Tente novamente em instantes.",
-    { reason: "asaas-api" }
-  );
+
+  const message =
+    asaasDescription ||
+    "Não foi possível processar o pagamento. Tente novamente em instantes.";
+
+  throw new HttpsError("internal", message, {
+    reason: "asaas-api",
+    asaasCode: err?.body?.errors?.[0]?.code ?? null,
+  });
 }
 
 /**
@@ -745,16 +760,12 @@ const payWithCard = onCall(
       };
     } catch (err) {
       if (err instanceof HttpsError) throw err;
-      logger.error("payWithCard — erro completo API Asaas", {
+      mapAsaasErrorToHttps(err, {
         uid,
         faturaId,
         step: "payWithCard",
-        status: err?.status ?? null,
-        errors: err?.body?.errors ?? null,
-        asaasResponse: err?.body ?? null,
-        errMessage: err?.message,
+        useAsaasDescription: true,
       });
-      mapAsaasErrorToHttps(err, { uid, faturaId, step: "payWithCard" });
     }
   }
 );
