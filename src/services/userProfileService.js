@@ -35,6 +35,11 @@ export function firestoreToPerfil(data) {
       ? data.servicosFechamento
       : [],
     precoCombustivel: data.precoCombustivel || "",
+    subscriptionStatus: data.subscriptionStatus || "",
+    planType: data.planType || "",
+    tipoAcesso: data.tipoAcesso || "",
+    acessoVitalicio: data.acessoVitalicio === true,
+    acessoValidoAte: data.acessoValidoAte ?? null,
   };
 }
 

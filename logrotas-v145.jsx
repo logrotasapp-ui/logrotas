@@ -117,6 +117,7 @@ import {
   countPacotes,
 } from "./src/services/pacotesService.js";
 import { OFFLINE_KEYS, AUTH_KEYS, readOfflineCache, writeOfflineCache, clearAllLogRotasStorage, clearVehiclesLocalCache, readVehiclesLocalCache, writeVehiclesLocalCache, readProPlanActive, readProTrialDaysLeft, readPerfilLocalFallback, writePerfilLocalCache, readUiState, writeUiState, clearUiState } from "./src/services/offlineStorage.js";
+import { planStateFromPerfil, perfilTemCamposAcesso } from "./src/services/planoService.js";
 import { subscribeAuth, signInWithEmail, signInWithGoogle, signOutUser, getAuthErrorMessage, sendPasswordResetEmail, getPasswordResetErrorMessage } from "./src/services/authService.js";
 import { saveUserProfile, loadUserProfile, loadUserProfileWithTimeout, firestoreToPerfil, perfilToFirestorePayload } from "./src/services/userProfileService.js";
 import { compressImageToJpegBlob, uploadEmpresaLogo } from "./src/services/storageService.js";
@@ -6479,6 +6480,7 @@ export default function App(){
   const uiRestoredRef=useRef(false);
   const[plan,setPlan]=useState(()=>(readProPlanActive()?"pro":"free"));
   const[trialDias,setTrialDias]=useState(()=>(readProPlanActive()?readProTrialDaysLeft():0));
+  const perfilPlanoFirestoreRef=useRef(false);
   const[vehicles,setVehicles]=useState(()=>readVehiclesLocalCache(DEFAULT_VEHICLES));
   const[metaMes,setMetaMes]=useState(8000);
   const[valorKm,setValorKm]=useState("");
@@ -6534,14 +6536,27 @@ export default function App(){
 
   useEffect(()=>{
     const t=setTimeout(()=>{
-      if(readProPlanActive()){
-        setPlan("pro");
-        setTrialDias(readProTrialDaysLeft());
-      }
       setSplashDone(true);
     },SPLASH_MS);
     return()=>clearTimeout(t);
   },[]);
+
+  useEffect(()=>{
+    if(!profileGateOk)return;
+    if(perfilPlanoFirestoreRef.current||perfilTemCamposAcesso(perfil)){
+      const{plan:nextPlan,trialDias:dias}=planStateFromPerfil(perfil);
+      setPlan(nextPlan);
+      setTrialDias(dias);
+      return;
+    }
+    if(readProPlanActive()){
+      setPlan("pro");
+      setTrialDias(readProTrialDaysLeft());
+      return;
+    }
+    setPlan("free");
+    setTrialDias(0);
+  },[perfil,profileGateOk]);
 
   useEffect(()=>{
     return subscribeAuth((user)=>{
@@ -6553,6 +6568,7 @@ export default function App(){
   useEffect(()=>{
     if(!firebaseUser?.uid){
       setProfileGateOk(false);
+      perfilPlanoFirestoreRef.current=false;
       return;
     }
     setProfileGateOk(false);
@@ -6572,10 +6588,12 @@ export default function App(){
         setProfileGateOk(true);
         void touchUltimoAcesso(firebaseUser.uid);
         if(profile){
+          perfilPlanoFirestoreRef.current=true;
           const p=firestoreToPerfil(profile);
           setPerfil(p);
           writePerfilLocalCache(p);
         }else{
+          perfilPlanoFirestoreRef.current=false;
           const local=readPerfilLocalFallback();
           setPerfil({
             ...local,
@@ -6587,6 +6605,7 @@ export default function App(){
         if(!cancelled){
           setProfileGateOk(true);
           void touchUltimoAcesso(firebaseUser.uid);
+          perfilPlanoFirestoreRef.current=false;
           const local=readPerfilLocalFallback();
           setPerfil({
             ...local,
@@ -7428,6 +7447,7 @@ export default function App(){
                 setPerfil({nome:"",empresa:"",empresaLogoUrl:"",email:"",telefone:"",documento:"",tipo:"Motorista Autônomo",veiculo:""});
                 setPlan("free");
                 setTrialDias(0);
+                perfilPlanoFirestoreRef.current=false;
                 setConfirmLimpar(false);
                 // V294 — zera estado de tela/modal para não restaurar nada após apagar tudo
                 clearUiState();

@@ -66,6 +66,11 @@ export function readPerfilLocalFallback() {
       documento: cached.documento || "",
       tipo: cached.tipo || "Motorista Autônomo",
       veiculo: cached.veiculo || "",
+      subscriptionStatus: cached.subscriptionStatus || "",
+      planType: cached.planType || "",
+      tipoAcesso: cached.tipoAcesso || "",
+      acessoVitalicio: cached.acessoVitalicio === true,
+      acessoValidoAte: cached.acessoValidoAte ?? null,
     };
   }
   const step1 = readOfflineCache(AUTH_KEYS.registerStep1);
@@ -90,6 +95,11 @@ export function writePerfilLocalCache(perfil) {
     documento: perfil?.documento || "",
     tipo: perfil?.tipo || "Motorista Autônomo",
     veiculo: perfil?.veiculo || "",
+    subscriptionStatus: perfil?.subscriptionStatus || "",
+    planType: perfil?.planType || "",
+    tipoAcesso: perfil?.tipoAcesso || "",
+    acessoVitalicio: perfil?.acessoVitalicio === true,
+    acessoValidoAte: perfil?.acessoValidoAte ?? null,
   });
 }
 
