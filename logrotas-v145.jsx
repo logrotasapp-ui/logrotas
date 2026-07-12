@@ -160,6 +160,7 @@ const SUPORTE_EMAIL="suporte@logrotas.com.br";
 const PEDAGIO_AVISO_RESULTADO="Pedágio estimado pelo Google. Pode haver variação — confirme o valor da praça.";
 const PAGE_SWIPE_ORDER=["dashboard","financeiro","despesas","comparador","manutencao","documentos","perfil"];
 const PAGE_SWIPE_MIN_PX=50;
+const PAGE_SWIPE_H_MIN_RATIO=0.65;
 const SPLASH_MS=1500;
 
 const OfflineRestoredBanner=({show})=>show?(
@@ -7161,7 +7162,8 @@ export default function App(){
   },[]);
 
   const swipePage=useCallback((eData,dir)=>{
-    if(eData.absX<PAGE_SWIPE_MIN_PX||eData.absX<=eData.absY)return;
+    if(eData.absX<PAGE_SWIPE_MIN_PX)return;
+    if(eData.absX<=eData.absY*PAGE_SWIPE_H_MIN_RATIO)return;
     goSwipePage(dir);
   },[goSwipePage]);
 
@@ -7204,7 +7206,7 @@ export default function App(){
   );}
 
   return(
-    <div style={{minHeight:"100vh",background:C.bg,fontFamily:"'DM Sans',sans-serif",color:C.text,opacity:appVisible?1:0,transition:"opacity 0.35s ease"}}>
+    <div style={{minHeight:"100vh",display:"flex",flexDirection:"column",background:C.bg,fontFamily:"'DM Sans',sans-serif",color:C.text,opacity:appVisible?1:0,transition:"opacity 0.35s ease"}}>
       <link href="https://fonts.googleapis.com/css2?family=Sora:wght@700;800;900&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet"/>
       <div style={{position:"sticky",top:0,zIndex:100,background:C.surface+"F8",backdropFilter:"blur(12px)",borderBottom:`1px solid ${C.border}`,padding:"0 18px",height:54,display:"flex",alignItems:"center",justifyContent:"space-between",boxShadow:"0 1px 8px #1E3A8A08"}}>
         <div style={{display:"flex",alignItems:"center",gap:8}}>
@@ -7230,7 +7232,7 @@ export default function App(){
           </button>
         );})}
       </div>
-      <div ref={contentSwipeRef} {...contentSwipeHandlers} style={{maxWidth:820,margin:"0 auto",padding:`20px 14px ${showNavActiveBanner?"128px":"80px"}`,touchAction:"pan-y pinch-zoom"}}>
+      <div ref={contentSwipeRef} {...contentSwipeHandlers} style={{flex:1,minHeight:0,width:"100%",maxWidth:820,margin:"0 auto",padding:`20px 14px ${showNavActiveBanner?"128px":"80px"}`,touchAction:"pan-y pinch-zoom",boxSizing:"border-box"}}>
         {page==="dashboard"   &&<Dashboard onNav={setPage} setShowCalc={setShowCalc} setCalcMode={setCalcMode} historicoFretes={historicoFretes} jornadas={jornadas} manutencoes={manutencoes} docs={docs} despesas={despesas} perfil={perfil} onNovoChecklist={handleNovoChecklistAvulso} onUltimosChecklists={handleUltimosChecklists} ultimosAvulsosCount={ultimosAvulsos.length} avulsosEmAndamento={avulsosEmAndamento} onRetomarChecklist={handleRetomarChecklistAvulso} onFecharDia={()=>setShowFechamento(true)}/>}
         {page==="financeiro"  &&<Financeiro historicoFretes={historicoFretes} manutencoes={manutencoes} despesas={despesas} jornadas={jornadas}/>}
         {page==="despesas"    &&<Despesas despesas={despesas} onAddDespesa={handleAddDespesa} onUpdateDespesa={handleUpdateDespesa} onDeleteDespesa={handleDeleteDespesa}/>}
