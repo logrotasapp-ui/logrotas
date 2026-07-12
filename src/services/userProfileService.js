@@ -5,6 +5,7 @@ const PROFILE_LABELS = {
   caminhoneiro: "Caminhoneiro",
   guincheiro: "Guincheiro",
   motoqueiro: "Motoqueiro",
+  entregador: "Entregador",
   outros: "Outros",
 };
 

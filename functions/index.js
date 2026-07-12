@@ -29,6 +29,7 @@ const PROFILE_LABELS = {
   caminhoneiro: "Caminhoneiro",
   guincheiro: "Guincheiro",
   motoqueiro: "Motoqueiro",
+  entregador: "Entregador",
   outros: "Outros",
 };
 
@@ -315,7 +316,7 @@ exports.registerWithBetaCode = onCall(
     if (!profileSlug) {
       throw new HttpsError(
         "invalid-argument",
-        "Tipo de perfil inválido. Escolha: caminhoneiro, guincheiro, motoqueiro ou outros.",
+        "Tipo de perfil inválido. Escolha: caminhoneiro, guincheiro, motoqueiro, entregador ou outros.",
         { reason: "perfil-invalido" }
       );
     }
