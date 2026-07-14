@@ -77,6 +77,19 @@ function normalizeCpfCnpj(raw) {
   return digits;
 }
 
+function mapBillingType(bt) {
+  switch (bt) {
+    case "CREDIT_CARD":
+      return "Cartão de Crédito";
+    case "PIX":
+      return "PIX";
+    case "BOLETO":
+      return "Boleto";
+    default:
+      return "";
+  }
+}
+
 function resolveNumeroFatura(payment, faturaId) {
   const invoiceNumber = payment?.invoiceNumber;
   if (invoiceNumber != null && String(invoiceNumber).trim() !== "") {
@@ -627,8 +640,20 @@ const getFatura = onCall(
         numeroFatura: resolveNumeroFatura(payment, faturaId),
         valor: payment?.value ?? null,
         vencimento: payment?.dueDate ?? null,
+        dataPagamento:
+          payment?.confirmedDate ??
+          payment?.clientPaymentDate ??
+          payment?.paymentDate ??
+          null,
         descricao: payment?.description != null ? String(payment.description) : null,
         status: payment?.status ?? null,
+        formaPagamento: mapBillingType(payment?.billingType),
+        bandeira: payment?.creditCard?.creditCardBrand
+          ? String(payment.creditCard.creditCardBrand)
+          : "",
+        ultimos4: payment?.creditCard?.creditCardNumber
+          ? String(payment.creditCard.creditCardNumber).slice(-4)
+          : "",
         comprador,
       };
     } catch (err) {
