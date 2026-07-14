@@ -195,6 +195,7 @@ async function createAsaasCustomer({ uid, nome, email, mobilePhone, cpfCnpj }) {
     email,
     externalReference: uid,
     cpfCnpj,
+    notificationDisabled: true,
   };
   if (mobilePhone) payload.mobilePhone = mobilePhone;
 
