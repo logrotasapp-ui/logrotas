@@ -158,7 +158,7 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="v320";
+const APP_VERSION="v321";
 const SUPORTE_EMAIL="suporte@logrotas.com.br";
 const PEDAGIO_AVISO_RESULTADO="Pedágio estimado pelo Google. Pode haver variação — confirme o valor da praça.";
 const PAGE_SWIPE_ORDER=["dashboard","financeiro","despesas","comparador","manutencao","documentos","perfil"];
@@ -5504,10 +5504,12 @@ const maintMetaParts=(item)=>{
   if(item.km!=null&&String(item.km).trim()!=="")parts.push(`${formatKm(item.km)} km`);
   return parts;
 };
-const Manutencao=({manutencoes:items,onAddManutencao,onUpdateManutencao,onDeleteManutencao,uid,perfil})=>{
+const Manutencao=({manutencoes:items,onAddManutencao,onUpdateManutencao,onDeleteManutencao,uid,perfil,vehicles,setVehicles})=>{
   const isPago=getPlanoAtual(perfil).isPago;
   const[limiteManut,setLimiteManut]=useState(false);
   const[stypes,setStypes]=useState(INIT_STYPE);const[showAdd,setShowAdd]=useState(false);const[showManage,setShowManage]=useState(false);const[del,setDel]=useState(null);const[editTIdx,setEditTIdx]=useState(null);const[editTVal,setEditTVal]=useState("");const[newType,setNewType]=useState("");const[form,setForm]=useState({type:"",vehicle:"",km:"",cost:"",nextKm:"",date:""});const[editingId,setEditingId]=useState(null);
+  const[editVeh,setEditVeh]=useState(null);
+  const[editVehVals,setEditVehVals]=useState({});
   const hoje=new Date();
   const[mesSel,setMesSel]=useState(hoje.getMonth());
   const[anoSel,setAnoSel]=useState(hoje.getFullYear());
@@ -5523,6 +5525,20 @@ const Manutencao=({manutencoes:items,onAddManutencao,onUpdateManutencao,onDelete
     setEditingId(item.id);
     setShowAdd(true);
   };
+  const startEditVeh=v=>{setEditVeh(v.id);setEditVehVals({consumption:String(v.consumption),axles:String(v.axles),kwh:String(v.kwh||"")});};
+  const saveVeh=id=>{setVehicles(vs=>{
+    const next=vs.map(x=>{
+      if(x.id!==id)return x;
+      const fixos=eixosFixosPerfil(x.id);
+      return{...x,
+        consumption:parseNumeroBR(editVehVals.consumption)||x.consumption,
+        axles:fixos!=null?fixos:(parseInt(editVehVals.axles)||x.axles),
+        kwh:parseNumeroBR(editVehVals.kwh)||x.kwh,
+      };
+    });
+    writeVehiclesLocalCache(next);
+    return next;
+  });setEditVeh(null);};
 
   useEffect(()=>{
     if(!uid||isPago)return;
@@ -5561,7 +5577,51 @@ const Manutencao=({manutencoes:items,onAddManutencao,onUpdateManutencao,onDelete
   };
   return(
     <div style={{display:"flex",flexDirection:"column",gap:18}}>
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}><h1 style={{color:C.navy,fontSize:22,fontWeight:900,fontFamily:"'Sora',sans-serif",margin:0}}>Manutenção</h1><PrimaryBtn onClick={abrirRegistrar} small disabled={limiteManut&&!isPago}><PlusIcon size={12}/> Registrar</PrimaryBtn></div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}><h1 style={{color:C.navy,fontSize:22,fontWeight:900,fontFamily:"'Sora',sans-serif",margin:0}}>Meu Veículo</h1><PrimaryBtn onClick={abrirRegistrar} small disabled={limiteManut&&!isPago}><PlusIcon size={12}/> Registrar</PrimaryBtn></div>
+
+      {/* CONSUMO POR VEÍCULO */}
+      <Card>
+        <CardHeader title="🚛 Consumo por Veículo"/>
+        <div style={{padding:"12px 18px 18px"}}>
+          <div style={{background:C.greenLight,border:`1px solid ${C.green}33`,borderRadius:10,padding:"9px 12px",marginBottom:14,display:"flex",alignItems:"center",gap:7}}>
+            <InfoIcon size={13} color={C.green}/>
+            <span style={{color:C.green,fontSize:12}}>Edite o consumo de cada veículo. Só o caminhão permite alterar o número de eixos (pedágio).</span>
+          </div>
+          <div style={{display:"flex",flexDirection:"column",gap:10}}>
+            {(vehicles||[]).map(v=>(
+              <div key={v.id} style={{background:C.subtle,borderRadius:12,padding:"12px 14px",border:`1px solid ${C.border}`}}>
+                <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:editVeh===v.id?12:0}}>
+                  <div style={{fontSize:26,flexShrink:0}}>{v.emoji}</div>
+                  <div style={{flex:1}}>
+                    <div style={{color:C.text,fontWeight:700,fontSize:14}}>{v.label}</div>
+                    <div style={{color:C.muted,fontSize:12}}>
+                      {v.id==="moto"
+                        ?(v.electric?formatKwhPrice(v.kwh||1.85):formatConsumoKmL(v.consumption))
+                        :`${plural(v.id==="caminhao"?v.axles:EIXOS_CATEGORIA_CARRO,"eixo","eixos")} · ${v.electric?formatKwhPrice(v.kwh||1.85):formatConsumoKmL(v.consumption)}`}
+                    </div>
+                  </div>
+                  {editVeh===v.id
+                    ?<button onClick={()=>saveVeh(v.id)} style={{background:C.greenLight,border:`1px solid ${C.green}33`,borderRadius:8,padding:"5px 10px",cursor:"pointer",color:C.green,fontSize:14,fontWeight:700,display:"flex",alignItems:"center",gap:4,flexShrink:0}}><SaveIcon size={11}/> Salvar</button>
+                    :<button onClick={()=>startEditVeh(v)} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:"5px 9px",cursor:"pointer",color:C.orange,display:"flex",alignItems:"center",flexShrink:0}}><EditIcon size={13}/></button>}
+                </div>
+                {editVeh===v.id&&(
+                  <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                    {v.electric
+                      ?<Field label="Preço por kWh (R$)" value={editVehVals.kwh||""} onChange={val=>setEditVehVals(e=>({...e,kwh:val}))} placeholder="1.85" prefix="R$"/>
+                      :<Field label="Consumo (km/L)" value={editVehVals.consumption||""} onChange={val=>setEditVehVals(e=>({...e,consumption:val}))} placeholder="12" suffix="km/L"/>}
+                    {v.id==="caminhao"
+                      ?<Field label="Número de Eixos" value={editVehVals.axles||""} onChange={val=>setEditVehVals(e=>({...e,axles:val}))} placeholder="2" suffix="eixos" hint="Define o multiplicador de pedágio do caminhão."/>
+                      :v.id==="moto"
+                        ?<div style={{background:C.navyLight,border:`1px solid ${C.navy}22`,borderRadius:9,padding:"8px 12px",color:C.navy,fontSize:12}}>Pedágio estimado pela categoria moto (Google).</div>
+                        :<Field label="Número de Eixos" value={String(EIXOS_CATEGORIA_CARRO)} readOnly suffix="eixos" hint="Categoria fixa para pedágio (carro)."/>}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      </Card>
+
       {limiteManut&&!isPago&&(
         <LimiteAtingido mensagem={MSG_LIMITE.manutencao}/>
       )}
@@ -6174,7 +6234,7 @@ const Financeiro=({historicoFretes,manutencoes,despesas=[],jornadas=[]})=>{
 };
 
 // ── PERFIL ────────────────────────────────────────────────────────────────────
-const Perfil=({uid,metaMes,setMetaMes,faturamentoMes,saldoLiquidoMes,vehicles,setVehicles,perfil,setPerfil,onLimpar})=>{
+const Perfil=({uid,metaMes,setMetaMes,faturamentoMes,saldoLiquidoMes,perfil,setPerfil,onLimpar,onNav})=>{
   const[editMode,setEditMode]=useState(false);
   const[loadingPerfil,setLoadingPerfil]=useState(false);
   const[savingPerfil,setSavingPerfil]=useState(false);
@@ -6184,26 +6244,10 @@ const Perfil=({uid,metaMes,setMetaMes,faturamentoMes,saldoLiquidoMes,vehicles,se
   const logoRemoveOnSaveRef=useRef(false);
   const[editandoMeta,setEditandoMeta]=useState(false);
   const[draftMeta,setDraftMeta]=useState(String(metaMes));
-  const[editVeh,setEditVeh]=useState(null);
-  const[editVehVals,setEditVehVals]=useState({});
   const pct=metaMes>0?Math.min((faturamentoMes/metaMes)*100,100):0;
   const falta=metaMes>0?Math.max(metaMes-faturamentoMes,0):0;
   const atingiu=faturamentoMes>=metaMes&&metaMes>0;
   const salvarMeta=()=>{const v=parseNumeroBR(draftMeta);if(v>0)setMetaMes(v);setEditandoMeta(false);};
-  const startEditVeh=v=>{setEditVeh(v.id);setEditVehVals({consumption:String(v.consumption),axles:String(v.axles),kwh:String(v.kwh||"")});};
-  const saveVeh=id=>{setVehicles(vs=>{
-    const next=vs.map(x=>{
-      if(x.id!==id)return x;
-      const fixos=eixosFixosPerfil(x.id);
-      return{...x,
-        consumption:parseNumeroBR(editVehVals.consumption)||x.consumption,
-        axles:fixos!=null?fixos:(parseInt(editVehVals.axles)||x.axles),
-        kwh:parseNumeroBR(editVehVals.kwh)||x.kwh,
-      };
-    });
-    writeVehiclesLocalCache(next);
-    return next;
-  });setEditVeh(null);};
 
   useEffect(()=>{
     if(!uid)return;
@@ -6350,49 +6394,12 @@ const Perfil=({uid,metaMes,setMetaMes,faturamentoMes,saldoLiquidoMes,vehicles,se
         </div>
       </div>
 
-
-      {/* CONSUMO POR VEÍCULO */}
-      <Card>
-        <CardHeader title="🚛 Consumo por Veículo"/>
-        <div style={{padding:"12px 18px 18px"}}>
-          <div style={{background:C.greenLight,border:`1px solid ${C.green}33`,borderRadius:10,padding:"9px 12px",marginBottom:14,display:"flex",alignItems:"center",gap:7}}>
-            <InfoIcon size={13} color={C.green}/>
-            <span style={{color:C.green,fontSize:12}}>Edite o consumo de cada veículo. Só o caminhão permite alterar o número de eixos (pedágio).</span>
-          </div>
-          <div style={{display:"flex",flexDirection:"column",gap:10}}>
-            {vehicles.map(v=>(
-              <div key={v.id} style={{background:C.subtle,borderRadius:12,padding:"12px 14px",border:`1px solid ${C.border}`}}>
-                <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:editVeh===v.id?12:0}}>
-                  <div style={{fontSize:26,flexShrink:0}}>{v.emoji}</div>
-                  <div style={{flex:1}}>
-                    <div style={{color:C.text,fontWeight:700,fontSize:14}}>{v.label}</div>
-                    <div style={{color:C.muted,fontSize:12}}>
-                      {v.id==="moto"
-                        ?(v.electric?formatKwhPrice(v.kwh||1.85):formatConsumoKmL(v.consumption))
-                        :`${plural(v.id==="caminhao"?v.axles:EIXOS_CATEGORIA_CARRO,"eixo","eixos")} · ${v.electric?formatKwhPrice(v.kwh||1.85):formatConsumoKmL(v.consumption)}`}
-                    </div>
-                  </div>
-                  {editVeh===v.id
-                    ?<button onClick={()=>saveVeh(v.id)} style={{background:C.greenLight,border:`1px solid ${C.green}33`,borderRadius:8,padding:"5px 10px",cursor:"pointer",color:C.green,fontSize:14,fontWeight:700,display:"flex",alignItems:"center",gap:4,flexShrink:0}}><SaveIcon size={11}/> Salvar</button>
-                    :<button onClick={()=>startEditVeh(v)} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:"5px 9px",cursor:"pointer",color:C.orange,display:"flex",alignItems:"center",flexShrink:0}}><EditIcon size={13}/></button>}
-                </div>
-                {editVeh===v.id&&(
-                  <div style={{display:"flex",flexDirection:"column",gap:8}}>
-                    {v.electric
-                      ?<Field label="Preço por kWh (R$)" value={editVehVals.kwh||""} onChange={val=>setEditVehVals(e=>({...e,kwh:val}))} placeholder="1.85" prefix="R$"/>
-                      :<Field label="Consumo (km/L)" value={editVehVals.consumption||""} onChange={val=>setEditVehVals(e=>({...e,consumption:val}))} placeholder="12" suffix="km/L"/>}
-                    {v.id==="caminhao"
-                      ?<Field label="Número de Eixos" value={editVehVals.axles||""} onChange={val=>setEditVehVals(e=>({...e,axles:val}))} placeholder="2" suffix="eixos" hint="Define o multiplicador de pedágio do caminhão."/>
-                      :v.id==="moto"
-                        ?<div style={{background:C.navyLight,border:`1px solid ${C.navy}22`,borderRadius:9,padding:"8px 12px",color:C.navy,fontSize:12}}>Pedágio estimado pela categoria moto (Google).</div>
-                        :<Field label="Número de Eixos" value={String(EIXOS_CATEGORIA_CARRO)} readOnly suffix="eixos" hint="Categoria fixa para pedágio (carro)."/>}
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
-      </Card>
+      {/* Atalho — consumo movido para Meu Veículo */}
+      <button type="button" onClick={()=>onNav?.("manutencao")}
+        style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:16,padding:"16px 18px",cursor:"pointer",textAlign:"left",boxShadow:"0 2px 8px #1E3A8A08",display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,width:"100%"}}>
+        <span style={{color:C.navy,fontWeight:700,fontSize:14,lineHeight:1.4}}>🚛 Consumo por veículo — agora em Meu Veículo</span>
+        <ArrowRightIcon size={16} color={C.orange}/>
+      </button>
 
       {/* DADOS DO PERFIL — preenchido automaticamente pelo cadastro */}
       <Card>
@@ -7282,7 +7289,7 @@ export default function App(){
     {id:"financeiro", label:"Financeiro",  icon:BarChart3Icon},
     {id:"despesas",   label:"Despesas",    icon:DollarSignIcon},
     {id:"comparador", label:"Viagens",     icon:CalculatorIcon},
-    {id:"manutencao", label:"Manutenção",  icon:WrenchIcon},
+    {id:"manutencao", label:"Meu Veículo", icon:WrenchIcon},
     {id:"documentos", label:"Documentos",  icon:FileTextIcon},
     {id:"perfil",     label:"Perfil",      icon:SettingsIcon},
   ];
@@ -7384,9 +7391,9 @@ export default function App(){
         {page==="financeiro"  &&<Financeiro historicoFretes={historicoFretes} manutencoes={manutencoes} despesas={despesas} jornadas={jornadas}/>}
         {page==="despesas"    &&<Despesas despesas={despesas} onAddDespesa={handleAddDespesa} onUpdateDespesa={handleUpdateDespesa} onDeleteDespesa={handleDeleteDespesa} uid={firebaseUser?.uid} perfil={perfil}/>}
         {page==="comparador"  &&<Comparador historicoFretes={historicoFretes} jornadas={jornadas} onAddFrete={handleAddFrete} onUpdateFrete={handleUpdateFrete} onDeleteFrete={handleDeleteFrete} onUpdateJornada={handleUpdateJornada} onDeleteJornada={handleDeleteJornada} perfil={perfil} uid={firebaseUser?.uid} onOpenChecklist={handleOpenChecklist}/>}
-        {page==="manutencao"  &&<Manutencao manutencoes={manutencoes} onAddManutencao={handleAddManutencao} onUpdateManutencao={handleUpdateManutencao} onDeleteManutencao={handleDeleteManutencao} uid={firebaseUser?.uid} perfil={perfil}/>}
+        {page==="manutencao"  &&<Manutencao manutencoes={manutencoes} onAddManutencao={handleAddManutencao} onUpdateManutencao={handleUpdateManutencao} onDeleteManutencao={handleDeleteManutencao} uid={firebaseUser?.uid} perfil={perfil} vehicles={vehicles} setVehicles={setVehicles}/>}
         {page==="documentos"  &&<Documentos docs={docs} onAddDocumento={handleAddDocumento} onDeleteDocumento={handleDeleteDocumento} uid={firebaseUser?.uid} perfil={perfil}/>}
-        {page==="perfil"      &&<Perfil uid={firebaseUser?.uid} metaMes={metaMes} setMetaMes={setMetaMes} faturamentoMes={faturamentoMes} saldoLiquidoMes={saldoLiquidoMes} vehicles={vehicles} setVehicles={setVehicles} perfil={perfil} setPerfil={setPerfil} onLimpar={limparTudo}/>}
+        {page==="perfil"      &&<Perfil uid={firebaseUser?.uid} metaMes={metaMes} setMetaMes={setMetaMes} faturamentoMes={faturamentoMes} saldoLiquidoMes={saldoLiquidoMes} perfil={perfil} setPerfil={setPerfil} onLimpar={limparTudo} onNav={setPage}/>}
         </div>
       </div>
       {page!=="dashboard"&&(<button onClick={()=>{setCalcMode(null);setShowCalc(true);}} style={{position:"fixed",bottom:22,right:18,width:52,height:52,borderRadius:"50%",background:C.orange,border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",boxShadow:`0 4px 20px ${C.orange}55`,zIndex:90}}><RouteIcon size={22} color="#fff"/></button>)}
