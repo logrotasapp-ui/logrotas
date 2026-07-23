@@ -116,12 +116,12 @@ import {
   dedupParadasPorId,
   countPacotes,
 } from "./src/services/pacotesService.js";
-import { OFFLINE_KEYS, AUTH_KEYS, readOfflineCache, writeOfflineCache, clearAllLogRotasStorage, clearVehiclesLocalCache, readVehiclesLocalCache, writeVehiclesLocalCache, readProPlanActive, readProTrialDaysLeft, readPerfilLocalFallback, writePerfilLocalCache, readUiState, writeUiState, clearUiState } from "./src/services/offlineStorage.js";
+import { OFFLINE_KEYS, AUTH_KEYS, readOfflineCache, writeOfflineCache, clearAllLogRotasStorage, clearVehiclesLocalCache, readVehiclesLocalCache, writeVehiclesLocalCache, mergeVehiclesWithDefaults, readProPlanActive, readProTrialDaysLeft, readPerfilLocalFallback, writePerfilLocalCache, readUiState, writeUiState, clearUiState } from "./src/services/offlineStorage.js";
 import { planStateFromPerfil, perfilTemCamposAcesso, getPlanoAtual } from "./src/services/planoService.js";
 import { podeUsar, incrementarUso, FREE_LIMITS, checarLimiteFree, MSG_LIMITE } from "./src/services/usoService.js";
 import LimiteAtingido from "./src/components/LimiteAtingido.jsx";
 import { subscribeAuth, signInWithEmail, signInWithGoogle, signOutUser, getAuthErrorMessage, sendPasswordResetEmail, getPasswordResetErrorMessage } from "./src/services/authService.js";
-import { saveUserProfile, loadUserProfile, loadUserProfileWithTimeout, firestoreToPerfil, perfilToFirestorePayload } from "./src/services/userProfileService.js";
+import { saveUserProfile, loadUserProfile, loadUserProfileWithTimeout, firestoreToPerfil, perfilToFirestorePayload, extractVehiclesFromProfile, saveUserVehicles } from "./src/services/userProfileService.js";
 import { compressImageToJpegBlob, uploadEmpresaLogo } from "./src/services/storageService.js";
 import { saveJornada } from "./src/services/jornadaService.js";
 import {
@@ -158,7 +158,7 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="v321";
+const APP_VERSION="v322";
 const SUPORTE_EMAIL="suporte@logrotas.com.br";
 const PEDAGIO_AVISO_RESULTADO="Pedágio estimado pelo Google. Pode haver variação — confirme o valor da praça.";
 const PAGE_SWIPE_ORDER=["dashboard","financeiro","despesas","comparador","manutencao","documentos","perfil"];
@@ -4522,7 +4522,7 @@ const Dashboard=({onNav,setShowCalc,setCalcMode,historicoFretes,jornadas=[],manu
           {[
             {label:"Histórico Viagens",sub:pluralFretes(totalFretes),icon:CalculatorIcon,color:C.navy,page:"comparador"},
             {label:"Financeiro",sub:totalFretes>0?"Receitas e despesas":"Sem dados ainda",icon:BarChart3Icon,color:C.green,page:"financeiro"},
-            {label:"Manutenção",sub:totalManut>0?pluralRegistros(totalManut):"Sem registros",icon:WrenchIcon,color:C.red,page:"manutencao"},
+            {label:"Meu Veículo",sub:totalManut>0?pluralRegistros(totalManut):"Sem registros",icon:WrenchIcon,color:C.red,page:"manutencao"},
             {label:"Documentos",sub:docsVencidos.length>0?pluralDocumentosVencidos(docsVencidos.length):docsVencendo.length>0?`${docsVencendo.length} ${docsVencendo.length===1?"documento vencendo":"documentos vencendo"} em breve`:"Vencimentos",icon:FileTextIcon,color:docsVencidos.length>0?C.red:docsVencendo.length>0?C.amber:C.navy,page:"documentos"},
             {label:"Despesas",sub:despList.length>0?pluralRegistros(despList.length):"Refeições, hotel e mais",icon:DollarSignIcon,color:C.red,page:"despesas"},
             {label:"Meu Perfil",sub:"Meta e configurações",icon:SettingsIcon,color:C.navy,page:"perfil"},
@@ -5537,6 +5537,9 @@ const Manutencao=({manutencoes:items,onAddManutencao,onUpdateManutencao,onDelete
       };
     });
     writeVehiclesLocalCache(next);
+    if(uid){
+      void saveUserVehicles(uid,next).catch(()=>{/* offline: localStorage já salvo */});
+    }
     return next;
   });setEditVeh(null);};
 
@@ -6716,6 +6719,22 @@ export default function App(){
           const p=firestoreToPerfil(profile);
           setPerfil(p);
           writePerfilLocalCache(p);
+          // Veículos: Firestore → localStorage → defaults (+ migração 1x se necessário)
+          const fsVeh=extractVehiclesFromProfile(profile);
+          const localVehRaw=readOfflineCache(OFFLINE_KEYS.vehicles);
+          const hasLocalVeh=Array.isArray(localVehRaw)&&localVehRaw.length>0;
+          if(fsVeh){
+            const merged=mergeVehiclesWithDefaults(DEFAULT_VEHICLES,fsVeh);
+            setVehicles(merged);
+            writeVehiclesLocalCache(merged);
+          }else if(hasLocalVeh){
+            const merged=mergeVehiclesWithDefaults(DEFAULT_VEHICLES,localVehRaw);
+            setVehicles(merged);
+            writeVehiclesLocalCache(merged);
+            void saveUserVehicles(firebaseUser.uid,merged).catch(()=>{/* offline: migra depois */});
+          }else{
+            setVehicles(DEFAULT_VEHICLES);
+          }
         }else{
           perfilPlanoFirestoreRef.current=false;
           const local=readPerfilLocalFallback();
@@ -6724,6 +6743,13 @@ export default function App(){
             nome:local.nome||firebaseUser.displayName||"",
             email:local.email||firebaseUser.email||"",
           });
+          // Sem perfil no Firestore: mantém localStorage / defaults; migra se houver cache
+          const localVehRaw=readOfflineCache(OFFLINE_KEYS.vehicles);
+          if(Array.isArray(localVehRaw)&&localVehRaw.length>0){
+            const merged=mergeVehiclesWithDefaults(DEFAULT_VEHICLES,localVehRaw);
+            setVehicles(merged);
+            void saveUserVehicles(firebaseUser.uid,merged).catch(()=>{/* offline */});
+          }
         }
       }catch{
         if(!cancelled){
@@ -6736,6 +6762,7 @@ export default function App(){
             nome:local.nome||firebaseUser.displayName||"",
             email:local.email||firebaseUser.email||"",
           });
+          // Offline/timeout: vehicles já vêm do useState(readVehiclesLocalCache)
         }
       }
     })();

@@ -1,5 +1,6 @@
 import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore";
 import { db } from "../firebase.js";
+import { serializeVehiclesForStorage } from "./offlineStorage.js";
 
 const PROFILE_LABELS = {
   caminhoneiro: "Caminhoneiro",
@@ -104,4 +105,24 @@ export async function loadUserProfileWithTimeout(
 /** Login social: só lê perfil existente — não cria conta nova no app. */
 export async function ensureGoogleUserProfile(user) {
   return loadUserProfile(user.uid);
+}
+
+/**
+ * Extrai o array bruto `vehicles` do doc users/{uid}.
+ * Retorna null se ausente ou vazio (para fallback localStorage / defaults).
+ */
+export function extractVehiclesFromProfile(data) {
+  if (!Array.isArray(data?.vehicles) || data.vehicles.length === 0) return null;
+  return data.vehicles;
+}
+
+/**
+ * Grava vehicles no perfil (merge). Payload só com id/axles/consumption/kwh.
+ * Offline: deixa o erro subir para o caller tratar (UI já salvou no localStorage).
+ */
+export async function saveUserVehicles(uid, vehicles) {
+  if (!uid) throw new Error("Usuário não autenticado.");
+  await saveUserProfile(uid, {
+    vehicles: serializeVehiclesForStorage(vehicles),
+  });
 }
