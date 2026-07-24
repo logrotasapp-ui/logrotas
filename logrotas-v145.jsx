@@ -164,7 +164,7 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="v329";
+const APP_VERSION="v330";
 const SUPORTE_EMAIL="suporte@logrotas.com.br";
 const PEDAGIO_AVISO_RESULTADO="Pedágio estimado pelo Google. Pode haver variação — confirme o valor da praça.";
 const PAGE_SWIPE_ORDER=["dashboard","financeiro","despesas","comparador","manutencao","documentos","perfil"];
@@ -197,7 +197,7 @@ const REFERRAL_ENABLED=true;
 //         optimizeWaypoints da Directions API, código preservado).
 const USE_HYBRID_OPTIMIZER=true;
 
-const MSG_INDICACAO="Fala! Uso o LogRotas pra calcular rota, pedágio e o preço certo do frete. Achei que ia te ajudar também. Dá uma olhada: https://logrotas.com.br";
+const MSG_INDICACAO="Tô usando um app brasileiro que tá me ajudando muito no dia a dia, o LogRotas:\n\n🗺️ Monta e otimiza rota com várias paradas\n💰 Calcula pedágio, combustível e quanto cobrar no frete\n📋 Checklist com foto e assinatura\n📊 Controle do que entra e do que sai\n\nFeito pra quem vive de estrada. Dá uma olhada: https://logrotas.com.br";
 
 // Abre WhatsApp com convite simples (sem menção a plano/benefício/recompensa).
 // Mobile/PWA: navega com location.href (window.open costuma falhar no Android).
