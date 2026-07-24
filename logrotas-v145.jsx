@@ -115,12 +115,12 @@ import {
   dedupParadasPorId,
   countPacotes,
 } from "./src/services/pacotesService.js";
-import { OFFLINE_KEYS, AUTH_KEYS, readOfflineCache, writeOfflineCache, clearAllLogRotasStorage, clearVehiclesLocalCache, readVehiclesLocalCache, writeVehiclesLocalCache, mergeVehiclesWithDefaults, readCustoVeiculoLocalCache, writeCustoVeiculoLocalCache, readProPlanActive, readProTrialDaysLeft, readPerfilLocalFallback, writePerfilLocalCache, readUiState, writeUiState, clearUiState } from "./src/services/offlineStorage.js";
+import { OFFLINE_KEYS, AUTH_KEYS, readOfflineCache, writeOfflineCache, clearAllLogRotasStorage, clearVehiclesLocalCache, readVehiclesLocalCache, writeVehiclesLocalCache, mergeVehiclesWithDefaults, readCustoVeiculoLocalCache, writeCustoVeiculoLocalCache, readMetaMesLocalCache, writeMetaMesLocalCache, readProPlanActive, readProTrialDaysLeft, readPerfilLocalFallback, writePerfilLocalCache, readUiState, writeUiState, clearUiState } from "./src/services/offlineStorage.js";
 import { planStateFromPerfil, perfilTemCamposAcesso, getPlanoAtual } from "./src/services/planoService.js";
 import { podeUsar, incrementarUso, FREE_LIMITS, checarLimiteFree, MSG_LIMITE } from "./src/services/usoService.js";
 import LimiteAtingido from "./src/components/LimiteAtingido.jsx";
 import { subscribeAuth, signInWithEmail, signInWithGoogle, signOutUser, getAuthErrorMessage, sendPasswordResetEmail, getPasswordResetErrorMessage } from "./src/services/authService.js";
-import { saveUserProfile, loadUserProfile, loadUserProfileWithTimeout, firestoreToPerfil, perfilToFirestorePayload, extractVehiclesFromProfile, saveUserVehicles, extractCustoVeiculoFromProfile, saveUserCustoVeiculo } from "./src/services/userProfileService.js";
+import { saveUserProfile, loadUserProfile, loadUserProfileWithTimeout, firestoreToPerfil, perfilToFirestorePayload, extractVehiclesFromProfile, saveUserVehicles, extractCustoVeiculoFromProfile, saveUserCustoVeiculo, extractMetaMesFromProfile, saveUserMetaMes } from "./src/services/userProfileService.js";
 import {
   calcularCustoVeiculo,
   mediaKmMesUltimos3Meses,
@@ -128,6 +128,9 @@ import {
   formFromCustoVeiculoPersist,
   CUSTO_VEICULO_PADROES,
   resolveCustoKmSalvo,
+  resolveOdometroAtual,
+  listarProximasManutencoes,
+  mergeCustoVeiculoOdometro,
 } from "./src/services/custoVeiculoService.js";
 import { compressImageToJpegBlob, uploadEmpresaLogo } from "./src/services/storageService.js";
 import { saveJornada } from "./src/services/jornadaService.js";
@@ -165,7 +168,7 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="v331";
+const APP_VERSION="v333";
 const SUPORTE_EMAIL="suporte@logrotas.com.br";
 const PEDAGIO_AVISO_RESULTADO="Pedágio estimado pelo Google. Pode haver variação — confirme o valor da praça.";
 const PAGE_SWIPE_ORDER=["dashboard","financeiro","despesas","comparador","manutencao","documentos","perfil"];
@@ -4613,7 +4616,7 @@ const Dashboard=({onNav,setShowCalc,setCalcMode,historicoFretes,jornadas=[],manu
             {label:"Meu Veículo",sub:totalManut>0?pluralRegistros(totalManut):"Sem registros",icon:WrenchIcon,color:C.red,page:"manutencao"},
             {label:"Documentos",sub:docsVencidos.length>0?pluralDocumentosVencidos(docsVencidos.length):docsVencendo.length>0?`${docsVencendo.length} ${docsVencendo.length===1?"documento vencendo":"documentos vencendo"} em breve`:"Vencimentos",icon:FileTextIcon,color:docsVencidos.length>0?C.red:docsVencendo.length>0?C.amber:C.navy,page:"documentos"},
             {label:"Despesas",sub:despList.length>0?pluralRegistros(despList.length):"Refeições, hotel e mais",icon:DollarSignIcon,color:C.red,page:"despesas"},
-            {label:"Meu Perfil",sub:"Meta e configurações",icon:SettingsIcon,color:C.navy,page:"perfil"},
+            {label:"Meu Perfil",sub:"Configurações",icon:SettingsIcon,color:C.navy,page:"perfil"},
           ].map((s,i)=>(
             <button key={i} onClick={()=>onNav(s.page)} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:"13px 15px",cursor:"pointer",textAlign:"left",display:"flex",alignItems:"center",gap:11,boxShadow:"0 1px 4px #1E3A8A08"}}>
               <div style={{background:s.color+"18",borderRadius:10,padding:8,flexShrink:0}}><s.icon size={16} color={s.color}/></div>
@@ -5621,6 +5624,15 @@ const Manutencao=({manutencoes:items,onAddManutencao,onUpdateManutencao,onDelete
   const[custoAberto,setCustoAberto]=useState(false);
   const[salvandoCusto,setSalvandoCusto]=useState(false);
   const[custoMsg,setCustoMsg]=useState("");
+  const[odometroSalvo,setOdometroSalvo]=useState(()=>{
+    const c=readCustoVeiculoLocalCache();
+    const n=Number(c?.odometro);
+    return Number.isFinite(n)&&n>0?n:null;
+  });
+  const[odometroAtualizadoEm,setOdometroAtualizadoEm]=useState(()=>readCustoVeiculoLocalCache()?.odometroAtualizadoEm||null);
+  const[editandoOdo,setEditandoOdo]=useState(false);
+  const[draftOdo,setDraftOdo]=useState("");
+  const[salvandoOdo,setSalvandoOdo]=useState(false);
   const hoje=new Date();
   const[mesSel,setMesSel]=useState(hoje.getMonth());
   const[anoSel,setAnoSel]=useState(hoje.getFullYear());
@@ -5676,7 +5688,11 @@ const Manutencao=({manutencoes:items,onAddManutencao,onUpdateManutencao,onDelete
       kmMesAutoEstimado:kmAutoInfo.estimado,
       manutencoes:items,
     });
-    const payload=buildCustoVeiculoPersistPayload(custoForm,resultado);
+    const cache=readCustoVeiculoLocalCache()||{};
+    const payload=buildCustoVeiculoPersistPayload(custoForm,resultado,{
+      odometro:odometroSalvo??cache.odometro,
+      odometroAtualizadoEm:odometroAtualizadoEm||cache.odometroAtualizadoEm,
+    });
     writeCustoVeiculoLocalCache(payload);
     try{
       if(uid)await saveUserCustoVeiculo(uid,payload);
@@ -5708,6 +5724,11 @@ const Manutencao=({manutencoes:items,onAddManutencao,onUpdateManutencao,onDelete
         if(fromFs){
           setCustoForm(formFromCustoVeiculoPersist(fromFs));
           writeCustoVeiculoLocalCache(fromFs);
+          const odoN=Number(fromFs.odometro);
+          if(Number.isFinite(odoN)&&odoN>0){
+            setOdometroSalvo(odoN);
+            setOdometroAtualizadoEm(fromFs.odometroAtualizadoEm||null);
+          }
         }
       }catch{
         /* mantém form do localStorage */
@@ -5722,6 +5743,41 @@ const Manutencao=({manutencoes:items,onAddManutencao,onUpdateManutencao,onDelete
       if(bloqueado){setLimiteManut(true);return;}
     }
     setShowAdd(true);
+  };
+
+  const odoInfo=resolveOdometroAtual({
+    odometroSalvo,
+    odometroAtualizadoEm,
+    manutencoes:items,
+  });
+  const proximasManut=listarProximasManutencoes(items,odoInfo.km,hoje);
+
+  const formatOdoData=(isoOrBr)=>{
+    if(!isoOrBr)return "";
+    if(String(isoOrBr).includes("T")){
+      try{
+        const d=new Date(isoOrBr);
+        if(!Number.isNaN(d.getTime()))return d.toLocaleDateString("pt-BR");
+      }catch{/* ignore */}
+    }
+    return String(isoOrBr);
+  };
+
+  const salvarOdometro=async()=>{
+    const v=parseNumeroBR(draftOdo);
+    if(!(v>0)){setEditandoOdo(false);return;}
+    const agoraIso=new Date().toISOString();
+    setSalvandoOdo(true);
+    const prev=readCustoVeiculoLocalCache()||{};
+    const payload=mergeCustoVeiculoOdometro(prev,v,agoraIso);
+    writeCustoVeiculoLocalCache(payload);
+    setOdometroSalvo(v);
+    setOdometroAtualizadoEm(agoraIso);
+    setEditandoOdo(false);
+    try{
+      if(uid)await saveUserCustoVeiculo(uid,payload);
+    }catch{/* offline: cache local já salvo */}
+    finally{setSalvandoOdo(false);}
   };
 
   const save=async()=>{
@@ -5790,6 +5846,104 @@ const Manutencao=({manutencoes:items,onAddManutencao,onUpdateManutencao,onDelete
           </div>
         </div>
       </Card>
+
+      {/* ODÔMETRO ATUAL */}
+      <Card>
+        <CardHeader title="🛣️ Odômetro atual"/>
+        <div style={{padding:"12px 18px 18px",display:"flex",flexDirection:"column",gap:12}}>
+          {editandoOdo?(
+            <div style={{display:"flex",alignItems:"flex-end",gap:10}}>
+              <div style={{flex:1}}>
+                <Field label="Km atuais" value={draftOdo} onChange={setDraftOdo} placeholder={odoInfo.km?String(Math.round(odoInfo.km)):"Ex: 152500"} suffix="km"/>
+              </div>
+              <button type="button" onClick={()=>void salvarOdometro()} disabled={salvandoOdo}
+                style={{background:C.navy,border:"none",borderRadius:10,padding:"11px 14px",cursor:salvandoOdo?"wait":"pointer",color:"#fff",fontWeight:800,fontSize:13,opacity:salvandoOdo?0.7:1,marginBottom:1}}>
+                {salvandoOdo?"…":"Salvar"}
+              </button>
+              <button type="button" onClick={()=>setEditandoOdo(false)}
+                style={{background:C.subtle,border:`1px solid ${C.border}`,borderRadius:10,padding:"11px 12px",cursor:"pointer",color:C.text2,fontWeight:700,fontSize:13,marginBottom:1}}>
+                Cancelar
+              </button>
+            </div>
+          ):(
+            <>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:12}}>
+                <div>
+                  {odoInfo.km!=null?(
+                    <>
+                      <div style={{color:C.navy,fontWeight:900,fontSize:30,fontFamily:"'Sora',sans-serif",lineHeight:1}}>{formatKm(odoInfo.km)} <span style={{fontSize:14,fontWeight:700,color:C.muted}}>km</span></div>
+                      <div style={{color:C.muted,fontSize:12,marginTop:8}}>
+                        {odoInfo.origem==="manual"
+                          ?`Atualizado em ${formatOdoData(odoInfo.atualizadoEm)||"—"}`
+                          :`do seu último registro${odoInfo.dataOrigem?` · ${odoInfo.dataOrigem}`:""}`}
+                      </div>
+                    </>
+                 ):(
+                    <>
+                      <div style={{color:C.navy,fontWeight:800,fontSize:16,fontFamily:"'Sora',sans-serif"}}>Ainda sem odômetro</div>
+                      <div style={{color:C.muted,fontSize:12,marginTop:6,lineHeight:1.45}}>Informe os km atuais para alertar as próximas manutenções.</div>
+                    </>
+                  )}
+                </div>
+                <button type="button" onClick={()=>{setDraftOdo(odoInfo.km!=null?String(Math.round(odoInfo.km)):"");setEditandoOdo(true);}}
+                  style={{background:C.orangeLight,border:`1px solid ${C.orange}33`,borderRadius:11,padding:"9px 14px",cursor:"pointer",color:C.orange,fontWeight:700,fontSize:12,display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
+                  <EditIcon size={13}/> {odoInfo.km!=null?"Atualizar":"Informar"}
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      </Card>
+
+      {/* PRÓXIMAS MANUTENÇÕES */}
+      {proximasManut.length>0&&(
+        <Card>
+          <CardHeader title="🔧 Próximas manutenções"/>
+          <div style={{padding:"8px 18px 16px",display:"flex",flexDirection:"column",gap:10}}>
+            {proximasManut.map((p)=>{
+              const cor=p.status==="vencido"?C.red:p.status==="proximo"?C.amber:C.green;
+              const bg=p.status==="vencido"?C.redLight:p.status==="proximo"?C.amberLight:C.greenLight;
+              let sub="";
+              let pctBar=100;
+              if(p.modo==="km"){
+                if(p.faltam<=0){
+                  sub=`vencido há ${formatKm(Math.abs(p.faltam))} km`;
+                  pctBar=100;
+                }else{
+                  sub=`faltam ${formatKm(p.faltam)} km · próxima em ${formatKm(p.nextKm)} km`;
+                  // barra: quanto mais perto de 0, mais cheia (alerta)
+                  const janela=2000;
+                  pctBar=p.faltam>=janela?Math.max(8,100-((p.faltam-janela)/Math.max(p.nextKm,1))*40):Math.min(100,((janela-p.faltam)/janela)*100);
+                  if(p.status==="ok")pctBar=Math.min(35,pctBar);
+                }
+              }else{
+                const m=p.mesesDesdeUltima;
+                if(m==null)sub="sem data no último registro";
+                else if(m===0)sub="última este mês";
+                else if(m===1)sub="última há 1 mês";
+                else sub=`última há ${m} meses`;
+                pctBar=m==null?20:Math.min(100,Math.round((m/12)*100));
+              }
+              return(
+                <div key={p.type} style={{background:bg,border:`1px solid ${cor}33`,borderRadius:12,padding:"12px 14px"}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",gap:8,marginBottom:8}}>
+                    <div style={{color:cor,fontWeight:800,fontSize:14}}>{p.type}</div>
+                    <div style={{color:cor,fontWeight:700,fontSize:12,textAlign:"right"}}>{sub}</div>
+                  </div>
+                  <div style={{background:"#ffffff88",borderRadius:20,height:8,overflow:"hidden"}}>
+                    <div style={{width:`${Math.max(6,Math.min(100,pctBar))}%`,height:"100%",background:cor,borderRadius:20,transition:"width .3s"}}/>
+                  </div>
+                </div>
+              );
+            })}
+            {odoInfo.km==null&&(
+              <div style={{color:C.muted,fontSize:11,lineHeight:1.45,padding:"0 2px"}}>
+                Sem odômetro atual — alertas por tempo desde o último registro. Informe o odômetro para ver quanto falta em km.
+              </div>
+            )}
+          </div>
+        </Card>
+      )}
 
       {/* CUSTO DE TER O VEÍCULO */}
       <Card>
@@ -6144,7 +6298,7 @@ const calcSaldoMes=(historicoFretes,manutencoes,despesas,jornadas,m,a)=>{
   return roundMoney(receita-custo-maint-desp);
 };
 
-const Financeiro=({historicoFretes,manutencoes,despesas=[],jornadas=[]})=>{
+const Financeiro=({historicoFretes,manutencoes,despesas=[],jornadas=[],uid,metaMes,setMetaMes})=>{
   const hoje=new Date();
   // V291 — jornadas (Fechamento do dia) usam campo `data`; normaliza p/ reusar filtros por `date`.
   const jornadasN=normalizarJornadasDate(jornadas);
@@ -6156,6 +6310,9 @@ const Financeiro=({historicoFretes,manutencoes,despesas=[],jornadas=[]})=>{
   const[periodoGraf,setPeriodoGraf]=useState("6");
   const[dataIni,setDataIni]=useState("");
   const[dataFim,setDataFim]=useState("");
+  const[editandoMeta,setEditandoMeta]=useState(false);
+  const[draftMeta,setDraftMeta]=useState(String(metaMes));
+  const[salvandoMeta,setSalvandoMeta]=useState(false);
 
   const prevMes=()=>{if(mesSel===0){setMesSel(11);setAnoSel(a=>a-1);}else setMesSel(m=>m-1);};
   const nextMes=()=>{if(mesSel===11){setMesSel(0);setAnoSel(a=>a+1);}else setMesSel(m=>m+1);};
@@ -6217,6 +6374,21 @@ const Financeiro=({historicoFretes,manutencoes,despesas=[],jornadas=[]})=>{
   const receitaKm=totalKm>0?roundMoney(totalReceita/totalKm):0;
   const lucroKm=totalKm>0?roundMoney(saldoLiquido/totalKm):0;
   const margemPct=totalReceita>0?roundMoney((saldoLiquido/totalReceita)*100):null;
+
+  const pctMeta=metaMes>0?Math.min((totalReceita/metaMes)*100,100):0;
+  const faltaMeta=metaMes>0?Math.max(metaMes-totalReceita,0):0;
+  const atingiuMeta=totalReceita>=metaMes&&metaMes>0;
+  const salvarMeta=async()=>{
+    const v=parseNumeroBR(draftMeta);
+    if(!(v>0)){setEditandoMeta(false);return;}
+    setMetaMes?.(v);
+    writeMetaMesLocalCache(v);
+    setEditandoMeta(false);
+    if(!uid)return;
+    setSalvandoMeta(true);
+    try{await saveUserMetaMes(uid,v);}catch{/* offline: cache local já salvo */}
+    finally{setSalvandoMeta(false);}
+  };
 
   const prevMesIdx=mesSel===0?11:mesSel-1;
   const prevAno=mesSel===0?anoSel-1:anoSel;
@@ -6391,6 +6563,52 @@ const Financeiro=({historicoFretes,manutencoes,despesas=[],jornadas=[]})=>{
         </button>
       </div>
 
+      {/* META DO MÊS — progresso no mês selecionado no navegador */}
+      <div style={{background:`linear-gradient(135deg,${C.navy},${C.navyMid})`,borderRadius:18,padding:"22px 24px",boxShadow:`0 6px 24px ${C.navy}44`}}>
+        <div style={{color:"#BFDBFE",fontSize:14,fontWeight:700,letterSpacing:0.5,textTransform:"uppercase",marginBottom:12}}>🎯 Minha Meta do Mês</div>
+        {editandoMeta?(
+          <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12}}>
+            <div style={{display:"flex",alignItems:"center",background:"#ffffff22",border:"1.5px solid #ffffff55",borderRadius:11,overflow:"hidden",flex:1}}>
+              <span style={{padding:"0 10px",color:"#BFDBFE",fontSize:14,borderRight:"1px solid #ffffff33"}}>R$</span>
+              <input value={draftMeta} onChange={e=>setDraftMeta(e.target.value)} autoFocus
+                style={{flex:1,background:"transparent",border:"none",outline:"none",color:"#fff",padding:"10px 12px",fontSize:20,fontWeight:900,fontFamily:"'Sora',sans-serif"}}/>
+            </div>
+            <button onClick={()=>void salvarMeta()} disabled={salvandoMeta} style={{background:C.orange,border:"none",borderRadius:11,padding:"10px 16px",cursor:salvandoMeta?"wait":"pointer",color:"#fff",fontWeight:800,fontSize:14,opacity:salvandoMeta?0.7:1}}>{salvandoMeta?"…":"✓ Salvar"}</button>
+          </div>
+        ):(
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
+            <div>
+              <div style={{color:"#93C5FD",fontSize:12,marginBottom:2}}>Meta definida</div>
+              <div style={{color:C.orange,fontWeight:900,fontSize:34,fontFamily:"'Sora',sans-serif",lineHeight:1}}>{formatMoeda(metaMes)}</div>
+            </div>
+            <button onClick={()=>{setDraftMeta(String(metaMes));setEditandoMeta(true);}}
+              style={{background:"#ffffff22",border:"1px solid #ffffff44",borderRadius:11,padding:"9px 15px",cursor:"pointer",color:"#fff",fontWeight:700,fontSize:12,display:"flex",alignItems:"center",gap:6}}>
+              <EditIcon size={13}/> Alterar
+            </button>
+          </div>
+        )}
+        <div style={{background:"#ffffff22",borderRadius:20,height:14,overflow:"hidden",marginBottom:10}}>
+          <div style={{width:`${pctMeta}%`,height:"100%",background:atingiuMeta?"#22C55E":C.orange,borderRadius:20,transition:"width .4s"}}/>
+        </div>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div>
+            <div style={{color:"#BFDBFE",fontSize:12}}>Já recebi em {MESES_PT[mesSel]}</div>
+            <div style={{color:"#fff",fontWeight:800,fontSize:18,fontFamily:"'Sora',sans-serif"}}>{formatMoeda(totalReceita)}</div>
+          </div>
+          {atingiuMeta?(
+            <div style={{background:"#16A34A",borderRadius:12,padding:"8px 14px"}}><div style={{color:"#fff",fontWeight:800,fontSize:14}}>✓ Meta atingida!</div></div>
+          ):(
+            <div style={{textAlign:"right"}}>
+              <div style={{color:"#BFDBFE",fontSize:12}}>Falta para a meta</div>
+              <div style={{color:C.orange,fontWeight:800,fontSize:18,fontFamily:"'Sora',sans-serif"}}>{formatMoeda(faltaMeta)}</div>
+            </div>
+          )}
+        </div>
+        <div style={{color:"#93C5FD",fontSize:12,marginTop:10}}>
+          {pctMeta.toLocaleString("pt-BR",{maximumFractionDigits:0})}% da meta concluída · Baseado no faturamento de fretes e jornadas
+        </div>
+      </div>
+
       {fretesMes.length===0&&maintMes.length===0&&despMes.length===0&&jornadasMes.length===0?(
         <div style={{background:C.subtle,border:`1px dashed ${C.border}`,borderRadius:14,padding:"32px 20px",textAlign:"center"}}>
           <div style={{fontSize:36,marginBottom:10}}>📊</div>
@@ -6494,7 +6712,7 @@ const Financeiro=({historicoFretes,manutencoes,despesas=[],jornadas=[]})=>{
 };
 
 // ── PERFIL ────────────────────────────────────────────────────────────────────
-const Perfil=({uid,metaMes,setMetaMes,faturamentoMes,saldoLiquidoMes,perfil,setPerfil,onLimpar,onNav})=>{
+const Perfil=({uid,perfil,setPerfil,onLimpar,onNav})=>{
   const[editMode,setEditMode]=useState(false);
   const[loadingPerfil,setLoadingPerfil]=useState(false);
   const[savingPerfil,setSavingPerfil]=useState(false);
@@ -6502,12 +6720,6 @@ const Perfil=({uid,metaMes,setMetaMes,faturamentoMes,saldoLiquidoMes,perfil,setP
   const logoFileInputRef=useRef(null);
   const logoPendingBlobRef=useRef(null);
   const logoRemoveOnSaveRef=useRef(false);
-  const[editandoMeta,setEditandoMeta]=useState(false);
-  const[draftMeta,setDraftMeta]=useState(String(metaMes));
-  const pct=metaMes>0?Math.min((faturamentoMes/metaMes)*100,100):0;
-  const falta=metaMes>0?Math.max(metaMes-faturamentoMes,0):0;
-  const atingiu=faturamentoMes>=metaMes&&metaMes>0;
-  const salvarMeta=()=>{const v=parseNumeroBR(draftMeta);if(v>0)setMetaMes(v);setEditandoMeta(false);};
 
   useEffect(()=>{
     if(!uid)return;
@@ -6601,58 +6813,6 @@ const Perfil=({uid,metaMes,setMetaMes,faturamentoMes,saldoLiquidoMes,perfil,setP
   return(
     <div style={{display:"flex",flexDirection:"column",gap:18}}>
       <h1 style={{color:C.navy,fontSize:22,fontWeight:900,fontFamily:"'Sora',sans-serif",margin:0,padding:"8px 0"}}>Meu Perfil</h1>
-
-      {/* META DO MÊS — integrada com histórico de fretes */}
-      <div style={{background:`linear-gradient(135deg,${C.navy},${C.navyMid})`,borderRadius:18,padding:"22px 24px",boxShadow:`0 6px 24px ${C.navy}44`}}>
-        <div style={{color:"#BFDBFE",fontSize:14,fontWeight:700,letterSpacing:0.5,textTransform:"uppercase",marginBottom:12}}>🎯 Minha Meta do Mês</div>
-        {editandoMeta?(
-          <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12}}>
-            <div style={{display:"flex",alignItems:"center",background:"#ffffff22",border:"1.5px solid #ffffff55",borderRadius:11,overflow:"hidden",flex:1}}>
-              <span style={{padding:"0 10px",color:"#BFDBFE",fontSize:14,borderRight:"1px solid #ffffff33"}}>R$</span>
-              <input value={draftMeta} onChange={e=>setDraftMeta(e.target.value)} autoFocus
-                style={{flex:1,background:"transparent",border:"none",outline:"none",color:"#fff",padding:"10px 12px",fontSize:20,fontWeight:900,fontFamily:"'Sora',sans-serif"}}/>
-            </div>
-            <button onClick={salvarMeta} style={{background:C.orange,border:"none",borderRadius:11,padding:"10px 16px",cursor:"pointer",color:"#fff",fontWeight:800,fontSize:14}}>✓ Salvar</button>
-          </div>
-        ):(
-          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
-            <div>
-              <div style={{color:"#93C5FD",fontSize:12,marginBottom:2}}>Meta definida</div>
-              <div style={{color:C.orange,fontWeight:900,fontSize:34,fontFamily:"'Sora',sans-serif",lineHeight:1}}>{formatMoeda(metaMes)}</div>
-            </div>
-            <button onClick={()=>{setDraftMeta(String(metaMes));setEditandoMeta(true);}}
-              style={{background:"#ffffff22",border:"1px solid #ffffff44",borderRadius:11,padding:"9px 15px",cursor:"pointer",color:"#fff",fontWeight:700,fontSize:12,display:"flex",alignItems:"center",gap:6}}>
-              <EditIcon size={13}/> Alterar
-            </button>
-          </div>
-        )}
-        {/* Barra de progresso */}
-        <div style={{background:"#ffffff22",borderRadius:20,height:14,overflow:"hidden",marginBottom:10}}>
-          <div style={{width:`${pct}%`,height:"100%",background:atingiu?"#22C55E":C.orange,borderRadius:20,transition:"width .4s"}}/>
-        </div>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-          <div>
-            <div style={{color:"#BFDBFE",fontSize:12}}>Já recebi este mês</div>
-            <div style={{color:"#fff",fontWeight:800,fontSize:18,fontFamily:"'Sora',sans-serif"}}>{formatMoeda(faturamentoMes)}</div>
-          </div>
-          {atingiu?(
-            <div style={{background:"#16A34A",borderRadius:12,padding:"8px 14px"}}><div style={{color:"#fff",fontWeight:800,fontSize:14}}>✓ Meta atingida!</div></div>
-          ):(
-            <div style={{textAlign:"right"}}>
-              <div style={{color:"#BFDBFE",fontSize:12}}>Falta para a meta</div>
-              <div style={{color:C.orange,fontWeight:800,fontSize:18,fontFamily:"'Sora',sans-serif"}}>{formatMoeda(falta)}</div>
-            </div>
-          )}
-        </div>
-        <div style={{color:"#93C5FD",fontSize:12,marginTop:10}}>
-          {pct.toLocaleString("pt-BR",{maximumFractionDigits:0})}% da meta concluída · Baseado no faturamento de fretes e jornadas
-        </div>
-        <div style={{color:"#E0F2FE",fontSize:12,marginTop:6}}>
-          {saldoLiquidoMes>=0
-            ? <>Desses, <strong style={{fontWeight:800}}>{formatMoeda(saldoLiquidoMes)}</strong> ficaram no seu bolso</>
-            : <>Atenção: mês com saldo negativo de <strong style={{fontWeight:800}}>{formatMoeda(Math.abs(saldoLiquidoMes))}</strong></>}
-        </div>
-      </div>
 
       {/* Atalho — consumo movido para Meu Veículo */}
       <button type="button" onClick={()=>onNav?.("manutencao")}
@@ -6765,7 +6925,7 @@ const Perfil=({uid,metaMes,setMetaMes,faturamentoMes,saldoLiquidoMes,perfil,setP
           {cat:"💰 Financeiro",perguntas:[
             {p:"Como meu lucro é calculado?",r:"É a soma dos ganhos de fretes e jornadas do mês, menos os custos das viagens (combustível, pedágio, ARLA), menos manutenções e despesas do mês."},
             {p:"Por que meu histórico está vazio?",r:"O histórico mostra o mês selecionado. Use \"Anterior\" e \"Próximo\" para navegar entre os meses. Fretes e jornadas só aparecem depois de salvos."},
-            {p:"Como funciona a meta mensal?",r:"Você define uma meta de faturamento no Perfil. A barra mostra quanto já recebeu de fretes e jornadas no mês e quanto falta para bater a meta."},
+            {p:"Como funciona a meta mensal?",r:"Você define uma meta de faturamento no Financeiro. A barra mostra quanto já recebeu de fretes e jornadas no mês selecionado e quanto falta para bater a meta."},
           ]},
           {cat:"🔧 Manutenção e Documentos",perguntas:[
             {p:"Como funcionam os alertas de manutenção?",r:"Ao registrar uma manutenção, você informa o km atual e o app calcula quando será a próxima, avisando você quando estiver chegando perto."},
@@ -6866,7 +7026,7 @@ export default function App(){
   const[trialDias,setTrialDias]=useState(()=>(readProPlanActive()?readProTrialDaysLeft():0));
   const perfilPlanoFirestoreRef=useRef(false);
   const[vehicles,setVehicles]=useState(()=>readVehiclesLocalCache(DEFAULT_VEHICLES));
-  const[metaMes,setMetaMes]=useState(8000);
+  const[metaMes,setMetaMes]=useState(()=>readMetaMesLocalCache(8000));
   const[valorKm,setValorKm]=useState("");
   const[adicionalFixo,setAdicionalFixo]=useState("");
   const[historicoFretes,setHistoricoFretes]=useState([]);
@@ -6899,24 +7059,6 @@ export default function App(){
   const[loadingExiting,setLoadingExiting]=useState(false);
   const[appVisible,setAppVisible]=useState(false);
   const navTabRefs=useRef({});
-  const filtrarMesAtual=(arr)=>{
-    const m=hoje.getMonth();
-    const y=hoje.getFullYear();
-    return (arr||[]).filter(x=>{
-      const dt=x.date||x.data;
-      if(!dt)return false;
-      const p=dt.split("/");
-      if(p.length<3)return false;
-      return parseInt(p[1])-1===m&&parseInt(p[2])===y;
-    });
-  };
-  const fretesMesAtual=filtrarMesAtual(historicoFretes);
-  const jornadasMesAtual=filtrarMesAtual(jornadas);
-  const faturamentoMes=roundMoney(
-    fretesMesAtual.reduce((a,f)=>a+(f.freteSugerido||0),0)+
-    jornadasMesAtual.reduce((a,j)=>a+(j.valorRecebido||0),0)
-  );
-  const saldoLiquidoMes=calcSaldoMes(historicoFretes,manutencoes,despesas,jornadas,hoje.getMonth(),hoje.getFullYear());
 
   useEffect(()=>{
     const t=setTimeout(()=>{
@@ -7001,6 +7143,20 @@ export default function App(){
               void saveUserCustoVeiculo(firebaseUser.uid,localCusto).catch(()=>{/* offline */});
             }
           }
+          const fsMeta=extractMetaMesFromProfile(profile);
+          if(fsMeta!=null){
+            setMetaMes(fsMeta);
+            writeMetaMesLocalCache(fsMeta);
+          }else{
+            const localMeta=readMetaMesLocalCache(0);
+            if(localMeta>0){
+              setMetaMes(localMeta);
+              void saveUserMetaMes(firebaseUser.uid,localMeta).catch(()=>{/* offline */});
+            }else{
+              setMetaMes(8000);
+              writeMetaMesLocalCache(8000);
+            }
+          }
         }else{
           perfilPlanoFirestoreRef.current=false;
           const local=readPerfilLocalFallback();
@@ -7015,6 +7171,11 @@ export default function App(){
             const merged=mergeVehiclesWithDefaults(DEFAULT_VEHICLES,localVehRaw);
             setVehicles(merged);
             void saveUserVehicles(firebaseUser.uid,merged).catch(()=>{/* offline */});
+          }
+          const localMeta=readMetaMesLocalCache(8000);
+          setMetaMes(localMeta);
+          if(localMeta>0){
+            void saveUserMetaMes(firebaseUser.uid,localMeta).catch(()=>{/* offline */});
           }
         }
       }catch{
@@ -7681,12 +7842,12 @@ export default function App(){
       <div ref={contentSwipeRef} {...contentSwipeHandlers} style={{flex:1,minHeight:0,width:"100%",maxWidth:820,margin:"0 auto",overflowY:"auto",overflowX:"hidden",WebkitOverflowScrolling:"touch",padding:`20px 14px ${showNavActiveBanner?"128px":"80px"}`,touchAction:"pan-y pinch-zoom",boxSizing:"border-box"}}>
         <div style={{minHeight:"100%",width:"100%"}}>
         {page==="dashboard"   &&<Dashboard onNav={setPage} setShowCalc={setShowCalc} setCalcMode={setCalcMode} historicoFretes={historicoFretes} jornadas={jornadas} manutencoes={manutencoes} docs={docs} despesas={despesas} perfil={perfil} onNovoChecklist={handleNovoChecklistAvulso} onUltimosChecklists={handleUltimosChecklists} ultimosAvulsosCount={ultimosAvulsos.length} avulsosEmAndamento={avulsosEmAndamento} onRetomarChecklist={handleRetomarChecklistAvulso} onFecharDia={()=>setShowFechamento(true)}/>}
-        {page==="financeiro"  &&<Financeiro historicoFretes={historicoFretes} manutencoes={manutencoes} despesas={despesas} jornadas={jornadas}/>}
+        {page==="financeiro"  &&<Financeiro historicoFretes={historicoFretes} manutencoes={manutencoes} despesas={despesas} jornadas={jornadas} uid={firebaseUser?.uid} metaMes={metaMes} setMetaMes={setMetaMes}/>}
         {page==="despesas"    &&<Despesas despesas={despesas} onAddDespesa={handleAddDespesa} onUpdateDespesa={handleUpdateDespesa} onDeleteDespesa={handleDeleteDespesa} uid={firebaseUser?.uid} perfil={perfil}/>}
         {page==="comparador"  &&<Comparador historicoFretes={historicoFretes} jornadas={jornadas} onAddFrete={handleAddFrete} onUpdateFrete={handleUpdateFrete} onDeleteFrete={handleDeleteFrete} onUpdateJornada={handleUpdateJornada} onDeleteJornada={handleDeleteJornada} perfil={perfil} uid={firebaseUser?.uid} onOpenChecklist={handleOpenChecklist}/>}
         {page==="manutencao"  &&<Manutencao manutencoes={manutencoes} onAddManutencao={handleAddManutencao} onUpdateManutencao={handleUpdateManutencao} onDeleteManutencao={handleDeleteManutencao} uid={firebaseUser?.uid} perfil={perfil} vehicles={vehicles} setVehicles={setVehicles} historicoFretes={historicoFretes} jornadas={jornadas}/>}
         {page==="documentos"  &&<Documentos docs={docs} onAddDocumento={handleAddDocumento} onDeleteDocumento={handleDeleteDocumento} uid={firebaseUser?.uid} perfil={perfil}/>}
-        {page==="perfil"      &&<Perfil uid={firebaseUser?.uid} metaMes={metaMes} setMetaMes={setMetaMes} faturamentoMes={faturamentoMes} saldoLiquidoMes={saldoLiquidoMes} perfil={perfil} setPerfil={setPerfil} onLimpar={limparTudo} onNav={setPage}/>}
+        {page==="perfil"      &&<Perfil uid={firebaseUser?.uid} perfil={perfil} setPerfil={setPerfil} onLimpar={limparTudo} onNav={setPage}/>}
         </div>
       </div>
       {page!=="dashboard"&&(<button onClick={()=>{setCalcMode(null);setShowCalc(true);}} style={{position:"fixed",bottom:22,right:18,width:52,height:52,borderRadius:"50%",background:C.orange,border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",boxShadow:`0 4px 20px ${C.orange}55`,zIndex:90}}><RouteIcon size={22} color="#fff"/></button>)}

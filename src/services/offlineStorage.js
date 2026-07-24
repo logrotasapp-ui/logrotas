@@ -11,6 +11,7 @@ export const OFFLINE_KEYS = {
   avaliacaoPendentes: "logrotas_avaliacao_pendentes",
   vehicles: "logrotas_vehicles",
   custoVeiculo: "logrotas_custo_veiculo",
+  metaMes: "logrotas_meta_mes",
   uiState: "logrotas_ui_state",
   checklistSessao: "logrotas_checklist_sessao",
 };
@@ -229,4 +230,21 @@ export function readCustoVeiculoLocalCache() {
 
 export function writeCustoVeiculoLocalCache(payload) {
   writeOfflineCache(OFFLINE_KEYS.custoVeiculo, payload || {});
+}
+
+const META_MES_PADRAO = 8000;
+
+/** Meta mensal de faturamento (R$). Firestore → cache → padrão 8000. */
+export function readMetaMesLocalCache(fallback = META_MES_PADRAO) {
+  const raw = readOfflineCache(OFFLINE_KEYS.metaMes);
+  const n = Number(raw?.metaMes ?? raw);
+  if (Number.isFinite(n) && n > 0) return n;
+  return fallback;
+}
+
+export function writeMetaMesLocalCache(metaMes) {
+  const n = Number(metaMes);
+  writeOfflineCache(OFFLINE_KEYS.metaMes, {
+    metaMes: Number.isFinite(n) && n > 0 ? n : META_MES_PADRAO,
+  });
 }

@@ -127,6 +127,21 @@ export async function saveUserVehicles(uid, vehicles) {
   });
 }
 
+/** Extrai metaMes do perfil Firestore (ou null). */
+export function extractMetaMesFromProfile(data) {
+  const n = Number(data?.metaMes);
+  if (Number.isFinite(n) && n > 0) return n;
+  return null;
+}
+
+/** Grava metaMes no perfil (merge). */
+export async function saveUserMetaMes(uid, metaMes) {
+  if (!uid) throw new Error("Usuário não autenticado.");
+  const n = Number(metaMes);
+  if (!Number.isFinite(n) || n <= 0) throw new Error("Meta inválida.");
+  await saveUserProfile(uid, { metaMes: n });
+}
+
 /** Extrai custoVeiculo do perfil Firestore (ou null). */
 export function extractCustoVeiculoFromProfile(data) {
   const c = data?.custoVeiculo;
