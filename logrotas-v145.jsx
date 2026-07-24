@@ -49,7 +49,6 @@ import {
   plural,
   pluralWord,
   pluralDias,
-  pluralFretes,
   pluralRegistros,
   pluralDocumentosVencidos,
   pluralDocumentosVence,
@@ -165,7 +164,7 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="v325";
+const APP_VERSION="v327";
 const SUPORTE_EMAIL="suporte@logrotas.com.br";
 const PEDAGIO_AVISO_RESULTADO="Pedágio estimado pelo Google. Pode haver variação — confirme o valor da praça.";
 const PAGE_SWIPE_ORDER=["dashboard","financeiro","despesas","comparador","manutencao","documentos","perfil"];
@@ -187,8 +186,8 @@ const montarLinkIndicacao=(whatsappOuId)=>{
   return `${BASE_URL}?ref=${id}`;
 };
 
-// Desative para exibir aviso "Em breve" no banner da tela Início (reativar após beta)
-const REFERRAL_ENABLED=false;
+// true → abre WhatsApp com convite; false → aviso "Em breve" (legado beta)
+const REFERRAL_ENABLED=true;
 
 // V231 — Toggle de segurança do motor de otimização de rotas.
 // true  → motor híbrido novo: GPS fresco como origem + Nearest Neighbor + 2-opt
@@ -198,12 +197,25 @@ const REFERRAL_ENABLED=false;
 //         optimizeWaypoints da Directions API, código preservado).
 const USE_HYBRID_OPTIMIZER=true;
 
-// Abre WhatsApp com convite simples (sem menção a plano/benefício)
-const compartilharIndicacao=(perfil)=>{
-  const link=montarLinkIndicacao(perfil.telefone||perfil.nome||"amigo");
-  const frase=
-    `Fala parceiro! Tô usando o LogRotas, um app que calcula frete, combustível e pedágio e ajuda a organizar a rotina na estrada. Dá uma olhada: ${link}`;
-  window.open(`https://wa.me/?text=${encodeURIComponent(frase)}`,"_blank");
+const MSG_INDICACAO="Fala! Uso o LogRotas pra calcular rota, pedágio e o preço certo do frete. Achei que ia te ajudar também. Dá uma olhada: https://logrotas.com.br";
+
+// Abre WhatsApp com convite simples (sem menção a plano/benefício/recompensa)
+const compartilharIndicacao=async()=>{
+  const url=`https://wa.me/?text=${encodeURIComponent(MSG_INDICACAO)}`;
+  let abriu=false;
+  try{
+    const w=window.open(url,"_blank","noopener,noreferrer");
+    abriu=!!w;
+  }catch{/* popup bloqueado / ambiente sem window.open */}
+  if(abriu)return;
+  try{
+    if(navigator.clipboard?.writeText){
+      await navigator.clipboard.writeText(MSG_INDICACAO);
+      window.alert("Mensagem copiada! Cole no WhatsApp para enviar.");
+      return;
+    }
+  }catch{/* clipboard indisponível */}
+  window.alert(MSG_INDICACAO);
 };
 
 // SEGURANÇA: Em produção, mova esta chave para um backend Node.js/Firebase Function.
@@ -4393,11 +4405,21 @@ const Dashboard=({onNav,setShowCalc,setCalcMode,historicoFretes,jornadas=[],manu
   const jornadasReceitaMes=roundMoney(jornadasMesAtual.reduce((a,j)=>a+(j.valorRecebido||0),0));
   const qtdFretesMes=fretesMesAtual.length;
   const qtdJornadasMes=jornadasMesAtual.length;
+  const viagensMesQtd=qtdFretesMes+qtdJornadasMes;
   const receitaMes=roundMoney(faturamentoMes+jornadasReceitaMes);
   // Saudação no padrão do Financeiro: deixa explícito fretes vs jornadas (sem misturar o total)
   const textoSaudacaoMes=(qtdFretesMes===0&&qtdJornadasMes===0)
     ?"Nenhuma viagem este mês ainda"
     :`${qtdFretesMes} ${qtdFretesMes===1?"viagem":"viagens"}${qtdJornadasMes>0?` + ${qtdJornadasMes} jornada${qtdJornadasMes===1?"":"s"}`:""} este mês · ${formatMoeda(receitaMes)}`;
+  // Mesmo critério da aba Viagens: fretes + jornadas (total no histórico)
+  const totalRegistrosViagens=totalFretes+(jornadas||[]).length;
+  const subHistoricoViagens=totalRegistrosViagens===0?"Nenhuma viagem ainda":pluralRegistros(totalRegistrosViagens);
+  const maintMesAtual=filtrarPorMesData(maintList,mesAtual,anoAtual);
+  const despMesAtual=filtrarPorMesData(despList,mesAtual,anoAtual);
+  const temMovimentoFinanceiroMes=qtdFretesMes>0||qtdJornadasMes>0||maintMesAtual.length>0||despMesAtual.length>0;
+  const subFinanceiro=temMovimentoFinanceiroMes
+    ?(receitaMes>0?`${formatMoeda(receitaMes)} este mês`:"Receitas e despesas")
+    :"Sem dados ainda";
 
   return(
     <div style={{display:"flex",flexDirection:"column",gap:18}}>
@@ -4521,7 +4543,7 @@ const Dashboard=({onNav,setShowCalc,setCalcMode,historicoFretes,jornadas=[],manu
         </div>
       ):(
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:11}}>
-          <Metric label="Viagens salvas" value={String(qtdFretesMes)} sub="este mês" trend="up" icon={CalculatorIcon} color={C.green} bg={C.greenLight}/>
+          <Metric label="Viagens salvas" value={String(viagensMesQtd)} sub="este mês" trend="up" icon={CalculatorIcon} color={C.green} bg={C.greenLight}/>
           <Metric label="Receita total" value={formatMoeda(receitaMes)} sub="este mês" trend="up" icon={DollarSignIcon} color={C.orange} bg={C.orangeLight}/>
         </div>
       )}
@@ -4530,8 +4552,8 @@ const Dashboard=({onNav,setShowCalc,setCalcMode,historicoFretes,jornadas=[],manu
         <div style={{color:C.muted,fontSize:14,fontWeight:700,letterSpacing:0.5,textTransform:"uppercase",marginBottom:10}}>Acesso Rápido</div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
           {[
-            {label:"Histórico Viagens",sub:pluralFretes(totalFretes),icon:CalculatorIcon,color:C.navy,page:"comparador"},
-            {label:"Financeiro",sub:totalFretes>0?"Receitas e despesas":"Sem dados ainda",icon:BarChart3Icon,color:C.green,page:"financeiro"},
+            {label:"Histórico Viagens",sub:subHistoricoViagens,icon:CalculatorIcon,color:C.navy,page:"comparador"},
+            {label:"Financeiro",sub:subFinanceiro,icon:BarChart3Icon,color:C.green,page:"financeiro"},
             {label:"Meu Veículo",sub:totalManut>0?pluralRegistros(totalManut):"Sem registros",icon:WrenchIcon,color:C.red,page:"manutencao"},
             {label:"Documentos",sub:docsVencidos.length>0?pluralDocumentosVencidos(docsVencidos.length):docsVencendo.length>0?`${docsVencendo.length} ${docsVencendo.length===1?"documento vencendo":"documentos vencendo"} em breve`:"Vencimentos",icon:FileTextIcon,color:docsVencidos.length>0?C.red:docsVencendo.length>0?C.amber:C.navy,page:"documentos"},
             {label:"Despesas",sub:despList.length>0?pluralRegistros(despList.length):"Refeições, hotel e mais",icon:DollarSignIcon,color:C.red,page:"despesas"},
