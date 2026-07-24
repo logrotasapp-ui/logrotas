@@ -18,6 +18,9 @@ export const CUSTO_VEICULO_PADROES = {
   manutencaoKmPadrao: 0.055,
 };
 
+/** Mínimo para aceitar a média automática (abaixo disso = amostra fraca → usa padrão). */
+export const KM_MES_AUTO_MINIMO = 500;
+
 const LABELS = {
   ipva: "IPVA + licenciamento",
   seguro: "Seguro",
@@ -89,7 +92,8 @@ export function somarKmMes(historicoFretes, jornadas, mes, ano) {
 
 /**
  * Média de km/mês dos últimos 3 meses (calendário).
- * @returns {{ kmMes: number, estimado: boolean, fonte: "auto"|"padrao", totalKm: number }}
+ * Só aceita automático se média >= KM_MES_AUTO_MINIMO; senão usa padrão estimado.
+ * @returns {{ kmMes: number, estimado: boolean, fonte: "auto"|"padrao", totalKm: number, mediaBruta: number }}
  */
 export function mediaKmMesUltimos3Meses(historicoFretes, jornadas, agora = new Date()) {
   let totalKm = 0;
@@ -97,20 +101,22 @@ export function mediaKmMesUltimos3Meses(historicoFretes, jornadas, agora = new D
     const d = new Date(agora.getFullYear(), agora.getMonth() - i, 1);
     totalKm += somarKmMes(historicoFretes, jornadas, d.getMonth(), d.getFullYear());
   }
-  if (!(totalKm > 0)) {
+  const mediaBruta = totalKm > 0 ? safeDiv(totalKm, 3) : 0;
+  if (!(mediaBruta >= KM_MES_AUTO_MINIMO)) {
     return {
       kmMes: CUSTO_VEICULO_PADROES.kmMes,
       estimado: true,
       fonte: "padrao",
-      totalKm: 0,
+      totalKm,
+      mediaBruta,
     };
   }
-  const media = safeDiv(totalKm, 3);
   return {
-    kmMes: roundMoney(media) || media,
+    kmMes: roundMoney(mediaBruta) || mediaBruta,
     estimado: false,
     fonte: "auto",
     totalKm,
+    mediaBruta,
   };
 }
 

@@ -165,7 +165,7 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="v323";
+const APP_VERSION="v324";
 const SUPORTE_EMAIL="suporte@logrotas.com.br";
 const PEDAGIO_AVISO_RESULTADO="Pedágio estimado pelo Google. Pode haver variação — confirme o valor da praça.";
 const PAGE_SWIPE_ORDER=["dashboard","financeiro","despesas","comparador","manutencao","documentos","perfil"];
@@ -5718,10 +5718,10 @@ const Manutencao=({manutencoes:items,onAddManutencao,onUpdateManutencao,onDelete
                 <div style={{color:C.navy,fontWeight:800,fontSize:13,marginBottom:8}}>Quanto você roda</div>
                 <div style={{color:C.text2,fontSize:12,marginBottom:10,lineHeight:1.45}}>
                   {kmAutoInfo.fonte==="auto"
-                    ?`${formatKm(kmAutoInfo.kmMes)} km/mês · do seu histórico (média 3 meses)`
-                    :`${formatKm(CUSTO_VEICULO_PADROES.kmMes)} km/mês · média padrão (sem histórico suficiente)`}
+                    ?`${formatKm(kmAutoInfo.kmMes)} km/mês · média do que você registrou nos últimos 3 meses`
+                    :`≈ ${formatKm(CUSTO_VEICULO_PADROES.kmMes)} km/mês · estimativa — você ainda tem poucas viagens registradas. Se roda mais que isso, ajuste abaixo.`}
                 </div>
-                <Field label="Ajustar km/mês (opcional)" value={custoForm.kmMesManual} onChange={v=>setCustoCampo("kmMesManual",v)} placeholder={String(Math.round(kmAutoInfo.kmMes||CUSTO_VEICULO_PADROES.kmMes))} suffix="km" hint="Se preencher, este valor manda no cálculo."/>
+                <Field label="Ajustar km/mês (opcional)" value={custoForm.kmMesManual??""} onChange={v=>setCustoCampo("kmMesManual",v)} placeholder={String(Math.round(kmAutoInfo.kmMes||CUSTO_VEICULO_PADROES.kmMes))} suffix="km" hint="Se preencher, este valor manda no cálculo."/>
               </div>
 
               <div style={{background:C.subtle,border:`1px solid ${C.border}`,borderRadius:12,padding:"12px 14px",display:"flex",flexDirection:"column",gap:10}}>
