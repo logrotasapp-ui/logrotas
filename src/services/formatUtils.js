@@ -166,10 +166,11 @@ export function roundFreteCostsForSave(item) {
     const energyCost = roundMoney(item.energyCost ?? item.custoComb ?? 0);
     const tollCost = roundMoney(item.tollCost ?? item.pedagio ?? 0);
     const arlaCost = roundMoney(item.arlaCost || 0);
-    const custoTotal = roundMoney(energyCost + tollCost + arlaCost);
+    const custoVeiculo = roundMoney(item.custoVeiculo || 0);
+    const custoTotal = roundMoney(energyCost + tollCost + arlaCost + custoVeiculo);
     const freteSugerido = roundMoney(item.freteSugerido || 0);
     const lucro = roundMoney(freteSugerido - custoTotal);
-    return { ...item, energyCost, tollCost, arlaCost, custoTotal, freteSugerido, lucro };
+    return { ...item, energyCost, tollCost, arlaCost, custoVeiculo, custoTotal, freteSugerido, lucro };
   }
 
   const custoTotal = roundMoney(item.custoTotal || 0);

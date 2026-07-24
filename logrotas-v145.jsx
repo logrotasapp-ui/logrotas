@@ -127,6 +127,7 @@ import {
   buildCustoVeiculoPersistPayload,
   formFromCustoVeiculoPersist,
   CUSTO_VEICULO_PADROES,
+  resolveCustoKmSalvo,
 } from "./src/services/custoVeiculoService.js";
 import { compressImageToJpegBlob, uploadEmpresaLogo } from "./src/services/storageService.js";
 import { saveJornada } from "./src/services/jornadaService.js";
@@ -164,7 +165,7 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="v330";
+const APP_VERSION="v331";
 const SUPORTE_EMAIL="suporte@logrotas.com.br";
 const PEDAGIO_AVISO_RESULTADO="Pedágio estimado pelo Google. Pode haver variação — confirme o valor da praça.";
 const PAGE_SWIPE_ORDER=["dashboard","financeiro","despesas","comparador","manutencao","documentos","perfil"];
@@ -3211,7 +3212,7 @@ const OtimizarEntregasModal=({onClose,perfil,plan,uid,resumeNavigation=false,onN
 };
 
 // ── CALCULADORA DE VIAGEM (V171 — Google Directions + pedágio em R$ + voz) ─
-const TripCalcModal=({onClose,vehicles,onConcluido})=>{
+const TripCalcModal=({onClose,vehicles,onConcluido,onGoMeuVeiculo})=>{
   const TRIP_VEHICLES=[
     {id:"moto",   emoji:"🏍️", label:"Moto",         consumption:25, axles:2, electric:false},
     {id:"carro",  emoji:"🚗",  label:"Carro",         consumption:12, axles:2, electric:false},
@@ -3360,6 +3361,7 @@ const TripCalcModal=({onClose,vehicles,onConcluido})=>{
       vehicleLabel:veiculo.label,
       vehicleAxles:veiculo.axles,
       trailerExtra:trailerAxles,
+      custoKmVeiculo:resolveCustoKmSalvo(readCustoVeiculoLocalCache()),
     });
     if(!out.ok){setErro(out.error);return;}
     setErro("");
@@ -3510,7 +3512,8 @@ const TripCalcModal=({onClose,vehicles,onConcluido})=>{
               {[
                 {emoji:isElec?"⚡":"⛽",l:isElec?"Custo energia":"Custo combustível",v:formatMoeda(result.custoComb||0),sub:isElec?`${formatDecimal(result.dist/100*(parseNumeroBR(consumo)||veiculo.kwh),1)} kWh`:`${formatDecimal(result.litros||0,1)} litros · ${formatConsumoKmL(result.cons)}`},
                 {emoji:"🏁",l:"Pedágio",v:formatMoeda(result.custoPed||0),isPedagio:true},
-              ].map((r,i,arr)=>(
+                (result.custoVeiculo||0)>0&&{emoji:"🚗",l:"Desgaste do veículo",v:formatMoeda(result.custoVeiculo||0)},
+              ].filter(Boolean).map((r,i,arr)=>(
                 <div key={i}>
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"11px 0",borderBottom:i<arr.length-1&&!r.isPedagio?`1px solid ${C.border}`:r.isPedagio?"none":`1px solid ${C.border}`}}>
                     <div style={{display:"flex",alignItems:"center",gap:9}}>
@@ -3522,6 +3525,11 @@ const TripCalcModal=({onClose,vehicles,onConcluido})=>{
                   {r.isPedagio&&(result.custoPed||0)>0&&<div style={{color:C.muted,fontSize:11,paddingBottom:11,borderBottom:i<arr.length-1?`1px solid ${C.border}`:"none"}}>{PEDAGIO_AVISO_RESULTADO}</div>}
                 </div>
               ))}
+              {!(result.custoVeiculo>0)&&(
+                <button type="button" onClick={()=>onGoMeuVeiculo?.()} style={{background:"none",border:"none",padding:"10px 0 2px",cursor:"pointer",color:C.navy,fontSize:12,fontWeight:600,textDecoration:"underline",textAlign:"left"}}>
+                  Calcular o custo do meu veículo
+                </button>
+              )}
             </div>
             {stops.some(s=>s.v)&&(
               <div style={{background:"#EFF6FF",border:"1px solid #BFDBFE",borderRadius:11,padding:"12px 14px"}}>
@@ -3544,7 +3552,7 @@ const TripCalcModal=({onClose,vehicles,onConcluido})=>{
   );
 };
 
-const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHistorico,onConcluido,perfil,uid})=>{
+const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHistorico,onConcluido,perfil,uid,onGoMeuVeiculo})=>{
   const isPago=getPlanoAtual(perfil).isPago;
   const[limiteFrete,setLimiteFrete]=useState(false);
   const[stops,setStops]=useState([{id:1,v:"",coords:null},{id:2,v:"",coords:null}]);
@@ -3761,6 +3769,7 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
       trailerExtra,
       freight,
       metaLocal,
+      custoKmVeiculo:resolveCustoKmSalvo(readCustoVeiculoLocalCache()),
     });
     if(!out.ok){setErro(out.error);return;}
     setErro("");
@@ -3997,6 +4006,7 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
                   {emoji:result.isElec?"⚡":"⛽",l:result.isElec?"Custo Energia":"Custo Combustível",v:`R$ ${(result.energyCost||0).toFixed(2)}`,c:"#1E40AF"},
                   result.isTruck&&result.arlaCost>0&&{emoji:"🟦",l:"ARLA 32",v:`R$ ${(result.arlaCost||0).toFixed(2)}`,c:"#6D28D9"},
                   {emoji:"🏁",l:"Pedágio",v:`R$ ${(result.tollCost||0).toFixed(2)}`,c:"#B45309",isPedagio:true},
+                  (result.custoVeiculo||0)>0&&{emoji:"🚗",l:"Desgaste do veículo",v:`R$ ${(result.custoVeiculo||0).toFixed(2)}`,c:"#1E3A8A"},
                   {emoji:"📊",l:"Custo Total da Viagem",v:`R$ ${(result.total||0).toFixed(2)}`,c:"#DC2626",bold:true},
                 ].filter(Boolean).map((r,i,arr)=>(
                   <div key={i}>
@@ -4013,6 +4023,11 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
                     {r.isPedagio&&(result.tollCost||0)>0&&<div style={{color:C.muted,fontSize:11,paddingBottom:10,borderBottom:i<arr.length-1?`1px solid ${C.border}`:"none"}}>{PEDAGIO_AVISO_RESULTADO}</div>}
                   </div>
                 ))}
+                {!(result.custoVeiculo>0)&&(
+                  <button type="button" onClick={()=>onGoMeuVeiculo?.()} style={{background:"none",border:"none",padding:"8px 0 2px",cursor:"pointer",color:C.navy,fontSize:12,fontWeight:600,textDecoration:"underline",textAlign:"left"}}>
+                    Calcular o custo do meu veículo
+                  </button>
+                )}
               </div>
 
               {/* Valor do frete em destaque — o que cobrar do cliente */}
@@ -4115,7 +4130,7 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
                     const quote=calculateFreteQuote(result,{valorPorKm:metaLocal,adicionalFixo:freight,valorMinimoSaida:valorMinSaida,kmInclusosMinimo:kmInclusosMin});
                     const minV=parseNumeroBR(valorMinSaida)||0;
                     const kmInc=parseNumeroBR(kmInclusosMin)||0;
-                    setPendingSave(roundFreteCostsForSave({origin:stops[0]?.v||"Origem",dest:stops[stops.length-1]?.v||"Destino",paradas:paradasMid,date:new Date().toLocaleDateString("pt-BR"),hora:new Date().toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"}),distance:result.tot,veiculo:vehicles.find(v=>v.id===vehicleId)?.label||"",cargo,observacao,vkm:metaLocal,adicional:freight,energyCost:result.energyCost||0,tollCost:result.tollCost||0,arlaCost:result.arlaCost||0,custoTotal:result.total,freteSugerido:freteSug,lucro:lucroFinal,valorMinSaida:minV,kmInclusosMin:kmInc,kmExcedente:quote.kmExcedente||0,usedMinimum:!!quote.usedMinimum}));
+                    setPendingSave(roundFreteCostsForSave({origin:stops[0]?.v||"Origem",dest:stops[stops.length-1]?.v||"Destino",paradas:paradasMid,date:new Date().toLocaleDateString("pt-BR"),hora:new Date().toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"}),distance:result.tot,veiculo:vehicles.find(v=>v.id===vehicleId)?.label||"",cargo,observacao,vkm:metaLocal,adicional:freight,energyCost:result.energyCost||0,tollCost:result.tollCost||0,arlaCost:result.arlaCost||0,custoVeiculo:result.custoVeiculo||0,custoTotal:result.total,freteSugerido:freteSug,lucro:lucroFinal,valorMinSaida:minV,kmInclusosMin:kmInc,kmExcedente:quote.kmExcedente||0,usedMinimum:!!quote.usedMinimum}));
                     setShowStatusModal(true);
                   }} style={{width:"100%",padding:"13px",background:C.navy,border:"none",borderRadius:12,cursor:"pointer",color:"#fff",fontWeight:700,fontSize:14,fontFamily:"'Sora',sans-serif",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
                     <SaveIcon size={15}/> Salvar no Histórico de Viagens
@@ -4163,7 +4178,7 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
 
 // ── FECHAMENTO DO DIA (v291) ──────────────────────────────────────────────────
 const SERVICOS_BASE=["Uber","99","iFood"];
-const FechamentoDia=({uid,perfil,setPerfil,vehicles=[],onSalvar,onClose})=>{
+const FechamentoDia=({uid,perfil,setPerfil,vehicles=[],onSalvar,onClose,onGoMeuVeiculo})=>{
   const servicosCustom=Array.isArray(perfil?.servicosFechamento)?perfil.servicosFechamento:[];
   const servicos=[...SERVICOS_BASE,...servicosCustom.filter(s=>!SERVICOS_BASE.includes(s))];
 
@@ -4184,9 +4199,11 @@ const FechamentoDia=({uid,perfil,setPerfil,vehicles=[],onSalvar,onClose})=>{
   const pedagioNum=parseNumeroBR(pedagio)||0;
   const valorNum=parseNumeroBR(valor)||0;
   const kmNum=parseNumeroBR(km)||0;
-  const custoTotal=roundMoney(combustivel+pedagioNum);
+  const custoKmSalvo=resolveCustoKmSalvo(readCustoVeiculoLocalCache());
+  const custoVeiculo=roundMoney(custoKmSalvo>0&&kmNum>0?custoKmSalvo*kmNum:0);
+  const custoTotal=roundMoney(combustivel+pedagioNum+custoVeiculo);
   const lucro=roundMoney(valorNum-custoTotal);
-  const custoKm=kmNum>0?roundMoney(custoTotal/kmNum):0;
+  const custoPorKmDia=kmNum>0?roundMoney(custoTotal/kmNum):0;
 
   const adicionarServico=async()=>{
     const nome=novoServ.trim();
@@ -4229,6 +4246,7 @@ const FechamentoDia=({uid,perfil,setPerfil,vehicles=[],onSalvar,onClose})=>{
         valorRecebido:valorNum,
         combustivelCalculado:combustivel,
         pedagioOutros:pedagioNum,
+        custoVeiculo,
         custoTotal,
         lucro,
         observacoes:observacoes.trim(),
@@ -4258,6 +4276,12 @@ const FechamentoDia=({uid,perfil,setPerfil,vehicles=[],onSalvar,onClose})=>{
             <Metric label="Combustível" value={formatMoeda(veredito.combustivelCalculado)} sub="abastecido" icon={FuelIcon} color={C.orange} bg={C.orangeLight}/>
             <Metric label="Custo total" value={formatMoeda(veredito.custoTotal)} sub={veredito.pedagioOutros>0?`+ ${formatMoeda(veredito.pedagioOutros)} extras`:"comb. + extras"} icon={CalculatorIcon} color={C.red} bg={C.redLight}/>
           </div>
+          {(veredito.custoVeiculo||0)>0&&(
+            <div style={{background:C.navyLight,border:`1px solid ${C.navy}22`,borderRadius:12,padding:"12px 15px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <span style={{color:C.text2,fontSize:13,fontWeight:700}}>🚗 Desgaste do veículo</span>
+              <span style={{color:C.navy,fontWeight:900,fontSize:16,fontFamily:"'Sora',sans-serif"}}>{formatMoeda(veredito.custoVeiculo)}</span>
+            </div>
+          )}
           <div style={{background:C.subtle,border:`1px solid ${C.border}`,borderRadius:12,padding:"11px 14px",color:C.muted,fontSize:12,lineHeight:1.5}}>
             ✅ Lançado no Financeiro: entrada de {formatMoeda(veredito.valorRecebido)} e saída de {formatMoeda(veredito.custoTotal)} em Despesas.
           </div>
@@ -4334,13 +4358,40 @@ const FechamentoDia=({uid,perfil,setPerfil,vehicles=[],onSalvar,onClose})=>{
           {(valorNum>0||kmNum>0||combustivel>0)&&(
             <div style={{display:"flex",flexDirection:"column",gap:8,marginTop:2}}>
               <div style={{color:C.muted,fontSize:12,fontWeight:700,letterSpacing:0.4,textTransform:"uppercase"}}>Resultado do dia</div>
+              {(custoVeiculo>0||pedagioNum>0||combustivel>0)&&(
+                <div style={{background:"#F8FAFC",borderRadius:12,padding:"10px 14px",display:"flex",flexDirection:"column",gap:0}}>
+                  {combustivel>0&&(
+                    <div style={{display:"flex",justifyContent:"space-between",padding:"8px 0",borderBottom:`1px solid ${C.border}`}}>
+                      <span style={{color:C.text2,fontSize:13}}>⛽ Combustível</span>
+                      <span style={{color:C.navy,fontWeight:700,fontSize:14}}>{formatMoeda(combustivel)}</span>
+                    </div>
+                  )}
+                  {pedagioNum>0&&(
+                    <div style={{display:"flex",justifyContent:"space-between",padding:"8px 0",borderBottom:custoVeiculo>0?`1px solid ${C.border}`:"none"}}>
+                      <span style={{color:C.text2,fontSize:13}}>🅿️ Pedágio / outros</span>
+                      <span style={{color:C.navy,fontWeight:700,fontSize:14}}>{formatMoeda(pedagioNum)}</span>
+                    </div>
+                  )}
+                  {custoVeiculo>0&&(
+                    <div style={{display:"flex",justifyContent:"space-between",padding:"8px 0"}}>
+                      <span style={{color:C.text2,fontSize:13}}>🚗 Desgaste do veículo</span>
+                      <span style={{color:C.navy,fontWeight:700,fontSize:14}}>{formatMoeda(custoVeiculo)}</span>
+                    </div>
+                  )}
+                </div>
+              )}
+              {!(custoKmSalvo>0)&&(
+                <button type="button" onClick={()=>onGoMeuVeiculo?.()} style={{background:"none",border:"none",padding:"4px 0",cursor:"pointer",color:C.navy,fontSize:12,fontWeight:600,textDecoration:"underline",textAlign:"left"}}>
+                  Calcular o custo do meu veículo
+                </button>
+              )}
               <div style={{background:lucro>=0?C.greenLight:C.redLight,border:`1px solid ${lucro>=0?C.green:C.red}22`,borderRadius:12,padding:"13px 15px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                 <span style={{color:C.text2,fontSize:13,fontWeight:700}}>Ficou no seu bolso (lucro)</span>
                 <span style={{color:lucro>=0?C.green:C.red,fontWeight:900,fontSize:20,fontFamily:"'Sora',sans-serif"}}>{formatMoeda(lucro)}</span>
               </div>
               <div style={{background:C.navyLight,border:`1px solid ${C.navy}22`,borderRadius:12,padding:"12px 15px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                 <span style={{color:C.text2,fontSize:13,fontWeight:700}}>Custo por km rodado</span>
-                <span style={{color:C.navy,fontWeight:900,fontSize:18,fontFamily:"'Sora',sans-serif"}}>{formatMoeda(custoKm)}{kmNum>0?"/km":""}</span>
+                <span style={{color:C.navy,fontWeight:900,fontSize:18,fontFamily:"'Sora',sans-serif"}}>{formatMoeda(custoPorKmDia)}{kmNum>0?"/km":""}</span>
               </div>
             </div>
           )}
@@ -4735,17 +4786,19 @@ const freteRuaResumida=(endereco)=>{
 };
 const freteCustoBreakdown=(f)=>{
   const hasBreakdown=f.energyCost!=null||f.custoComb!=null||f.combustivelCost!=null
-    ||f.tollCost!=null||f.pedagio!=null||f.pedagioTotal!=null||Number(f.arlaCost||0)>0;
+    ||f.tollCost!=null||f.pedagio!=null||f.pedagioTotal!=null||Number(f.arlaCost||0)>0||Number(f.custoVeiculo||0)>0;
   const combVal=hasBreakdown?Number(f.energyCost??f.custoComb??f.combustivelCost??0):null;
   const pedRaw=f.tollCost??f.pedagio??f.pedagioTotal;
   const pedNum=pedRaw!=null&&pedRaw!==""?Number(pedRaw):null;
   const arla=Number(f.arlaCost||0);
+  const custoVeiculo=Number(f.custoVeiculo||0);
   const showComb=hasBreakdown&&combVal>0;
   const showPed=pedNum!=null&&!Number.isNaN(pedNum)&&pedNum>0;
   const showArla=arla>0;
-  const somaPartes=(combVal??0)+(showPed?pedNum:0)+(showArla?arla:0);
+  const showDesgaste=Number.isFinite(custoVeiculo)&&custoVeiculo>0;
+  const somaPartes=(combVal??0)+(showPed?pedNum:0)+(showArla?arla:0)+(showDesgaste?custoVeiculo:0);
   const custoTotal=Number(f.custoTotal||0)||(hasBreakdown?somaPartes:0);
-  return{combVal,pedNum,arla,showComb,showPed,showArla,hasBreakdown,custoTotal};
+  return{combVal,pedNum,arla,custoVeiculo,showComb,showPed,showArla,showDesgaste,hasBreakdown,custoTotal};
 };
 const freteMoeda=formatMoeda;
 const freteMoedaKm=formatMoedaKm;
@@ -4898,7 +4951,9 @@ const Comparador=({historicoFretes,jornadas=[],onAddFrete,onUpdateFrete,onDelete
     const pedagio=roundMoney(parseNumeroBR(formJ.pedagio)||0);
     const valorRecebido=roundMoney(parseNumeroBR(formJ.valorRecebido)||0);
     const km=parseNumeroBR(formJ.km)||0;
-    const custoTotal=roundMoney(combustivel+pedagio);
+    const custoKmSalvo=resolveCustoKmSalvo(readCustoVeiculoLocalCache());
+    const custoVeiculo=roundMoney(custoKmSalvo>0&&km>0?custoKmSalvo*km:0);
+    const custoTotal=roundMoney(combustivel+pedagio+custoVeiculo);
     const lucro=roundMoney(valorRecebido-custoTotal);
     const dados={
       servico:(formJ.servico||"").trim()||"Jornada",
@@ -4907,6 +4962,7 @@ const Comparador=({historicoFretes,jornadas=[],onAddFrete,onUpdateFrete,onDelete
       km,valorRecebido,
       combustivelCalculado:combustivel,
       pedagioOutros:pedagio,
+      custoVeiculo,
       custoTotal,lucro,
       observacoes:(formJ.observacoes||"").trim(),
     };
@@ -5127,7 +5183,7 @@ const Comparador=({historicoFretes,jornadas=[],onAddFrete,onUpdateFrete,onDelete
 
           {/* Custos e resultado */}
           {(()=>{
-            const{combVal,pedNum,arla,showComb,showPed,showArla,custoTotal}=freteCustoBreakdown(detalhe);
+            const{combVal,pedNum,arla,custoVeiculo,showComb,showPed,showArla,showDesgaste,custoTotal}=freteCustoBreakdown(detalhe);
             const lucroPos=(detalhe.lucro||0)>=0;
             const dist=Number(detalhe.distance)||0;
             return(
@@ -5135,6 +5191,7 @@ const Comparador=({historicoFretes,jornadas=[],onAddFrete,onUpdateFrete,onDelete
                 {showComb&&<FreteDetRow label="Combustível" value={freteMoeda(combVal)}/>}
                 {showPed&&<FreteDetRow label="Pedágio" value={freteMoeda(pedNum)}/>}
                 {showArla&&<FreteDetRow label="ARLA 32" value={freteMoeda(arla)}/>}
+                {showDesgaste&&<FreteDetRow label="🚗 Desgaste do veículo" value={freteMoeda(custoVeiculo)}/>}
                 <FreteDetRow
                   label="Custo Total da Viagem"
                   value={freteMoeda(custoTotal)}
@@ -5273,7 +5330,7 @@ const Comparador=({historicoFretes,jornadas=[],onAddFrete,onUpdateFrete,onDelete
         const lucroKmJ=km>0?roundMoney(lucro/km):0;
         const pos=lucro>=0;
         const dataJ=jornadaDataHora(j);
-        const msg=`${servicoEmoji(j.servico)} *${j.servico||"Jornada"}* — Fechamento do dia\n\n📅 ${dataJ}\n🛣️ ${km} km\n⛽ Combustível: ${freteMoeda(j.combustivelCalculado||0)}\n🅿️ Pedágio/outros: ${freteMoeda(j.pedagioOutros||0)}\n💸 Custo total: ${freteMoeda(j.custoTotal||0)}\n💰 Recebido: ${freteMoeda(j.valorRecebido||0)}\n🟢 Lucro: ${freteMoeda(lucro)}${j.observacoes?`\n📝 Obs: ${j.observacoes}`:""}\n\n_Gerado pelo LogRotas_`;
+        const msg=`${servicoEmoji(j.servico)} *${j.servico||"Jornada"}* — Fechamento do dia\n\n📅 ${dataJ}\n🛣️ ${km} km\n⛽ Combustível: ${freteMoeda(j.combustivelCalculado||0)}\n🅿️ Pedágio/outros: ${freteMoeda(j.pedagioOutros||0)}${(j.custoVeiculo||0)>0?`\n🚗 Desgaste do veículo: ${freteMoeda(j.custoVeiculo)}`:""}\n💸 Custo total: ${freteMoeda(j.custoTotal||0)}\n💰 Recebido: ${freteMoeda(j.valorRecebido||0)}\n🟢 Lucro: ${freteMoeda(lucro)}${j.observacoes?`\n📝 Obs: ${j.observacoes}`:""}\n\n_Gerado pelo LogRotas_`;
         return(
           <ModalWrap maxW={440}>
             <div style={{position:"relative",marginBottom:16}}>
@@ -5290,6 +5347,7 @@ const Comparador=({historicoFretes,jornadas=[],onAddFrete,onUpdateFrete,onDelete
               <FreteDetRow label="Km rodado" value={`${km} km`}/>
               <FreteDetRow label="Combustível" value={freteMoeda(j.combustivelCalculado||0)}/>
               <FreteDetRow label="Pedágio / outros" value={freteMoeda(j.pedagioOutros||0)}/>
+              {(j.custoVeiculo||0)>0&&<FreteDetRow label="🚗 Desgaste do veículo" value={freteMoeda(j.custoVeiculo||0)}/>}
               <FreteDetRow label="Custo total" value={freteMoeda(j.custoTotal||0)} valueStyle={{color:C.red,fontWeight:"bold"}} rowStyle={FRETE_DET_HIGHLIGHT({background:C.redLight,marginTop:4})}/>
               <FreteDetRow label="Valor recebido" value={freteMoeda(j.valorRecebido||0)} valueStyle={{color:C.navy}} rowStyle={FRETE_DET_HIGHLIGHT({background:C.navyLight,marginTop:12})}/>
               <FreteDetRow label="🟢 Lucro" value={freteMoeda(lucro)} valueStyle={{color:pos?C.green:C.red,fontWeight:"bold"}} rowStyle={FRETE_DET_HIGHLIGHT({background:pos?C.greenLight:C.redLight,marginTop:8})}/>
@@ -5326,7 +5384,14 @@ const Comparador=({historicoFretes,jornadas=[],onAddFrete,onUpdateFrete,onDelete
 
       {/* V296 — Editar serviço (jornada) */}
       {editJornada&&(()=>{
-        const lucroPrev=roundMoney((parseNumeroBR(formJ.valorRecebido)||0)-((parseNumeroBR(formJ.combustivel)||0)+(parseNumeroBR(formJ.pedagio)||0)));
+        const lucroPrev=(()=>{
+          const comb=parseNumeroBR(formJ.combustivel)||0;
+          const ped=parseNumeroBR(formJ.pedagio)||0;
+          const kmE=parseNumeroBR(formJ.km)||0;
+          const ck=resolveCustoKmSalvo(readCustoVeiculoLocalCache());
+          const desgaste=ck>0&&kmE>0?ck*kmE:0;
+          return roundMoney((parseNumeroBR(formJ.valorRecebido)||0)-(comb+ped+desgaste));
+        })();
         return(
           <ModalWrap><ModalHeader title="Editar serviço" sub={`${editJornada.servico||"Jornada"} · ${editJornada.date||editJornada.data||"—"}`} icon={EditIcon} iconColor={C.navy} onClose={()=>setEditJornada(null)}/>
             <div style={{display:"flex",flexDirection:"column",gap:12}}>
@@ -7748,10 +7813,10 @@ export default function App(){
         onViagem={()=>setCalcMode("viagem")}
         onOtimizar={()=>setCalcMode("otimizar")}
         onClose={()=>handleCalcModalClose()}/>}
-      {showCalc&&calcMode==="viagem"&&<TripCalcModal onClose={()=>handleCalcModalClose()} onConcluido={handleCalcConcluida} vehicles={vehicles}/>}
-      {showCalc&&calcMode==="frete"&&<RouteCalcModal onClose={()=>handleCalcModalClose()} onConcluido={handleCalcConcluida} vehicles={vehicles} valorKmPadrao={valorKm} adicionalPadrao={adicionalFixo} onSalvarHistorico={handleAddFrete} perfil={perfil} uid={firebaseUser?.uid}/>}
+      {showCalc&&calcMode==="viagem"&&<TripCalcModal onClose={()=>handleCalcModalClose()} onConcluido={handleCalcConcluida} vehicles={vehicles} onGoMeuVeiculo={()=>{handleCalcModalClose();setPage("manutencao");}}/>}
+      {showCalc&&calcMode==="frete"&&<RouteCalcModal onClose={()=>handleCalcModalClose()} onConcluido={handleCalcConcluida} vehicles={vehicles} valorKmPadrao={valorKm} adicionalPadrao={adicionalFixo} onSalvarHistorico={handleAddFrete} perfil={perfil} uid={firebaseUser?.uid} onGoMeuVeiculo={()=>{handleCalcModalClose();setPage("manutencao");}}/>}
       {showCalc&&calcMode==="otimizar"&&<OtimizarEntregasModal uid={firebaseUser?.uid} resumeNavigation={resumeNav} onNavigationResumed={()=>setResumeNav(false)} onClose={()=>handleCalcModalClose(()=>setResumeNav(false))} onConcluido={handleCalcConcluida} perfil={perfil} plan={plan}/>}
-      {showFechamento&&<FechamentoDia uid={firebaseUser?.uid} perfil={perfil} setPerfil={setPerfil} vehicles={vehicles} onSalvar={handleSaveJornada} onClose={()=>setShowFechamento(false)}/>}
+      {showFechamento&&<FechamentoDia uid={firebaseUser?.uid} perfil={perfil} setPerfil={setPerfil} vehicles={vehicles} onSalvar={handleSaveJornada} onClose={()=>setShowFechamento(false)} onGoMeuVeiculo={()=>{setShowFechamento(false);setPage("manutencao");}}/>}
       <AvaliacaoAppModal
         open={!!showAvaliacaoModal}
         origem={showAvaliacaoModal?.origem}

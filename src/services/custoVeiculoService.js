@@ -326,3 +326,23 @@ export function formFromCustoVeiculoPersist(saved) {
     kmMesManual: str(saved.kmMesManual),
   };
 }
+
+/**
+ * Lê o custoKm já gravado (users/{uid}.custoVeiculo ou cache). Não recalcula.
+ * Aceita o objeto persistido ou um perfil com `.custoVeiculo`.
+ * @returns {number} > 0 se configurado; 0 se ausente/inválido
+ */
+export function resolveCustoKmSalvo(...sources) {
+  for (const s of sources) {
+    if (s == null) continue;
+    const raw =
+      typeof s === "number"
+        ? s
+        : s?.custoKm != null
+          ? s.custoKm
+          : s?.custoVeiculo?.custoKm;
+    const n = Number(raw);
+    if (Number.isFinite(n) && n > 0) return n;
+  }
+  return 0;
+}

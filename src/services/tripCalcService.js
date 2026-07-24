@@ -51,7 +51,12 @@ export function calculateTripCosts(input) {
     trailerExtra,
     context: CALC_VIAGEM,
   });
-  const total = custoComb + custoPed;
+  const custoKmRaw = Number(input.custoKmVeiculo);
+  const custoKmVeiculo =
+    Number.isFinite(custoKmRaw) && custoKmRaw > 0 ? custoKmRaw : 0;
+  const custoVeiculo =
+    custoKmVeiculo > 0 && dist > 0 ? custoKmVeiculo * dist : 0;
+  const total = custoComb + custoPed + custoVeiculo;
 
   return {
     ok: true,
@@ -59,6 +64,8 @@ export function calculateTripCosts(input) {
       dist,
       custoComb,
       custoPed,
+      custoVeiculo,
+      custoKmVeiculo,
       total,
       litros: isElec ? null : dist / cons,
       cons,

@@ -1489,7 +1489,12 @@ export function calculateRouteCosts(input) {
     trailerExtra,
     context: CALC_FRETE,
   });
-  const total = energyCost + arlaCost + tollCost;
+  const custoKmRaw = Number(input.custoKmVeiculo);
+  const custoKmVeiculo =
+    Number.isFinite(custoKmRaw) && custoKmRaw > 0 ? custoKmRaw : 0;
+  const custoVeiculo =
+    custoKmVeiculo > 0 && tot > 0 ? custoKmVeiculo * tot : 0;
+  const total = energyCost + arlaCost + tollCost + custoVeiculo;
   const freteVal = parseNumeroBR(freight) || 0;
   const lucro = freteVal - total;
 
@@ -1500,6 +1505,8 @@ export function calculateRouteCosts(input) {
       energyCost,
       arlaCost,
       tollCost,
+      custoVeiculo,
+      custoKmVeiculo,
       total,
       lucro,
       margem: freteVal ? (lucro / freteVal) * 100 : null,
