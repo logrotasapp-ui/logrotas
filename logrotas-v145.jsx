@@ -165,7 +165,7 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="v324";
+const APP_VERSION="v325";
 const SUPORTE_EMAIL="suporte@logrotas.com.br";
 const PEDAGIO_AVISO_RESULTADO="Pedágio estimado pelo Google. Pode haver variação — confirme o valor da praça.";
 const PAGE_SWIPE_ORDER=["dashboard","financeiro","despesas","comparador","manutencao","documentos","perfil"];
@@ -4391,17 +4391,20 @@ const Dashboard=({onNav,setShowCalc,setCalcMode,historicoFretes,jornadas=[],manu
     return parseInt(parts[1])-1===mesAtual&&parseInt(parts[2])===anoAtual;
   });
   const jornadasReceitaMes=roundMoney(jornadasMesAtual.reduce((a,j)=>a+(j.valorRecebido||0),0));
-  const viagensMesQtd=fretesMesAtual.length+jornadasMesAtual.length;
+  const qtdFretesMes=fretesMesAtual.length;
+  const qtdJornadasMes=jornadasMesAtual.length;
   const receitaMes=roundMoney(faturamentoMes+jornadasReceitaMes);
+  // Saudação no padrão do Financeiro: deixa explícito fretes vs jornadas (sem misturar o total)
+  const textoSaudacaoMes=(qtdFretesMes===0&&qtdJornadasMes===0)
+    ?"Nenhuma viagem este mês ainda"
+    :`${qtdFretesMes} ${qtdFretesMes===1?"viagem":"viagens"}${qtdJornadasMes>0?` + ${qtdJornadasMes} jornada${qtdJornadasMes===1?"":"s"}`:""} este mês · ${formatMoeda(receitaMes)}`;
 
   return(
     <div style={{display:"flex",flexDirection:"column",gap:18}}>
       <div>
         <div style={{color:C.navy,fontSize:20,fontWeight:800,fontFamily:"'Sora',sans-serif",marginBottom:6}}>{saudacao}, {nomeMotorista}! 👋</div>
         <div style={{color:C.text2,fontSize:14,fontWeight:600,lineHeight:1.45,marginBottom:12}}>
-          {viagensMesQtd===0
-            ? "Nenhuma viagem este mês ainda"
-            : `${viagensMesQtd} ${viagensMesQtd===1?"viagem":"viagens"} este mês · ${formatMoeda(receitaMes)}`}
+          {textoSaudacaoMes}
         </div>
 
         {/* Botão indicação */}
@@ -4437,8 +4440,8 @@ const Dashboard=({onNav,setShowCalc,setCalcMode,historicoFretes,jornadas=[],manu
       <button onClick={()=>onFecharDia?.()} style={{background:"#fff",border:`1.5px solid ${C.orange}33`,borderRadius:16,padding:"15px 18px",cursor:"pointer",display:"flex",alignItems:"center",gap:13,width:"100%",boxShadow:"0 2px 10px #1E3A8A0D",textAlign:"left"}}>
         <div style={{width:44,height:44,borderRadius:12,background:`linear-gradient(135deg,${C.navy},${C.navyMid})`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,fontSize:20}}>🌙</div>
         <div style={{flex:1,minWidth:0}}>
-          <div style={{color:C.navy,fontWeight:800,fontSize:16,fontFamily:"'Sora',sans-serif"}}>Fechar meu dia</div>
-          <div style={{color:C.muted,fontSize:12,marginTop:2}}>Registre seu dia e veja o lucro real</div>
+          <div style={{color:C.navy,fontWeight:800,fontSize:16,fontFamily:"'Sora',sans-serif"}}>Fechar minha jornada</div>
+          <div style={{color:C.muted,fontSize:12,marginTop:2}}>Uber, 99, iFood e outros · veja seu lucro real</div>
         </div>
         <ArrowRightIcon size={16} color={C.orange}/>
       </button>
@@ -4518,7 +4521,7 @@ const Dashboard=({onNav,setShowCalc,setCalcMode,historicoFretes,jornadas=[],manu
         </div>
       ):(
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:11}}>
-          <Metric label="Viagens salvas" value={String(viagensMesQtd)} sub="este mês" trend="up" icon={CalculatorIcon} color={C.green} bg={C.greenLight}/>
+          <Metric label="Viagens salvas" value={String(qtdFretesMes)} sub="este mês" trend="up" icon={CalculatorIcon} color={C.green} bg={C.greenLight}/>
           <Metric label="Receita total" value={formatMoeda(receitaMes)} sub="este mês" trend="up" icon={DollarSignIcon} color={C.orange} bg={C.orangeLight}/>
         </div>
       )}
