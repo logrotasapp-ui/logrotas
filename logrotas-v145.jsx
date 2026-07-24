@@ -164,7 +164,7 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="v327";
+const APP_VERSION="v329";
 const SUPORTE_EMAIL="suporte@logrotas.com.br";
 const PEDAGIO_AVISO_RESULTADO="Pedágio estimado pelo Google. Pode haver variação — confirme o valor da praça.";
 const PAGE_SWIPE_ORDER=["dashboard","financeiro","despesas","comparador","manutencao","documentos","perfil"];
@@ -199,23 +199,23 @@ const USE_HYBRID_OPTIMIZER=true;
 
 const MSG_INDICACAO="Fala! Uso o LogRotas pra calcular rota, pedágio e o preço certo do frete. Achei que ia te ajudar também. Dá uma olhada: https://logrotas.com.br";
 
-// Abre WhatsApp com convite simples (sem menção a plano/benefício/recompensa)
-const compartilharIndicacao=async()=>{
+// Abre WhatsApp com convite simples (sem menção a plano/benefício/recompensa).
+// Mobile/PWA: navega com location.href (window.open costuma falhar no Android).
+// Fallback (ex.: desktop): copia a mensagem e avisa via toast — sem alert() nativo.
+const compartilharIndicacao=async(onFallbackToast)=>{
   const url=`https://wa.me/?text=${encodeURIComponent(MSG_INDICACAO)}`;
-  let abriu=false;
   try{
-    const w=window.open(url,"_blank","noopener,noreferrer");
-    abriu=!!w;
-  }catch{/* popup bloqueado / ambiente sem window.open */}
-  if(abriu)return;
+    window.location.href=url;
+    return;
+  }catch{/* navegação indisponível */}
   try{
     if(navigator.clipboard?.writeText){
       await navigator.clipboard.writeText(MSG_INDICACAO);
-      window.alert("Mensagem copiada! Cole no WhatsApp para enviar.");
+      onFallbackToast?.("Mensagem copiada! Cole no WhatsApp para enviar.");
       return;
     }
   }catch{/* clipboard indisponível */}
-  window.alert(MSG_INDICACAO);
+  onFallbackToast?.("Não foi possível abrir o WhatsApp. Tente de novo pelo celular.");
 };
 
 // SEGURANÇA: Em produção, mova esta chave para um backend Node.js/Firebase Function.
@@ -4353,6 +4353,11 @@ const FechamentoDia=({uid,perfil,setPerfil,vehicles=[],onSalvar,onClose})=>{
 // ── DASHBOARD ─────────────────────────────────────────────────────────────────
 const Dashboard=({onNav,setShowCalc,setCalcMode,historicoFretes,jornadas=[],manutencoes,docs,despesas=[],perfil,onNovoChecklist,onUltimosChecklists,ultimosAvulsosCount=0,avulsosEmAndamento=[],onRetomarChecklist,onFecharDia})=>{
   const[showReferralSoon,setShowReferralSoon]=useState(false);
+  const[toastIndicacao,setToastIndicacao]=useState("");
+  const showToastIndicacao=(msg)=>{
+    setToastIndicacao(msg||"");
+    if(msg)setTimeout(()=>setToastIndicacao(""),3000);
+  };
   const hoje=new Date();hoje.setHours(0,0,0,0);
   const docsVencendo=(docs||[]).filter(d=>{
     if(!d.expiry)return false;
@@ -4430,7 +4435,7 @@ const Dashboard=({onNav,setShowCalc,setCalcMode,historicoFretes,jornadas=[],manu
         </div>
 
         {/* Botão indicação */}
-        <a onClick={e=>{e.preventDefault();if(REFERRAL_ENABLED){compartilharIndicacao(perfil);}else{setShowReferralSoon(true);}}} href="#"
+        <a onClick={e=>{e.preventDefault();if(REFERRAL_ENABLED){void compartilharIndicacao(showToastIndicacao);}else{setShowReferralSoon(true);}}} href="#"
           style={{display:"flex",alignItems:"center",justifyContent:"space-between",background:"linear-gradient(135deg,#1E3A8A,#2952C8)",border:"none",borderRadius:14,padding:"11px 16px",cursor:"pointer",textDecoration:"none",marginBottom:4}}>
           <div style={{display:"flex",alignItems:"center",gap:10}}>
             <div style={{width:34,height:34,borderRadius:"50%",background:"#ffffff22",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
@@ -4620,6 +4625,11 @@ const Dashboard=({onNav,setShowCalc,setCalcMode,historicoFretes,jornadas=[],manu
             <div style={{color:C.text2,fontSize:14,marginBottom:22,lineHeight:1.55}}>O programa de indicação será ativado oficialmente após a fase beta.</div>
             <button onClick={()=>setShowReferralSoon(false)} style={{width:"100%",padding:"11px 0",background:C.navy,border:"none",borderRadius:11,color:"#fff",fontWeight:800,fontSize:14,cursor:"pointer"}}>OK</button>
           </div>
+        </div>
+      )}
+      {toastIndicacao&&(
+        <div style={{position:"fixed",bottom:90,left:"50%",transform:"translateX(-50%)",zIndex:980,background:C.navy,color:"#fff",padding:"10px 18px",borderRadius:10,fontSize:13,fontWeight:600,boxShadow:"0 4px 20px #00000033",maxWidth:"90%",textAlign:"center"}}>
+          {toastIndicacao}
         </div>
       )}
     </div>

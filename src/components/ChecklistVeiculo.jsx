@@ -1554,6 +1554,8 @@ export default function ChecklistVeiculo({
   const prestadorPadRef = useRef(null);
   const recebedorEntregaPadRef = useRef(null);
   const prestadorEntregaPadRef = useRef(null);
+  /** Campos de "Responsável no local" editados à mão — nunca sobrescrever com dados do cliente. */
+  const responsavelCamposManuaisRef = useRef({ nome: false, documento: false });
   const checklistRef = useRef(checklist);
   const etapaRef = useRef(etapa);
   const migrationRanRef = useRef(null);
@@ -1800,8 +1802,18 @@ export default function ChecklistVeiculo({
     }
   }, [checklist.entrega?.conferencia?.conforme]);
 
+  // Valores já gravados no responsável = edição prévia (não sobrescrever ao reabrir).
   useEffect(() => {
-    if (etapa !== 4) return;
+    const resp = checklistRef.current?.coleta?.assinaturas?.responsavel;
+    responsavelCamposManuaisRef.current = {
+      nome: !!String(resp?.nome || "").trim(),
+      documento: !!String(resp?.documento || "").trim(),
+    };
+  }, [checklist?.id]);
+
+  // Copia cliente → responsável no local de imediato (sem esperar aba 4 / rede / upload).
+  // Telefone da Assinatura já é o mesmo campo de cliente.telefone (telefoneExtra).
+  useEffect(() => {
     setChecklist((c) => {
       const cliente = c.cliente || {};
       const coleta = normalizeColetaData(c.coleta, c);
@@ -1811,12 +1823,13 @@ export default function ChecklistVeiculo({
       let changed = false;
       const nextResp = { ...resp };
       const nextPrest = { ...prest };
+      const manuais = responsavelCamposManuaisRef.current;
 
-      if (!resp.nome?.trim() && cliente.nome?.trim()) {
+      if (!manuais.nome && cliente.nome?.trim() && (resp.nome || "") !== cliente.nome) {
         nextResp.nome = cliente.nome;
         changed = true;
       }
-      if (!resp.documento?.trim() && cliente.documento?.trim()) {
+      if (!manuais.documento && cliente.documento?.trim() && (resp.documento || "") !== cliente.documento) {
         nextResp.documento = cliente.documento;
         changed = true;
       }
@@ -1846,7 +1859,15 @@ export default function ChecklistVeiculo({
       checklistRef.current = next;
       return next;
     });
-  }, [etapa, perfil?.nome, perfil?.documento, prestadorPerfilOk]);
+  }, [
+    checklist?.cliente?.nome,
+    checklist?.cliente?.documento,
+    checklist?.coleta?.assinaturas?.responsavel?.nome,
+    checklist?.coleta?.assinaturas?.responsavel?.documento,
+    perfil?.nome,
+    perfil?.documento,
+    prestadorPerfilOk,
+  ]);
 
   useEffect(() => {
     if (etapa !== 6 || prestadorPerfilOk) return;
@@ -2792,7 +2813,13 @@ export default function ChecklistVeiculo({
     await salvar({ coleta });
   };
 
-  const updateAssinaturaCampo = (bloco, campo, valor) =>
+  const updateAssinaturaCampo = (bloco, campo, valor) => {
+    if (bloco === "responsavel" && (campo === "nome" || campo === "documento")) {
+      responsavelCamposManuaisRef.current = {
+        ...responsavelCamposManuaisRef.current,
+        [campo]: true,
+      };
+    }
     setChecklist((c) => {
       const coleta = normalizeColetaData(c.coleta, c);
       const assinAtual = coleta.assinaturas?.[bloco] || assinaturaVazia();
@@ -2809,6 +2836,7 @@ export default function ChecklistVeiculo({
       checklistRef.current = next;
       return next;
     });
+  };
 
   const avancarEtapa4 = async () => {
     setTentouFinalizarColeta(true);
