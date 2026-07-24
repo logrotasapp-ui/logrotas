@@ -10,6 +10,7 @@ export const OFFLINE_KEYS = {
   avaliacao: "logrotas_avaliacao_state",
   avaliacaoPendentes: "logrotas_avaliacao_pendentes",
   vehicles: "logrotas_vehicles",
+  custoVeiculo: "logrotas_custo_veiculo",
   uiState: "logrotas_ui_state",
   checklistSessao: "logrotas_checklist_sessao",
 };
@@ -220,4 +221,12 @@ export function clearVehiclesLocalCache() {
   } catch {
     /* quota / modo privado */
   }
+}
+
+export function readCustoVeiculoLocalCache() {
+  return readOfflineCache(OFFLINE_KEYS.custoVeiculo);
+}
+
+export function writeCustoVeiculoLocalCache(payload) {
+  writeOfflineCache(OFFLINE_KEYS.custoVeiculo, payload || {});
 }

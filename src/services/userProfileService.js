@@ -126,3 +126,18 @@ export async function saveUserVehicles(uid, vehicles) {
     vehicles: serializeVehiclesForStorage(vehicles),
   });
 }
+
+/** Extrai custoVeiculo do perfil Firestore (ou null). */
+export function extractCustoVeiculoFromProfile(data) {
+  const c = data?.custoVeiculo;
+  if (!c || typeof c !== "object") return null;
+  return c;
+}
+
+/** Grava custoVeiculo no perfil (merge). */
+export async function saveUserCustoVeiculo(uid, custoVeiculoPayload) {
+  if (!uid) throw new Error("Usuário não autenticado.");
+  await saveUserProfile(uid, {
+    custoVeiculo: custoVeiculoPayload,
+  });
+}

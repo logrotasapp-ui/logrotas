@@ -116,12 +116,19 @@ import {
   dedupParadasPorId,
   countPacotes,
 } from "./src/services/pacotesService.js";
-import { OFFLINE_KEYS, AUTH_KEYS, readOfflineCache, writeOfflineCache, clearAllLogRotasStorage, clearVehiclesLocalCache, readVehiclesLocalCache, writeVehiclesLocalCache, mergeVehiclesWithDefaults, readProPlanActive, readProTrialDaysLeft, readPerfilLocalFallback, writePerfilLocalCache, readUiState, writeUiState, clearUiState } from "./src/services/offlineStorage.js";
+import { OFFLINE_KEYS, AUTH_KEYS, readOfflineCache, writeOfflineCache, clearAllLogRotasStorage, clearVehiclesLocalCache, readVehiclesLocalCache, writeVehiclesLocalCache, mergeVehiclesWithDefaults, readCustoVeiculoLocalCache, writeCustoVeiculoLocalCache, readProPlanActive, readProTrialDaysLeft, readPerfilLocalFallback, writePerfilLocalCache, readUiState, writeUiState, clearUiState } from "./src/services/offlineStorage.js";
 import { planStateFromPerfil, perfilTemCamposAcesso, getPlanoAtual } from "./src/services/planoService.js";
 import { podeUsar, incrementarUso, FREE_LIMITS, checarLimiteFree, MSG_LIMITE } from "./src/services/usoService.js";
 import LimiteAtingido from "./src/components/LimiteAtingido.jsx";
 import { subscribeAuth, signInWithEmail, signInWithGoogle, signOutUser, getAuthErrorMessage, sendPasswordResetEmail, getPasswordResetErrorMessage } from "./src/services/authService.js";
-import { saveUserProfile, loadUserProfile, loadUserProfileWithTimeout, firestoreToPerfil, perfilToFirestorePayload, extractVehiclesFromProfile, saveUserVehicles } from "./src/services/userProfileService.js";
+import { saveUserProfile, loadUserProfile, loadUserProfileWithTimeout, firestoreToPerfil, perfilToFirestorePayload, extractVehiclesFromProfile, saveUserVehicles, extractCustoVeiculoFromProfile, saveUserCustoVeiculo } from "./src/services/userProfileService.js";
+import {
+  calcularCustoVeiculo,
+  mediaKmMesUltimos3Meses,
+  buildCustoVeiculoPersistPayload,
+  formFromCustoVeiculoPersist,
+  CUSTO_VEICULO_PADROES,
+} from "./src/services/custoVeiculoService.js";
 import { compressImageToJpegBlob, uploadEmpresaLogo } from "./src/services/storageService.js";
 import { saveJornada } from "./src/services/jornadaService.js";
 import {
@@ -158,7 +165,7 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="v322";
+const APP_VERSION="v323";
 const SUPORTE_EMAIL="suporte@logrotas.com.br";
 const PEDAGIO_AVISO_RESULTADO="Pedágio estimado pelo Google. Pode haver variação — confirme o valor da praça.";
 const PAGE_SWIPE_ORDER=["dashboard","financeiro","despesas","comparador","manutencao","documentos","perfil"];
@@ -5504,12 +5511,16 @@ const maintMetaParts=(item)=>{
   if(item.km!=null&&String(item.km).trim()!=="")parts.push(`${formatKm(item.km)} km`);
   return parts;
 };
-const Manutencao=({manutencoes:items,onAddManutencao,onUpdateManutencao,onDeleteManutencao,uid,perfil,vehicles,setVehicles})=>{
+const Manutencao=({manutencoes:items,onAddManutencao,onUpdateManutencao,onDeleteManutencao,uid,perfil,vehicles,setVehicles,historicoFretes=[],jornadas=[]})=>{
   const isPago=getPlanoAtual(perfil).isPago;
   const[limiteManut,setLimiteManut]=useState(false);
   const[stypes,setStypes]=useState(INIT_STYPE);const[showAdd,setShowAdd]=useState(false);const[showManage,setShowManage]=useState(false);const[del,setDel]=useState(null);const[editTIdx,setEditTIdx]=useState(null);const[editTVal,setEditTVal]=useState("");const[newType,setNewType]=useState("");const[form,setForm]=useState({type:"",vehicle:"",km:"",cost:"",nextKm:"",date:""});const[editingId,setEditingId]=useState(null);
   const[editVeh,setEditVeh]=useState(null);
   const[editVehVals,setEditVehVals]=useState({});
+  const[custoForm,setCustoForm]=useState(()=>formFromCustoVeiculoPersist(readCustoVeiculoLocalCache()));
+  const[custoAberto,setCustoAberto]=useState(false);
+  const[salvandoCusto,setSalvandoCusto]=useState(false);
+  const[custoMsg,setCustoMsg]=useState("");
   const hoje=new Date();
   const[mesSel,setMesSel]=useState(hoje.getMonth());
   const[anoSel,setAnoSel]=useState(hoje.getFullYear());
@@ -5543,12 +5554,67 @@ const Manutencao=({manutencoes:items,onAddManutencao,onUpdateManutencao,onDelete
     return next;
   });setEditVeh(null);};
 
+  const kmAutoInfo=mediaKmMesUltimos3Meses(historicoFretes,jornadas,hoje);
+  const custoCalc=calcularCustoVeiculo({
+    ...custoForm,
+    kmMesAuto:kmAutoInfo.kmMes,
+    kmMesAutoEstimado:kmAutoInfo.estimado,
+    manutencoes:items,
+  });
+  const itensOrdenados=[...(custoCalc.itens||[])].sort((a,b)=>(b.valorKm||0)-(a.valorKm||0));
+  const maxItemKm=Math.max(...itensOrdenados.map(i=>i.valorKm||0),0.001);
+  const exemplo100=roundMoney((custoCalc.custoKm||0)*100);
+
+  const setCustoCampo=(k,v)=>setCustoForm(f=>({...f,[k]:v}));
+
+  const salvarCustoVeiculo=async()=>{
+    setSalvandoCusto(true);
+    setCustoMsg("");
+    const resultado=calcularCustoVeiculo({
+      ...custoForm,
+      kmMesAuto:kmAutoInfo.kmMes,
+      kmMesAutoEstimado:kmAutoInfo.estimado,
+      manutencoes:items,
+    });
+    const payload=buildCustoVeiculoPersistPayload(custoForm,resultado);
+    writeCustoVeiculoLocalCache(payload);
+    try{
+      if(uid)await saveUserCustoVeiculo(uid,payload);
+      setCustoMsg("Custo salvo.");
+      setTimeout(()=>setCustoMsg(""),2500);
+    }catch{
+      setCustoMsg("Salvo no aparelho (sem internet).");
+      setTimeout(()=>setCustoMsg(""),3000);
+    }finally{
+      setSalvandoCusto(false);
+    }
+  };
+
   useEffect(()=>{
     if(!uid||isPago)return;
     (async()=>{
       setLimiteManut(!(await podeUsar(uid,"manutencao",FREE_LIMITS.manutencao)));
     })();
   },[uid,isPago]);
+
+  useEffect(()=>{
+    if(!uid)return;
+    let cancelled=false;
+    (async()=>{
+      try{
+        const profile=await loadUserProfile(uid);
+        if(cancelled)return;
+        const fromFs=extractCustoVeiculoFromProfile(profile);
+        if(fromFs){
+          setCustoForm(formFromCustoVeiculoPersist(fromFs));
+          writeCustoVeiculoLocalCache(fromFs);
+        }
+      }catch{
+        /* mantém form do localStorage */
+      }
+    })();
+    return()=>{cancelled=true;};
+  },[uid]);
 
   const abrirRegistrar=async()=>{
     if(!isPago&&uid){
@@ -5622,6 +5688,97 @@ const Manutencao=({manutencoes:items,onAddManutencao,onUpdateManutencao,onDelete
               </div>
             ))}
           </div>
+        </div>
+      </Card>
+
+      {/* CUSTO DE TER O VEÍCULO */}
+      <Card>
+        <CardHeader title="💰 Custo de ter o veículo"/>
+        <div style={{padding:"12px 18px 18px",display:"flex",flexDirection:"column",gap:14}}>
+          <div style={{background:`linear-gradient(135deg,${C.navy},${C.navyMid})`,borderRadius:14,padding:"18px 16px",boxShadow:`0 4px 16px ${C.navy}33`}}>
+            <div style={{color:"#BFDBFE",fontSize:12,fontWeight:700,letterSpacing:0.4,textTransform:"uppercase",marginBottom:6}}>Custo de ter o veículo</div>
+            <div style={{color:"#fff",fontWeight:900,fontSize:32,fontFamily:"'Sora',sans-serif",lineHeight:1}}>{formatMoedaKm(custoCalc.custoKm)}</div>
+            <div style={{color:"#E0F2FE",fontSize:12,marginTop:10,lineHeight:1.45}}>
+              Num frete de 100 km, são <strong style={{fontWeight:800}}>{formatMoeda(exemplo100)}</strong> que hoje não aparecem na conta.
+            </div>
+            <div style={{marginTop:10,display:"inline-flex",background:"#ffffff22",borderRadius:20,padding:"4px 10px",color:"#fff",fontSize:11,fontWeight:700}}>
+              {custoCalc.qtdPreenchidos} de {custoCalc.qtdTotal} são seus
+            </div>
+          </div>
+
+          <button type="button" onClick={()=>setCustoAberto(a=>!a)}
+            style={{width:"100%",background:C.subtle,border:`1px solid ${C.border}`,borderRadius:12,padding:"12px 14px",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"space-between",color:C.navy,fontWeight:700,fontSize:13}}>
+            <span>{custoAberto?"Ocultar campos":"Ajustar custos (IPVA, seguro, pneus…)"}</span>
+            <span style={{color:C.muted,fontSize:16}}>{custoAberto?"▴":"▾"}</span>
+          </button>
+
+          {custoAberto&&(
+            <div style={{display:"flex",flexDirection:"column",gap:14}}>
+              <div style={{background:C.navyLight,border:`1px solid ${C.navy}22`,borderRadius:12,padding:"12px 14px"}}>
+                <div style={{color:C.navy,fontWeight:800,fontSize:13,marginBottom:8}}>Quanto você roda</div>
+                <div style={{color:C.text2,fontSize:12,marginBottom:10,lineHeight:1.45}}>
+                  {kmAutoInfo.fonte==="auto"
+                    ?`${formatKm(kmAutoInfo.kmMes)} km/mês · do seu histórico (média 3 meses)`
+                    :`${formatKm(CUSTO_VEICULO_PADROES.kmMes)} km/mês · média padrão (sem histórico suficiente)`}
+                </div>
+                <Field label="Ajustar km/mês (opcional)" value={custoForm.kmMesManual} onChange={v=>setCustoCampo("kmMesManual",v)} placeholder={String(Math.round(kmAutoInfo.kmMes||CUSTO_VEICULO_PADROES.kmMes))} suffix="km" hint="Se preencher, este valor manda no cálculo."/>
+              </div>
+
+              <div style={{background:C.subtle,border:`1px solid ${C.border}`,borderRadius:12,padding:"12px 14px",display:"flex",flexDirection:"column",gap:10}}>
+                <div style={{color:C.navy,fontWeight:800,fontSize:13}}>Por tempo (por ano)</div>
+                <Field label="IPVA + licenciamento (R$/ano)" value={custoForm.ipvaAno} onChange={v=>setCustoCampo("ipvaAno",v)} placeholder={String(CUSTO_VEICULO_PADROES.ipvaAno)} prefix="R$"/>
+                <Field label="Seguro (R$/ano)" value={custoForm.seguroAno} onChange={v=>setCustoCampo("seguroAno",v)} placeholder={String(CUSTO_VEICULO_PADROES.seguroAno)} prefix="R$"/>
+              </div>
+
+              <div style={{background:C.subtle,border:`1px solid ${C.border}`,borderRadius:12,padding:"12px 14px",display:"flex",flexDirection:"column",gap:10}}>
+                <div style={{color:C.navy,fontWeight:800,fontSize:13}}>Por quilometragem</div>
+                <Field label="Jogo de pneus (R$)" value={custoForm.pneuValor} onChange={v=>setCustoCampo("pneuValor",v)} placeholder={String(CUSTO_VEICULO_PADROES.pneuValor)} prefix="R$"/>
+                <Field label="Pneus duram quantos km" value={custoForm.pneuVidaKm} onChange={v=>setCustoCampo("pneuVidaKm",v)} placeholder={String(CUSTO_VEICULO_PADROES.pneuVidaKm)} suffix="km"/>
+                <Field label="Troca de óleo (R$)" value={custoForm.oleoValor} onChange={v=>setCustoCampo("oleoValor",v)} placeholder={String(CUSTO_VEICULO_PADROES.oleoValor)} prefix="R$"/>
+                <Field label="Óleo a cada (km)" value={custoForm.oleoIntervaloKm} onChange={v=>setCustoCampo("oleoIntervaloKm",v)} placeholder={String(CUSTO_VEICULO_PADROES.oleoIntervaloKm)} suffix="km"/>
+                <Field label="Revisão (R$)" value={custoForm.revisaoValor} onChange={v=>setCustoCampo("revisaoValor",v)} placeholder={String(CUSTO_VEICULO_PADROES.revisaoValor)} prefix="R$"/>
+                <Field label="Revisão a cada (km)" value={custoForm.revisaoIntervaloKm} onChange={v=>setCustoCampo("revisaoIntervaloKm",v)} placeholder={String(CUSTO_VEICULO_PADROES.revisaoIntervaloKm)} suffix="km"/>
+              </div>
+
+              <div style={{background:C.amberLight,border:`1px solid ${C.amber}44`,borderRadius:12,padding:"11px 14px",color:C.text2,fontSize:12,lineHeight:1.45}}>
+                <strong style={{color:"#B45309"}}>Manutenção</strong>
+                {" — "}
+                {custoCalc.itens.find(i=>i.chave==="manutencao")?.estimado
+                  ?`Sem registros nos últimos 12 meses · usando média ${formatMoedaKm(CUSTO_VEICULO_PADROES.manutencaoKmPadrao)}`
+                  :`${formatMoeda(custoCalc.manutencaoTotal12m)} em 12 meses · dos seus registros`}
+              </div>
+            </div>
+          )}
+
+          <div style={{display:"flex",flexDirection:"column",gap:8}}>
+            <div style={{color:C.navy,fontWeight:800,fontSize:13}}>Detalhamento</div>
+            {itensOrdenados.map(it=>{
+              const pct=Math.min(100,((it.valorKm||0)/maxItemKm)*100);
+              return(
+                <div key={it.chave} style={{background:C.subtle,borderRadius:10,padding:"10px 12px",border:`1px solid ${C.border}`}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6,gap:8}}>
+                    <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+                      <span style={{color:C.text,fontWeight:700,fontSize:13}}>{it.label}</span>
+                      {it.estimado
+                        ?<span style={{background:C.orangeLight,color:C.orange,fontSize:10,fontWeight:700,borderRadius:8,padding:"2px 7px"}}>≈ média</span>
+                        :it.chave==="manutencao"
+                          ?<span style={{background:C.greenLight,color:C.green,fontSize:10,fontWeight:700,borderRadius:8,padding:"2px 7px"}}>dos registros</span>
+                          :null}
+                    </div>
+                    <span style={{color:C.navy,fontWeight:800,fontSize:13,whiteSpace:"nowrap"}}>{formatMoedaKm(it.valorKm)}</span>
+                  </div>
+                  <div style={{background:"#E2E8F0",borderRadius:99,height:6,overflow:"hidden"}}>
+                    <div style={{width:`${pct}%`,height:"100%",background:it.estimado?C.orange:C.navy,borderRadius:99}}/>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          <PrimaryBtn onClick={salvarCustoVeiculo} disabled={salvandoCusto} style={{width:"100%"}}>
+            {salvandoCusto?"Salvando…":"Salvar custo do veículo"}
+          </PrimaryBtn>
+          {custoMsg&&<div style={{textAlign:"center",color:C.green,fontSize:12,fontWeight:600}}>{custoMsg}</div>}
         </div>
       </Card>
 
@@ -6735,6 +6892,15 @@ export default function App(){
           }else{
             setVehicles(DEFAULT_VEHICLES);
           }
+          const fsCusto=extractCustoVeiculoFromProfile(profile);
+          if(fsCusto){
+            writeCustoVeiculoLocalCache(fsCusto);
+          }else{
+            const localCusto=readCustoVeiculoLocalCache();
+            if(localCusto&&typeof localCusto==="object"){
+              void saveUserCustoVeiculo(firebaseUser.uid,localCusto).catch(()=>{/* offline */});
+            }
+          }
         }else{
           perfilPlanoFirestoreRef.current=false;
           const local=readPerfilLocalFallback();
@@ -7418,7 +7584,7 @@ export default function App(){
         {page==="financeiro"  &&<Financeiro historicoFretes={historicoFretes} manutencoes={manutencoes} despesas={despesas} jornadas={jornadas}/>}
         {page==="despesas"    &&<Despesas despesas={despesas} onAddDespesa={handleAddDespesa} onUpdateDespesa={handleUpdateDespesa} onDeleteDespesa={handleDeleteDespesa} uid={firebaseUser?.uid} perfil={perfil}/>}
         {page==="comparador"  &&<Comparador historicoFretes={historicoFretes} jornadas={jornadas} onAddFrete={handleAddFrete} onUpdateFrete={handleUpdateFrete} onDeleteFrete={handleDeleteFrete} onUpdateJornada={handleUpdateJornada} onDeleteJornada={handleDeleteJornada} perfil={perfil} uid={firebaseUser?.uid} onOpenChecklist={handleOpenChecklist}/>}
-        {page==="manutencao"  &&<Manutencao manutencoes={manutencoes} onAddManutencao={handleAddManutencao} onUpdateManutencao={handleUpdateManutencao} onDeleteManutencao={handleDeleteManutencao} uid={firebaseUser?.uid} perfil={perfil} vehicles={vehicles} setVehicles={setVehicles}/>}
+        {page==="manutencao"  &&<Manutencao manutencoes={manutencoes} onAddManutencao={handleAddManutencao} onUpdateManutencao={handleUpdateManutencao} onDeleteManutencao={handleDeleteManutencao} uid={firebaseUser?.uid} perfil={perfil} vehicles={vehicles} setVehicles={setVehicles} historicoFretes={historicoFretes} jornadas={jornadas}/>}
         {page==="documentos"  &&<Documentos docs={docs} onAddDocumento={handleAddDocumento} onDeleteDocumento={handleDeleteDocumento} uid={firebaseUser?.uid} perfil={perfil}/>}
         {page==="perfil"      &&<Perfil uid={firebaseUser?.uid} metaMes={metaMes} setMetaMes={setMetaMes} faturamentoMes={faturamentoMes} saldoLiquidoMes={saldoLiquidoMes} perfil={perfil} setPerfil={setPerfil} onLimpar={limparTudo} onNav={setPage}/>}
         </div>
