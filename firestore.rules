@@ -80,6 +80,13 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
+    // ── Histórico de pagamentos Asaas (gravação só via Cloud Function / Admin SDK)
+    match /pagamentos/{pagamentoId} {
+      allow read: if isAdmin()
+        || (request.auth != null && resource.data.uid == request.auth.uid);
+      allow write: if false;
+    }
+
     // ── Configuração global (painel admin) ────────────────────────────────
     match /config/{docId} {
       allow read, write: if isAdmin();

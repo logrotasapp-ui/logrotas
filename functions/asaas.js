@@ -11,6 +11,8 @@ function getDb() {
 }
 
 const USERS_COLLECTION = "users";
+/** Histórico de eventos de pagamento Asaas (top-level; escrito só pelo webhook). */
+const PAGAMENTOS_COLLECTION = "pagamentos";
 const FUNCTION_REGION = "southamerica-east1";
 const ASAAS_API_BASE = "https://api.asaas.com/v3";
 
@@ -43,6 +45,21 @@ const SUBSCRIPTION_STATUS_BY_EVENT = {
   PAYMENT_FAILED: "falhou",
   SUBSCRIPTION_DELETED: "cancelado",
   SUBSCRIPTION_CANCELED: "cancelado",
+};
+
+/** Tipo legível do evento para o histórico em `pagamentos`. */
+const TIPO_EVENTO_BY_ASAAS = {
+  PAYMENT_CONFIRMED: "confirmado",
+  PAYMENT_RECEIVED: "recebido",
+  PAYMENT_OVERDUE: "vencido",
+  PAYMENT_FAILED: "falhou",
+  SUBSCRIPTION_DELETED: "cancelado",
+  SUBSCRIPTION_CANCELED: "cancelado",
+};
+
+const PLANO_LABEL_BY_TYPE = {
+  FRETE: "Frete",
+  COMPLETO: "Completo",
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -368,6 +385,93 @@ function extractSubscriptionIdFromWebhook(body) {
 
 function mapWebhookEventToStatus(event) {
   return SUBSCRIPTION_STATUS_BY_EVENT[event] || null;
+}
+
+function mapWebhookEventToTipoEvento(event) {
+  return TIPO_EVENTO_BY_ASAAS[event] || null;
+}
+
+function resolvePlanoLabel(planType) {
+  const key = String(planType || "").trim().toUpperCase();
+  return PLANO_LABEL_BY_TYPE[key] || null;
+}
+
+/**
+ * Monta o documento de histórico em `pagamentos` a partir do webhook Asaas.
+ * Função pura (sem I/O) — usada pelo webhook e pelos testes.
+ */
+function buildPagamentoHistorico({ uid, event, body, userData }) {
+  const tipoEvento = mapWebhookEventToTipoEvento(event);
+  if (!tipoEvento || !uid) return null;
+
+  const payment = body?.payment || null;
+  const subscription = body?.subscription || null;
+  const valorRaw = payment?.value ?? subscription?.value;
+  const valor =
+    typeof valorRaw === "number" && Number.isFinite(valorRaw)
+      ? valorRaw
+      : valorRaw != null && String(valorRaw).trim() !== "" && Number.isFinite(Number(valorRaw))
+        ? Number(valorRaw)
+        : null;
+
+  const plano =
+    resolvePlanoLabel(userData?.planType) ||
+    resolvePlanoLabel(payment?.externalReference) ||
+    resolvePlanoLabel(subscription?.externalReference) ||
+    null;
+
+  const dataEventoRaw = body?.dateCreated || payment?.confirmedDate || payment?.paymentDate || null;
+
+  return {
+    uid: String(uid),
+    valor,
+    tipoEvento,
+    eventoAsaas: String(event),
+    dataEvento: dataEventoRaw ? String(dataEventoRaw) : null,
+    plano,
+    asaasPaymentId: payment?.id ? String(payment.id) : null,
+    asaasSubscriptionId: payment?.subscription
+      ? String(payment.subscription)
+      : subscription?.id
+        ? String(subscription.id)
+        : null,
+    asaasEventId: body?.id ? String(body.id) : null,
+  };
+}
+
+/** ID estável para idempotência em retentativas do Asaas. */
+function resolvePagamentoDocId(body, event) {
+  const eventId = body?.id ? String(body.id).trim() : "";
+  if (eventId) {
+    // Firestore doc IDs não podem conter "/"
+    return eventId.replace(/\//g, "_");
+  }
+  const paymentId = body?.payment?.id ? String(body.payment.id).trim() : "";
+  if (paymentId && event) {
+    return `${paymentId}_${event}`;
+  }
+  return null;
+}
+
+async function savePagamentoHistorico({ uid, event, body, userData }) {
+  const payload = buildPagamentoHistorico({ uid, event, body, userData });
+  if (!payload) return null;
+
+  const docData = {
+    ...payload,
+    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+  };
+
+  const docId = resolvePagamentoDocId(body, event);
+  const col = getDb().collection(PAGAMENTOS_COLLECTION);
+
+  if (docId) {
+    await col.doc(docId).set(docData, { merge: true });
+    return docId;
+  }
+
+  const ref = await col.add(docData);
+  return ref.id;
 }
 
 // ── Callables ─────────────────────────────────────────────────────────────────
@@ -976,6 +1080,30 @@ const webhookAsaas = onRequest(
 
       await user.ref.set(patch, { merge: true });
 
+      try {
+        const pagamentoId = await savePagamentoHistorico({
+          uid: user.uid,
+          event,
+          body,
+          userData: user.data,
+        });
+        if (pagamentoId) {
+          logger.info("Webhook Asaas — histórico de pagamento gravado", {
+            event,
+            uid: user.uid,
+            pagamentoId,
+          });
+        }
+      } catch (histErr) {
+        // Status do usuário já foi atualizado; não falha o webhook por histórico.
+        logger.error("Webhook Asaas — falha ao gravar histórico de pagamento", {
+          event,
+          subscriptionId,
+          uid: user.uid,
+          err: histErr?.message,
+        });
+      }
+
       logger.info("Webhook Asaas processado", {
         event,
         subscriptionId,
@@ -1004,4 +1132,10 @@ module.exports = {
   getFaturaPendente,
   getPixQrCode,
   payWithCard,
+  // Helpers exportados para testes unitários
+  mapWebhookEventToTipoEvento,
+  resolvePlanoLabel,
+  buildPagamentoHistorico,
+  resolvePagamentoDocId,
+  PAGAMENTOS_COLLECTION,
 };
