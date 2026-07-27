@@ -28,6 +28,10 @@ import {
 import { reverseGeocodeGoogle } from "./src/services/googleGeocodingService.js";
 // V234 — import removido por engano no V226 (quebrava o "Calcular Viagem")
 import { calculateTripCosts } from "./src/services/tripCalcService.js";
+import {
+  formatDurationApprox,
+  calcularETAsParadas,
+} from "./src/utils/etaUtils.js";
 import { buscarPedagioRoutes } from "./src/services/routesTollService.js";
 import {
   travelModePedagio,
@@ -134,7 +138,7 @@ import {
 import { compressImageToJpegBlob, uploadEmpresaLogo } from "./src/services/storageService.js";
 import { saveJornada } from "./src/services/jornadaService.js";
 import {
-  loadUserHistory,
+  subscribeUserHistory,
   addFreteWithFinanceiro,
   updateFreteWithFinanceiro,
   deleteFreteWithFinanceiro,
@@ -167,7 +171,7 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="v335";
+const APP_VERSION="v336";
 const SUPORTE_EMAIL="suporte@logrotas.com.br";
 const PEDAGIO_AVISO_RESULTADO="Pedágio estimado pelo Google. Pode haver variação — confirme o valor da praça.";
 const PAGE_SWIPE_ORDER=["dashboard","financeiro","despesas","comparador","manutencao","documentos","perfil"];
@@ -1541,6 +1545,7 @@ const OtimizarEntregasModal=({onClose,perfil,plan,uid,resumeNavigation=false,onN
   const[rotaPathSegment,setRotaPathSegment]=useState(null);
   const[dupQueue,setDupQueue]=useState([]);
   const[resultado,setResultado]=useState(null);
+  const[horarioBaseMs,setHorarioBaseMs]=useState(null);
   const[mapaExpandido,setMapaExpandido]=useState(false);
   const[posicaoMotorista,setPosicaoMotorista]=useState(null);
   const[paradaRemover,setParadaRemover]=useState(null);
@@ -1607,7 +1612,10 @@ const OtimizarEntregasModal=({onClose,perfil,plan,uid,resumeNavigation=false,onN
     if(nav?.paradas?.length){
       setParadas(migrateParadas(nav.paradas));
       seqRef.current=nav.seq!=null?nav.seq:maxNumeroPacoteSeq(nav.paradas);
-      if(nav.resultado)setResultado(nav.resultado);
+      if(nav.resultado){
+        setResultado(nav.resultado);
+        setHorarioBaseMs(Date.now());
+      }
       if(nav.posicaoMotorista)setPosicaoMotorista(nav.posicaoMotorista);
       if(nav.viewNav)setViewNav(nav.viewNav);
       if(resumeNavigation||nav.modoNavegacao){
@@ -1916,6 +1924,7 @@ const OtimizarEntregasModal=({onClose,perfil,plan,uid,resumeNavigation=false,onN
 
   const iniciarNavegacao=()=>{
     if(!resultado||paradas.length<1)return;
+    setHorarioBaseMs(Date.now());
     setRotaSalvaId(null);
     setShowResumo(false);
     setModoNavegacao(true);
@@ -1925,6 +1934,7 @@ const OtimizarEntregasModal=({onClose,perfil,plan,uid,resumeNavigation=false,onN
   const reiniciarRota=()=>{
     setParadas([]);
     setResultado(null);
+    setHorarioBaseMs(null);
     setRotaPath(null);
     setRotaPathSegment(null);
     setAvisoGps("");
@@ -2310,6 +2320,7 @@ const OtimizarEntregasModal=({onClose,perfil,plan,uid,resumeNavigation=false,onN
       if(out.motoristaCoords)setPosicaoMotorista(out.motoristaCoords);
       setParadas(out.paradasOtimizadas);
       setResultado(out.resultado);
+      setHorarioBaseMs(Date.now());
       if(out.routePath?.length)setRotaPath(out.routePath);
       setAposConclusao(false);
       onConcluido?.("roteirizacao");
@@ -2330,6 +2341,7 @@ const OtimizarEntregasModal=({onClose,perfil,plan,uid,resumeNavigation=false,onN
     setRotaPath(null);
     setRotaPathSegment(null);
     setResultado({semOtimizacao:true,economiaKm:0,economiaCusto:0});
+    setHorarioBaseMs(Date.now());
     setAposConclusao(false);
     setRotaSalvaId(null);
     setShowResumo(false);
@@ -2348,6 +2360,27 @@ const OtimizarEntregasModal=({onClose,perfil,plan,uid,resumeNavigation=false,onN
       !resultado.semOtimizacao&&{emoji:"💰",label:"Economia em R$",valor:formatMoeda(resultado.economiaCusto),cor:OTIMIZAR_AZUL},
     ].filter(Boolean);
   },[resultado]);
+
+  const etasParadas=useMemo(()=>{
+    if(!horarioBaseMs||!resultado?.legDurationsS?.length)return[];
+    return calcularETAsParadas(resultado.legDurationsS,horarioBaseMs);
+  },[horarioBaseMs,resultado?.legDurationsS]);
+
+  const headerTotaisLista=useMemo(()=>{
+    if(!resultado)return null;
+    const parts=[];
+    const dur=
+      formatDurationApprox(resultado.tempoEstimadoSeg)!=null
+        ?formatDurationApprox(resultado.tempoEstimadoSeg)
+        :(resultado.tempoEstimado!=null?formatDurationApprox(resultado.tempoEstimado*60):null);
+    if(dur)parts.push(dur);
+    if(paradasDedup.length>0)parts.push(`${paradasDedup.length} parada${paradasDedup.length!==1?"s":""}`);
+    if(resultado.kmOtimizado!=null){
+      const km=formatKmDecimal(resultado.kmOtimizado);
+      if(km&&km!=="—")parts.push(km);
+    }
+    return parts.length?parts.join(" · "):null;
+  },[resultado,paradasDedup.length]);
 
   // V235 — timeout de segurança do overlay (60s): fecha com aviso, nunca fica preso
   const handleOverlayTimeout=useCallback(()=>{
@@ -2565,6 +2598,11 @@ const OtimizarEntregasModal=({onClose,perfil,plan,uid,resumeNavigation=false,onN
               </button>
             </div>
           </div>
+          {headerTotaisLista&&(
+            <div style={{color:C.muted,fontSize:12,fontWeight:600,marginBottom:2}}>
+              {headerTotaisLista}
+            </div>
+          )}
           {paradasDedup.map((p,i)=>(
             <div key={`parada-${p.id}`} onClick={()=>setEditNumId(prev=>String(prev)===String(p.id)?null:p.id)} style={{
               display:"flex",flexDirection:"column",gap:8,
@@ -2580,6 +2618,11 @@ const OtimizarEntregasModal=({onClose,perfil,plan,uid,resumeNavigation=false,onN
                   <div style={{color:getParadaStatus(p)!=="pendente"?"#64748B":C.text,fontSize:13,textDecoration:getParadaStatus(p)!=="pendente"?"line-through":"none",lineHeight:1.4}}>
                     {p.endereco}
                   </div>
+                  {etasParadas[i]&&etasParadas[i]!=="—"&&(
+                    <span style={{display:"inline-block",marginTop:4,marginRight:6,color:OTIMIZAR_AZUL,fontSize:11,fontWeight:700}}>
+                      {etasParadas[i]}
+                    </span>
+                  )}
                   {pacotesNumerosLabel(p)?(
                     <div style={{display:"inline-block",marginTop:4,background:"#EEF4FF",border:`1px solid ${OTIMIZAR_AZUL}`,borderRadius:6,padding:"2px 7px",color:OTIMIZAR_AZUL,fontSize:11,fontWeight:800}}>
                       📦 {pacotesNumerosLabel(p)}
@@ -2898,6 +2941,11 @@ const OtimizarEntregasModal=({onClose,perfil,plan,uid,resumeNavigation=false,onN
                     <span style={{width:24,height:24,borderRadius:"50%",background:paradaBolinhaCor(p,i,paradaAtualIdx,true),color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:800,flexShrink:0}}>{i+1}</span>
                     <div style={{flex:1}}>
                       <div style={{color:C.text,fontSize:13,lineHeight:1.4}}>{p.endereco}</div>
+                      {etasParadas[i]&&etasParadas[i]!=="—"&&(
+                        <span style={{display:"inline-block",marginTop:4,marginRight:6,color:OTIMIZAR_AZUL,fontSize:11,fontWeight:700}}>
+                          {etasParadas[i]}
+                        </span>
+                      )}
                       {pacotesNumerosLabel(p)&&(
                         <div style={{display:"inline-block",marginTop:4,background:"#EEF4FF",border:`1px solid ${OTIMIZAR_AZUL}`,borderRadius:6,padding:"2px 7px",color:OTIMIZAR_AZUL,fontSize:11,fontWeight:800}}>
                           📦 {pacotesNumerosLabel(p)}
@@ -3206,7 +3254,7 @@ const OtimizarEntregasModal=({onClose,perfil,plan,uid,resumeNavigation=false,onN
           message={`Tem certeza? Todas as ${paradas.length} paradas serão apagadas.`}
           confirmLabel="Limpar tudo"
           onCancel={()=>setConfirmLimpar(false)}
-          onConfirm={()=>{seqRef.current=0;setParadas([]);setResultado(null);setConfirmLimpar(false);}}
+          onConfirm={()=>{seqRef.current=0;setParadas([]);setResultado(null);setHorarioBaseMs(null);setConfirmLimpar(false);}}
         />
       )}
     </ModalWrap>
@@ -3223,6 +3271,7 @@ const TripCalcModal=({onClose,vehicles,onConcluido,onGoMeuVeiculo})=>{
   const nid=useRef(10);
   const[stops,setStops]=useState([{id:1,v:"",coords:null},{id:2,v:"",coords:null}]);
   const[distancia,setDistancia]=useState("");
+  const[tempoEstimadoSeg,setTempoEstimadoSeg]=useState(null);
   const[buscandoDist,setBuscandoDist]=useState(false);
   const[vehicleId,setVehicleId]=useState("carro");
   // V235 — seletor de reboque igual à Calculadora de Fretes (substitui o toggle binário)
@@ -3306,7 +3355,12 @@ const TripCalcModal=({onClose,vehicles,onConcluido,onGoMeuVeiculo})=>{
       const resolvidos=await resolveCalculatorStopsCoords(stopsAtuais);
       const coordsList=resolvidos.map(s=>s.coords);
       const out=await fetchRouteTotalDistanceKm(coordsList);
-      if(out.ok&&out.distanceKm!=null)setDistancia(String(out.distanceKm));
+      if(out.ok&&out.distanceKm!=null){
+        setDistancia(String(out.distanceKm));
+        setTempoEstimadoSeg(out.durationSeconds??null);
+      }else{
+        setTempoEstimadoSeg(null);
+      }
       setStops(prev=>prev.map((s,i)=>{
         const next=resolvidos[i]?.coords??s.coords;
         const cur=s.coords;
@@ -3364,6 +3418,7 @@ const TripCalcModal=({onClose,vehicles,onConcluido,onGoMeuVeiculo})=>{
       vehicleAxles:veiculo.axles,
       trailerExtra:trailerAxles,
       custoKmVeiculo:resolveCustoKmSalvo(readCustoVeiculoLocalCache()),
+      tempoEstimadoSeg,
     });
     if(!out.ok){setErro(out.error);return;}
     setErro("");
@@ -3454,7 +3509,7 @@ const TripCalcModal=({onClose,vehicles,onConcluido,onGoMeuVeiculo})=>{
           <div style={{display:"flex",alignItems:"stretch",background:"#fff",border:`1.5px solid ${buscandoDist?"#3B82F6":C.calcBorder}`,borderRadius:10,overflow:"hidden",minHeight:CALC_INPUT_ROW_H}}
             onFocusCapture={e=>e.currentTarget.style.borderColor="#3B82F6"}
             onBlurCapture={e=>e.currentTarget.style.borderColor=C.calcBorder}>
-            <input value={distancia} onChange={e=>setDistancia(e.target.value)} placeholder={buscandoDist?"Calculando…":"KM total"} type="text" inputMode="decimal"
+            <input value={distancia} onChange={e=>{setDistancia(e.target.value);setTempoEstimadoSeg(null);}} placeholder={buscandoDist?"Calculando…":"KM total"} type="text" inputMode="decimal"
               style={{flex:1,background:"transparent",border:"none",outline:"none",color:C.text,...calcFieldInputStyle,fontWeight:700}}/>
             <span style={{padding:"0 10px",color:buscandoDist?"#3B82F6":C.muted,fontSize:12,borderLeft:`1px solid ${C.border}`,background:C.subtle,alignSelf:"stretch",display:"flex",alignItems:"center"}}>{buscandoDist?"🔍":"km"}</span>
           </div>
@@ -3509,6 +3564,9 @@ const TripCalcModal=({onClose,vehicles,onConcluido,onGoMeuVeiculo})=>{
               <div style={{color:"#BFDBFE",fontSize:14,fontWeight:700,letterSpacing:1,textTransform:"uppercase",marginBottom:6}}>💸 CUSTO TOTAL DA VIAGEM</div>
               <div style={{color:"#fff",fontWeight:900,fontSize:40,fontFamily:"'Sora',sans-serif",lineHeight:1,marginBottom:4}}>{formatMoeda(result.total||0)}</div>
               <div style={{color:"#93C5FD",fontSize:12}}>{formatKmDecimal(result.dist||0)}</div>
+              <div style={{color:"#93C5FD",fontSize:12,marginTop:4}}>
+                Tempo estimado: {formatDurationApprox(result.tempoEstimadoSeg)||"—"}
+              </div>
             </div>
             <div style={{background:"#F8FAFC",borderRadius:14,padding:"14px 16px",display:"flex",flexDirection:"column",gap:0}}>
               {[
@@ -3576,6 +3634,7 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
   const[kmInclusosMin,setKmInclusosMin]=useState("");
   const[metaLucro,setMetaLucro]=useState("25");
   const[dists,setDists]=useState([""]);
+  const[tempoEstimadoSeg,setTempoEstimadoSeg]=useState(null);
   const[result,setResult]=useState(null);
   const[salvou,setSalvou]=useState(false);
   const[cargo,setCargo]=useState("");
@@ -3687,7 +3746,8 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
       const resolvidos=await resolveCalculatorStopsCoords(stopsAtuais);
       const coordsList=resolvidos.map(s=>s.coords);
       const out=await fetchRouteTotalDistanceKm(coordsList);
-      if(!out.ok)return;
+      if(!out.ok){setTempoEstimadoSeg(null);return;}
+      setTempoEstimadoSeg(out.durationSeconds??null);
       const segments=(out.segmentKm||[]).map(km=>(km!=null?String(km):""));
       while(segments.length<stopsAtuais.length-1)segments.push("");
       setDists(segments.slice(0,stopsAtuais.length-1));
@@ -3772,6 +3832,7 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
       freight,
       metaLocal,
       custoKmVeiculo:resolveCustoKmSalvo(readCustoVeiculoLocalCache()),
+      tempoEstimadoSeg,
     });
     if(!out.ok){setErro(out.error);return;}
     setErro("");
@@ -3999,6 +4060,9 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
                 <div>
                   <div style={{color:ok?"#15803D":"#DC2626",fontWeight:700,fontSize:15,fontFamily:"'Sora',sans-serif"}}>{ok?"Frete cobre os custos!":"Custos acima do frete"}</div>
                   <div style={{color:C.muted,fontSize:12,marginTop:2}}>{result.tot} km{result.isElec?" · ⚡ Elétrico":""}</div>
+                  <div style={{color:C.muted,fontSize:12,marginTop:2}}>
+                    Tempo estimado: {formatDurationApprox(result.tempoEstimadoSeg)||"—"}
+                  </div>
                 </div>
               </div>
 
@@ -4417,7 +4481,7 @@ const FechamentoDia=({uid,perfil,setPerfil,vehicles=[],onSalvar,onClose,onGoMeuV
 };
 
 // ── DASHBOARD ─────────────────────────────────────────────────────────────────
-const Dashboard=({onNav,setShowCalc,setCalcMode,historicoFretes,jornadas=[],manutencoes,docs,despesas=[],perfil,onNovoChecklist,onUltimosChecklists,ultimosAvulsosCount=0,avulsosEmAndamento=[],onRetomarChecklist,onFecharDia})=>{
+const Dashboard=({onNav,setShowCalc,setCalcMode,historicoFretes,jornadas=[],manutencoes,docs,despesas=[],perfil,onNovoChecklist,onUltimosChecklists,ultimosAvulsosCount=0,avulsosEmAndamento=[],onRetomarChecklist,onFecharDia,erroHistoricoSync})=>{
   const[showReferralSoon,setShowReferralSoon]=useState(false);
   const[toastIndicacao,setToastIndicacao]=useState("");
   const showToastIndicacao=(msg)=>{
@@ -4494,6 +4558,11 @@ const Dashboard=({onNav,setShowCalc,setCalcMode,historicoFretes,jornadas=[],manu
 
   return(
     <div style={{display:"flex",flexDirection:"column",gap:18}}>
+      {erroHistoricoSync&&(
+        <div style={{background:"#FFF5F5",border:"1.5px solid #FCA5A5",borderRadius:11,padding:"11px 14px",display:"flex",alignItems:"center",gap:8}}>
+          <span style={{color:"#DC2626",fontSize:13,fontWeight:600}}>⚠️ Não foi possível atualizar seus dados. Verifique sua conexão.</span>
+        </div>
+      )}
       <div>
         <div style={{color:C.navy,fontSize:20,fontWeight:800,fontFamily:"'Sora',sans-serif",marginBottom:6}}>{saudacao}, {nomeMotorista}! 👋</div>
         <div style={{color:C.text2,fontSize:14,fontWeight:600,lineHeight:1.45,marginBottom:12}}>
@@ -7083,6 +7152,7 @@ export default function App(){
   const[valorKm,setValorKm]=useState("");
   const[adicionalFixo,setAdicionalFixo]=useState("");
   const[historicoFretes,setHistoricoFretes]=useState([]);
+  const[erroHistoricoSync,setErroHistoricoSync]=useState(false);
   const[manutencoes,setManutencoes]=useState([]);
   const[despesas,setDespesas]=useState([]);
   const[jornadas,setJornadas]=useState([]);
@@ -7257,25 +7327,25 @@ export default function App(){
       setDespesas([]);
       setJornadas([]);
       setDocs([]);
+      setErroHistoricoSync(false);
       return;
     }
-    let cancelled=false;
-    (async()=>{
-      try{
-        const data=await loadUserHistory(firebaseUser.uid);
-        if(cancelled)return;
+    setErroHistoricoSync(false);
+    const unsub=subscribeUserHistory(firebaseUser.uid,{
+      onData:(data)=>{
         setHistoricoFretes(data.fretes||[]);
         setManutencoes(data.manutencao||[]);
         setDespesas(data.despesas||[]);
         setJornadas(data.jornadas||[]);
         setDocs(data.documentos||[]);
-      }catch(err){
-        // V292 — NÃO zerar o estado em falha de leitura: preserva o que já está
-        // carregado em memória para evitar aparência de "dados apagados".
-        console.warn("[LogRotas] Falha ao carregar histórico:",err?.code||err);
-      }
-    })();
-    return()=>{cancelled=true;};
+        setErroHistoricoSync(false);
+      },
+      onError:()=>{
+        // NÃO zerar estado — preserva últimos dados válidos
+        setErroHistoricoSync(true);
+      },
+    });
+    return()=>{unsub();};
   },[firebaseUser?.uid]);
 
   const handleAddFrete=useCallback(async(item)=>{
@@ -7928,7 +7998,7 @@ export default function App(){
       </div>
       <div ref={contentSwipeRef} {...contentSwipeHandlers} style={{flex:1,minHeight:0,width:"100%",maxWidth:820,margin:"0 auto",overflowY:"auto",overflowX:"hidden",WebkitOverflowScrolling:"touch",padding:`20px 14px ${showNavActiveBanner?"128px":"80px"}`,touchAction:"pan-y pinch-zoom",boxSizing:"border-box"}}>
         <div style={{minHeight:"100%",width:"100%"}}>
-        {page==="dashboard"   &&<Dashboard onNav={setPage} setShowCalc={setShowCalc} setCalcMode={setCalcMode} historicoFretes={historicoFretes} jornadas={jornadas} manutencoes={manutencoes} docs={docs} despesas={despesas} perfil={perfil} onNovoChecklist={handleNovoChecklistAvulso} onUltimosChecklists={handleUltimosChecklists} ultimosAvulsosCount={ultimosAvulsos.length} avulsosEmAndamento={avulsosEmAndamento} onRetomarChecklist={handleRetomarChecklistAvulso} onFecharDia={()=>setShowFechamento(true)}/>}
+        {page==="dashboard"   &&<Dashboard onNav={setPage} setShowCalc={setShowCalc} setCalcMode={setCalcMode} historicoFretes={historicoFretes} jornadas={jornadas} manutencoes={manutencoes} docs={docs} despesas={despesas} perfil={perfil} onNovoChecklist={handleNovoChecklistAvulso} onUltimosChecklists={handleUltimosChecklists} ultimosAvulsosCount={ultimosAvulsos.length} avulsosEmAndamento={avulsosEmAndamento} onRetomarChecklist={handleRetomarChecklistAvulso} onFecharDia={()=>setShowFechamento(true)} erroHistoricoSync={erroHistoricoSync}/>}
         {page==="financeiro"  &&<Financeiro historicoFretes={historicoFretes} manutencoes={manutencoes} despesas={despesas} jornadas={jornadas} uid={firebaseUser?.uid} metaMes={metaMes} setMetaMes={setMetaMes}/>}
         {page==="despesas"    &&<Despesas despesas={despesas} onAddDespesa={handleAddDespesa} onUpdateDespesa={handleUpdateDespesa} onDeleteDespesa={handleDeleteDespesa} uid={firebaseUser?.uid} perfil={perfil}/>}
         {page==="comparador"  &&<Comparador historicoFretes={historicoFretes} jornadas={jornadas} onAddFrete={handleAddFrete} onUpdateFrete={handleUpdateFrete} onDeleteFrete={handleDeleteFrete} onUpdateJornada={handleUpdateJornada} onDeleteJornada={handleDeleteJornada} perfil={perfil} uid={firebaseUser?.uid} onOpenChecklist={handleOpenChecklist}/>}

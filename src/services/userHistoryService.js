@@ -7,6 +7,9 @@ import {
   deleteDoc,
   query,
   where,
+  orderBy,
+  limit,
+  onSnapshot,
   serverTimestamp,
   writeBatch,
 } from "firebase/firestore";
@@ -22,8 +25,42 @@ export const HISTORY_COLLECTIONS = {
   jornadas: "jornadas",
 };
 
+/**
+ * Campos queryáveis:
+ * - fretes/despesas/manutencao/financeiro/jornadas: createdAt (Timestamp)
+ *   (negócio: date/data em DD/MM/YYYY — incompatível com where Date)
+ * - documentos: expiry (vencimento string DD/MM/YYYY)
+ */
+const HISTORY_QUERY_SPECS = {
+  fretes: { field: "createdAt", days: 90, order: "desc", lim: 100 },
+  despesas: { field: "createdAt", days: 90, order: "desc", lim: 100 },
+  manutencao: { field: "createdAt", days: 180, order: "desc", lim: 50 },
+  documentos: { field: "expiry", days: null, order: "asc", lim: 50 },
+  financeiro: { field: "createdAt", days: 90, order: "desc", lim: 100 },
+  jornadas: { field: "createdAt", days: 90, order: "desc", lim: 100 },
+};
+
 function colRef(uid, name) {
   return collection(db, "users", uid, name);
+}
+
+function daysAgoThreshold(days) {
+  return new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+}
+
+function buildHistoryQuery(uid, name) {
+  const spec = HISTORY_QUERY_SPECS[name];
+  const parts = [colRef(uid, name)];
+  if (spec.days != null) {
+    parts.push(where(spec.field, ">=", daysAgoThreshold(spec.days)));
+  }
+  parts.push(orderBy(spec.field, spec.order));
+  parts.push(limit(spec.lim));
+  return query(...parts);
+}
+
+function mapHistoryDocs(snap) {
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
 }
 
 function stripMeta(data) {
@@ -60,10 +97,11 @@ export async function loadUserHistory(uid) {
   await Promise.allSettled(
     Object.values(HISTORY_COLLECTIONS).map(async (name) => {
       try {
-        const snap = await getDocs(colRef(uid, name));
-        out[name] = sortByDateDesc(
-          snap.docs.map((d) => ({ id: d.id, ...d.data() }))
-        );
+        const snap = await getDocs(buildHistoryQuery(uid, name));
+        out[name] =
+          name === HISTORY_COLLECTIONS.documentos
+            ? mapHistoryDocs(snap)
+            : sortByDateDesc(mapHistoryDocs(snap));
       } catch (err) {
         console.warn(`[LogRotas] Falha ao ler coleção "${name}":`, err?.code || err);
         out[name] = [];
@@ -72,6 +110,61 @@ export async function loadUserHistory(uid) {
   );
 
   return out;
+}
+
+/** Coleções que alimentam a Home (estado App). */
+const HOME_HISTORY_COLLECTIONS = [
+  HISTORY_COLLECTIONS.fretes,
+  HISTORY_COLLECTIONS.despesas,
+  HISTORY_COLLECTIONS.manutencao,
+  HISTORY_COLLECTIONS.documentos,
+  HISTORY_COLLECTIONS.jornadas,
+];
+
+/**
+ * Listeners limitados da Home. Retorna unsubscribe de todos.
+ */
+export function subscribeUserHistory(uid, { onData, onError }) {
+  if (!uid) return () => {};
+
+  const state = {
+    fretes: [],
+    despesas: [],
+    manutencao: [],
+    documentos: [],
+    jornadas: [],
+  };
+  const unsubs = [];
+
+  for (const name of HOME_HISTORY_COLLECTIONS) {
+    const q = buildHistoryQuery(uid, name);
+    const unsub = onSnapshot(
+      q,
+      (snap) => {
+        const items =
+          name === HISTORY_COLLECTIONS.documentos
+            ? mapHistoryDocs(snap)
+            : sortByDateDesc(mapHistoryDocs(snap));
+        state[name] = items;
+        onData({ ...state });
+      },
+      (err) => {
+        console.warn(`[LogRotas] onSnapshot "${name}":`, err?.code || err);
+        onError?.(err);
+      }
+    );
+    unsubs.push(unsub);
+  }
+
+  return () => {
+    unsubs.forEach((u) => {
+      try {
+        u();
+      } catch {
+        /* ignore */
+      }
+    });
+  };
 }
 
 export async function addHistoryItem(uid, collectionName, data) {

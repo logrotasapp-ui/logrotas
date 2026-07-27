@@ -29,10 +29,10 @@ function latLngFromLngLatPair(pair) {
  */
 export async function fetchGoogleDrivingDistanceKm(originCoords, destCoords) {
   if (!API_KEYS.googleMaps) {
-    return { ok: false, error: "Google Maps indisponível.", distanceKm: null };
+    return { ok: false, error: "Google Maps indisponível.", distanceKm: null, durationSeconds: null };
   }
   if (!originCoords || !destCoords) {
-    return { ok: false, error: "Coordenadas inválidas.", distanceKm: null };
+    return { ok: false, error: "Coordenadas inválidas.", distanceKm: null, durationSeconds: null };
   }
 
   try {
@@ -55,11 +55,18 @@ export async function fetchGoogleDrivingDistanceKm(originCoords, destCoords) {
               ok: false,
               error: DIRECTIONS_ERRORS[status] || "Não foi possível calcular a rota.",
               distanceKm: null,
+              durationSeconds: null,
             });
             return;
           }
-          const meters = sumLegsMetric(result.routes[0].legs, "distance");
-          resolve({ ok: true, distanceKm: Math.round(meters / 1000) });
+          const legs = result.routes[0].legs;
+          const meters = sumLegsMetric(legs, "distance");
+          const durationSeconds = sumLegsMetric(legs, "duration");
+          resolve({
+            ok: true,
+            distanceKm: Math.round(meters / 1000),
+            durationSeconds: durationSeconds > 0 ? durationSeconds : null,
+          });
         }
       );
     });
@@ -68,6 +75,7 @@ export async function fetchGoogleDrivingDistanceKm(originCoords, destCoords) {
       ok: false,
       error: err?.message || "Erro ao calcular distância.",
       distanceKm: null,
+      durationSeconds: null,
     };
   }
 }
@@ -325,6 +333,7 @@ export async function fetchGoogleRouteInBlocks(points, labels = []) {
     ok: false,
     totalDistanceM: 0,
     totalDurationS: 0,
+    legDurationsS: [],
     overviewPath: [],
     blocksOk: 0,
     blocksTotal: 0,
@@ -340,6 +349,7 @@ export async function fetchGoogleRouteInBlocks(points, labels = []) {
   const service = new window.google.maps.DirectionsService();
   let totalDistanceM = 0;
   let totalDurationS = 0;
+  const legDurationsS = [];
   const overviewPath = [];
   let blocksOk = 0;
   let blocksTotal = 0;
@@ -356,6 +366,10 @@ export async function fetchGoogleRouteInBlocks(points, labels = []) {
       blocksOk++;
       totalDistanceM += sumLegsMetric(route.legs, "distance");
       totalDurationS += sumLegsMetric(route.legs, "duration");
+      for (const leg of route.legs || []) {
+        const d = leg?.duration?.value;
+        legDurationsS.push(Number.isFinite(d) && d > 0 ? d : null);
+      }
       if (route.overview_path?.length) {
         overviewPath.push(
           ...route.overview_path.map((ll) => ({ lat: ll.lat(), lng: ll.lng() }))
@@ -370,6 +384,7 @@ export async function fetchGoogleRouteInBlocks(points, labels = []) {
     ok: blocksOk > 0,
     totalDistanceM,
     totalDurationS,
+    legDurationsS,
     overviewPath,
     blocksOk,
     blocksTotal,

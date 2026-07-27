@@ -24,6 +24,7 @@ export function calculateTripCosts(input) {
     vehicleLabel,
     vehicleAxles,
     trailerExtra = 0,
+    tempoEstimadoSeg: tempoIn,
   } = input;
 
   if (!distanciaKm || parseNumeroBR(distanciaKm) <= 0) {
@@ -65,6 +66,9 @@ export function calculateTripCosts(input) {
   const custoVeiculo =
     custoKmVeiculo > 0 && dist > 0 ? custoKmVeiculo * dist : 0;
   const total = custoComb + custoPed + custoVeiculo;
+  const tempoRaw = Number(tempoIn);
+  const tempoEstimadoSeg =
+    Number.isFinite(tempoRaw) && tempoRaw > 0 ? tempoRaw : null;
 
   return {
     ok: true,
@@ -84,6 +88,7 @@ export function calculateTripCosts(input) {
         totalEixos,
         trailerExtra,
       }),
+      tempoEstimadoSeg,
     },
   };
 }

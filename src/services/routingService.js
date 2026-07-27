@@ -545,7 +545,12 @@ export async function openWazeDirections(stops) {
  */
 export async function fetchDrivingDistanceKm(originCoords, destCoords) {
   if (!originCoords || !destCoords) {
-    return { ok: false, error: "Coordenadas de origem e destino são obrigatórias.", distanceKm: null };
+    return {
+      ok: false,
+      error: "Coordenadas de origem e destino são obrigatórias.",
+      distanceKm: null,
+      durationSeconds: null,
+    };
   }
 
   if (API_KEYS.googleMaps) {
@@ -558,6 +563,7 @@ export async function fetchDrivingDistanceKm(originCoords, destCoords) {
       ok: false,
       error: CONNECTION_ERROR,
       distanceKm: null,
+      durationSeconds: null,
     };
   }
 
@@ -571,13 +577,16 @@ export async function fetchDrivingDistanceKm(originCoords, destCoords) {
   });
 
   if (res.networkError) {
-    return { ok: false, error: CONNECTION_ERROR, distanceKm: null };
+    return { ok: false, error: CONNECTION_ERROR, distanceKm: null, durationSeconds: null };
   }
 
   const dist = res.data?.routes?.[0]?.summary?.distance;
   const distanceKm = dist ? Math.round(dist) : null;
+  const dur = res.data?.routes?.[0]?.summary?.duration;
+  const durationSeconds =
+    Number.isFinite(dur) && dur > 0 ? Math.round(dur) : null;
 
-  return { ok: true, distanceKm };
+  return { ok: true, distanceKm, durationSeconds };
 }
 
 /**
@@ -617,11 +626,19 @@ export async function resolveCalculatorStopsCoords(stops) {
  */
 export async function fetchRouteTotalDistanceKm(coordsList) {
   if (!coordsList?.length || coordsList.length < 2) {
-    return { ok: false, error: "Rota incompleta.", distanceKm: null, segmentKm: [] };
+    return {
+      ok: false,
+      error: "Rota incompleta.",
+      distanceKm: null,
+      durationSeconds: null,
+      segmentKm: [],
+    };
   }
 
   const segmentKm = [];
   let total = 0;
+  let totalDuration = 0;
+  let hasDuration = true;
 
   for (let i = 0; i < coordsList.length - 1; i++) {
     const a = coordsList[i];
@@ -632,18 +649,40 @@ export async function fetchRouteTotalDistanceKm(coordsList) {
     }
     const out = await fetchDrivingDistanceKm(a, b);
     if (!out.ok || out.distanceKm == null) {
-      return { ok: false, error: out.error, distanceKm: null, segmentKm: [] };
+      return {
+        ok: false,
+        error: out.error,
+        distanceKm: null,
+        durationSeconds: null,
+        segmentKm: [],
+      };
     }
     segmentKm.push(out.distanceKm);
     total += out.distanceKm;
+    if (Number.isFinite(out.durationSeconds) && out.durationSeconds > 0) {
+      totalDuration += out.durationSeconds;
+    } else {
+      hasDuration = false;
+    }
   }
 
   const validSegments = segmentKm.filter((km) => km != null);
   if (validSegments.length === 0) {
-    return { ok: false, error: "Defina origem e destino no mapa.", distanceKm: null, segmentKm: [] };
+    return {
+      ok: false,
+      error: "Defina origem e destino no mapa.",
+      distanceKm: null,
+      durationSeconds: null,
+      segmentKm: [],
+    };
   }
 
-  return { ok: true, distanceKm: total, segmentKm };
+  return {
+    ok: true,
+    distanceKm: total,
+    durationSeconds: hasDuration && totalDuration > 0 ? totalDuration : null,
+    segmentKm,
+  };
 }
 
 // ── Google Geocoding ─────────────────────────────────────────────────────────
@@ -1331,6 +1370,11 @@ export async function optimizeDeliveryRouteHybrid(paradas, options = {}) {
       blocks.ok && blocks.totalDurationS > 0
         ? Math.round(blocks.totalDurationS / 60)
         : Math.round(kmOtimizado * 2.5);
+    const tempoEstimadoSeg =
+      blocks.ok && blocks.totalDurationS > 0 ? blocks.totalDurationS : null;
+    const legDurationsS = Array.isArray(blocks.legDurationsS)
+      ? blocks.legDurationsS
+      : [];
     const custoTotal = parseFloat(((kmOtimizado / cons) * preco).toFixed(2));
 
     return {
@@ -1342,6 +1386,8 @@ export async function optimizeDeliveryRouteHybrid(paradas, options = {}) {
         economiaKm,
         economiaCusto,
         tempoEstimado,
+        tempoEstimadoSeg,
+        legDurationsS,
         custoTotal,
         rotaJaIdeal,
       },
@@ -1499,6 +1545,9 @@ export function calculateRouteCosts(input) {
   const total = energyCost + arlaCost + tollCost + custoVeiculo;
   const freteVal = parseNumeroBR(freight) || 0;
   const lucro = freteVal - total;
+  const tempoRaw = Number(input.tempoEstimadoSeg);
+  const tempoEstimadoSeg =
+    Number.isFinite(tempoRaw) && tempoRaw > 0 ? tempoRaw : null;
 
   return {
     ok: true,
@@ -1522,6 +1571,7 @@ export function calculateRouteCosts(input) {
       }),
       isElec,
       isTruck,
+      tempoEstimadoSeg,
     },
   };
 }
