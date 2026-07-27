@@ -41,6 +41,13 @@ export function sanitizeChecklistLog(value, depth = 0) {
 
 /** Log seguro para fluxos do checklist (mascara PII automaticamente). */
 export function logChecklist(level, message, ...rest) {
+  const isAlwaysOn = level === "error" || level === "warn";
+  const isDev =
+    typeof import.meta !== "undefined" &&
+    import.meta.env &&
+    import.meta.env.DEV;
+  if (!isAlwaysOn && !isDev) return;
+
   const fn = console[level] || console.log;
   if (rest.length === 0) {
     fn(message);

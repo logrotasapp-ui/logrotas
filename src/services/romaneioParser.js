@@ -124,6 +124,19 @@ function startsNewAddress(line) {
   );
 }
 
+/** Concatena fragmentos de endereço OCR sem vírgulas/espaços duplicados. */
+function joinAddressFragment(buffer, line) {
+  let left = String(buffer || "").trim();
+  let right = String(line || "").trim();
+  if (right.startsWith(",")) right = right.replace(/^,+\s*/, "").trim();
+  const resultado = left ? `${left}, ${right}` : right;
+  return resultado
+    .replace(/,\s*,+/g, ",")
+    .replace(/\s{2,}/g, " ")
+    .replace(/,\s*$/, "")
+    .trim();
+}
+
 /**
  * Lista final pronta para geocoding (endereços válidos; duplicatas preservadas — V235).
  * @param {string[]} addresses
@@ -162,13 +175,13 @@ export function parseAddressesFromRomaneioText(rawText) {
 
   for (const line of lines) {
     if (buffer && isCityOrCepContinuation(line)) {
-      buffer = `${buffer}, ${line}`;
+      buffer = joinAddressFragment(buffer, line);
       continue;
     }
 
     if (!looksLikeAddress(line)) {
       if (buffer && line.length > 2 && line.length < 80 && !SKIP_LINE.test(line)) {
-        buffer = `${buffer}, ${cleanAddressLine(line)}`;
+        buffer = joinAddressFragment(buffer, cleanAddressLine(line));
       }
       continue;
     }
@@ -177,7 +190,7 @@ export function parseAddressesFromRomaneioText(rawText) {
       if (buffer) addresses.push(buffer);
       buffer = line;
     } else if (buffer) {
-      buffer = `${buffer}, ${line}`;
+      buffer = joinAddressFragment(buffer, line);
     } else {
       buffer = line;
     }
@@ -260,13 +273,13 @@ export function parseDeliveryEntriesFromLabelText(rawText) {
     }
 
     if (buffer && isCityOrCepContinuation(line)) {
-      buffer = `${buffer}, ${line}`;
+      buffer = joinAddressFragment(buffer, line);
       continue;
     }
 
     if (!looksLikeAddress(line)) {
       if (buffer && line.length > 2 && line.length < 80 && !SKIP_LINE.test(line)) {
-        buffer = `${buffer}, ${cleanAddressLine(line)}`;
+        buffer = joinAddressFragment(buffer, cleanAddressLine(line));
       }
       continue;
     }
@@ -275,7 +288,7 @@ export function parseDeliveryEntriesFromLabelText(rawText) {
       flushAddress();
       buffer = line;
     } else if (buffer) {
-      buffer = `${buffer}, ${line}`;
+      buffer = joinAddressFragment(buffer, line);
     } else {
       buffer = line;
     }

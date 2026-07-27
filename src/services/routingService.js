@@ -50,11 +50,13 @@ export {
 
 export { VISION_ADDRESS_EXTRACTION_INSTRUCTION } from "./romaneioParser.js";
 
+import { devLog } from "../utils/devLog.js";
+
 const CLAUDE_OCR_MODEL = "claude-haiku-4-5";
 
 function logOcr(msg, data) {
   if (typeof console !== "undefined") {
-    console.log(`[OCR] ${msg}`, data !== undefined ? data : "");
+    devLog(`[OCR] ${msg}`, data !== undefined ? data : "");
   }
 }
 
@@ -1283,7 +1285,7 @@ export async function optimizeDeliveryRouteHybrid(paradas, options = {}) {
 
     // V233 — diagnóstico da origem usada na otimização
     const primeira = orderedEntries[0];
-    console.log("[LogRotas otimizador] diagnóstico", {
+    devLog("[LogRotas otimizador] diagnóstico", {
       origem: { lat: origin.lat, lng: origin.lng },
       fonte: gpsFalhou ? "fallback (1ª parada)" : driverOriginCoords?.length >= 2 ? "gps (informado)" : "gps (fresco)",
       parada1: primeira?.parada?.endereco,

@@ -3320,7 +3320,11 @@ export default function ChecklistVeiculo({
               {checklist?.avulso
                 ? " · Checklist avulso"
                 : frete
-                  ? ` · ${frete.origin || ""} → ${frete.dest || ""}`
+                  ? (() => {
+                      const partes = [frete.origin, frete.dest].filter(Boolean);
+                      const rotulo = partes.length ? partes.join(" → ") : "—";
+                      return ` · ${rotulo}`;
+                    })()
                   : ""}
             </div>
           </div>

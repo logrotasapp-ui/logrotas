@@ -73,7 +73,7 @@ export function formatKm(n) {
 /** 8,3 km */
 export function formatKmDecimal(n, decimals = 1) {
   const v = Number(n);
-  if (!Number.isFinite(v)) return `${n} km`;
+  if (!Number.isFinite(v)) return "—";
   return `${v.toLocaleString("pt-BR", {
     minimumFractionDigits: decimals,
     maximumFractionDigits: decimals,

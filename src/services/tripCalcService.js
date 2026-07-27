@@ -40,6 +40,14 @@ export function calculateTripCosts(input) {
   const dist = parseNumeroBR(distanciaKm);
   const preco = parseNumeroBR(combustivelPreco);
 
+  if (!isElec && !(cons > 0)) {
+    return {
+      ok: false,
+      error:
+        "⚠️ Não foi possível calcular: consumo do veículo inválido. Confira o cadastro do veículo no seu perfil.",
+    };
+  }
+
   const custoComb = isElec
     ? (dist / 100) * cons * preco
     : (dist / cons) * preco;

@@ -3,6 +3,8 @@
  * Migração na leitura para paradas antigas sem pacotes[].
  */
 
+import { devLog } from "../utils/devLog.js";
+
 export function newPacoteId() {
   return `pkg_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
 }
@@ -229,7 +231,7 @@ export function sanitizeParadaForFirestore(p) {
 
 export function logPacotes(msg, data) {
   if (typeof console !== "undefined") {
-    console.log(`[Pacotes] ${msg}`, data !== undefined ? data : "");
+    devLog(`[Pacotes] ${msg}`, data !== undefined ? data : "");
   }
 }
 
@@ -253,7 +255,7 @@ export function dedupParadasPorId(paradas) {
   }
   if (removidas > 0) {
     if (typeof console !== "undefined") {
-      console.log("[Lista] dedup paradas", { removidas, total: out.length });
+      devLog("[Lista] dedup paradas", { removidas, total: out.length });
     }
   }
   return out;
