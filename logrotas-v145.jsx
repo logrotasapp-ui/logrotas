@@ -115,7 +115,7 @@ import {
   dedupParadasPorId,
   countPacotes,
 } from "./src/services/pacotesService.js";
-import { OFFLINE_KEYS, AUTH_KEYS, readOfflineCache, writeOfflineCache, clearAllLogRotasStorage, clearVehiclesLocalCache, readVehiclesLocalCache, writeVehiclesLocalCache, mergeVehiclesWithDefaults, readCustoVeiculoLocalCache, writeCustoVeiculoLocalCache, readMetaMesLocalCache, writeMetaMesLocalCache, readProPlanActive, readProTrialDaysLeft, readPerfilLocalFallback, writePerfilLocalCache, readUiState, writeUiState, clearUiState } from "./src/services/offlineStorage.js";
+import { OFFLINE_KEYS, AUTH_KEYS, readOfflineCache, writeOfflineCache, clearAllLogRotasStorage, clearVehiclesLocalCache, readVehiclesLocalCache, writeVehiclesLocalCache, mergeVehiclesWithDefaults, readCustoVeiculoLocalCache, writeCustoVeiculoLocalCache, readMetaMesLocalCache, writeMetaMesLocalCache, readPerfilLocalFallback, writePerfilLocalCache, readUiState, writeUiState, clearUiState } from "./src/services/offlineStorage.js";
 import { planStateFromPerfil, perfilTemCamposAcesso, getPlanoAtual } from "./src/services/planoService.js";
 import { podeUsar, incrementarUso, FREE_LIMITS, checarLimiteFree, MSG_LIMITE } from "./src/services/usoService.js";
 import LimiteAtingido from "./src/components/LimiteAtingido.jsx";
@@ -505,12 +505,13 @@ const ConfirmDialog=({message,onConfirm,onCancel,confirmLabel="Confirmar"})=>(
   </div>
 );
 
-const DeleteConfirm=({message,onConfirm,onCancel})=>(
+const DeleteConfirm=({message,onConfirm,onCancel,error})=>(
   <div style={{position:"fixed",inset:0,background:"#1E3A8A44",zIndex:500,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
     <div style={{background:C.surface,border:`1px solid ${C.red}33`,borderRadius:20,width:"100%",maxWidth:340,padding:26,textAlign:"center",boxShadow:"0 20px 60px #00000022"}}>
       <div style={{width:56,height:56,borderRadius:"50%",background:C.redLight,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 14px"}}><Trash2Icon size={26} color={C.red}/></div>
       <div style={{color:C.navy,fontWeight:800,fontSize:17,fontFamily:"'Sora',sans-serif",marginBottom:8}}>Confirmar exclusão?</div>
-      <div style={{color:C.muted,fontSize:14,marginBottom:22,lineHeight:1.5}}>{message}</div>
+      <div style={{color:C.muted,fontSize:14,marginBottom:error?12:22,lineHeight:1.5}}>{message}</div>
+      {error&&<div style={{background:"#FFF5F5",border:"1.5px solid #FCA5A5",borderRadius:10,padding:"10px 13px",color:"#DC2626",fontSize:13,fontWeight:600,marginBottom:22,textAlign:"left"}}>⚠️ {error}</div>}
       <div style={{display:"flex",gap:10}}>
         <button onClick={onCancel} style={{flex:1,padding:"11px 0",background:C.subtle,border:`1px solid ${C.border}`,borderRadius:11,color:C.text2,fontWeight:600,fontSize:14,cursor:"pointer"}}>Cancelar</button>
         <button onClick={onConfirm} style={{flex:1,padding:"11px 0",background:C.red,border:"none",borderRadius:11,color:"#fff",fontWeight:800,fontSize:14,cursor:"pointer"}}>Excluir</button>
@@ -4134,6 +4135,7 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
                     const minV=parseNumeroBR(valorMinSaida)||0;
                     const kmInc=parseNumeroBR(kmInclusosMin)||0;
                     setPendingSave(roundFreteCostsForSave({origin:stops[0]?.v||"Origem",dest:stops[stops.length-1]?.v||"Destino",paradas:paradasMid,date:new Date().toLocaleDateString("pt-BR"),hora:new Date().toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"}),distance:result.tot,veiculo:vehicles.find(v=>v.id===vehicleId)?.label||"",cargo,observacao,vkm:metaLocal,adicional:freight,energyCost:result.energyCost||0,tollCost:result.tollCost||0,arlaCost:result.arlaCost||0,custoVeiculo:result.custoVeiculo||0,custoTotal:result.total,freteSugerido:freteSug,lucro:lucroFinal,valorMinSaida:minV,kmInclusosMin:kmInc,kmExcedente:quote.kmExcedente||0,usedMinimum:!!quote.usedMinimum}));
+                    setErro("");
                     setShowStatusModal(true);
                   }} style={{width:"100%",padding:"13px",background:C.navy,border:"none",borderRadius:12,cursor:"pointer",color:"#fff",fontWeight:700,fontSize:14,fontFamily:"'Sora',sans-serif",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
                     <SaveIcon size={15}/> Salvar no Histórico de Viagens
@@ -4147,17 +4149,29 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
                   <div style={{background:C.surface,borderRadius:20,width:"100%",maxWidth:380,padding:24,boxShadow:"0 20px 60px #00000033"}}>
                     <div style={{color:C.navy,fontWeight:800,fontSize:18,fontFamily:"'Sora',sans-serif",marginBottom:6}}>💾 Salvar Frete</div>
                     <div style={{color:C.muted,fontSize:14,marginBottom:18}}>Este frete já foi realizado ou é um planejamento?</div>
+                    {erro&&<div style={{background:"#FFF5F5",border:"1.5px solid #FCA5A5",borderRadius:10,padding:"10px 13px",color:"#DC2626",fontSize:13,fontWeight:600,marginBottom:14}}>⚠️ {erro}</div>}
                     <div style={{display:"flex",flexDirection:"column",gap:10,marginBottom:18}}>
                       {[
                         {status:"concluido",emoji:"✅",label:"Já foi realizado",desc:"Entra no histórico e no financeiro como receita",color:C.green,bg:C.greenLight},
                         {status:"planejado",emoji:"📋",label:"É um planejamento",desc:"Não salvo por enquanto — só quando for realizado",color:C.navy,bg:C.navyLight},
                       ].map(opt=>(
-                        <button key={opt.status} onClick={()=>{
-                          if(opt.status==="concluido"&&onSalvarHistorico){
-                            onSalvarHistorico({...pendingSave,status:opt.status});
+                        <button key={opt.status} onClick={async()=>{
+                          if(opt.status==="planejado"){
+                            setSalvou(false);
+                            setShowStatusModal(false);setPendingSave(null);
+                            setErro("");
+                            return;
                           }
-                          setSalvou(opt.status==="concluido");
-                          setShowStatusModal(false);setPendingSave(null);
+                          if(opt.status==="concluido"&&onSalvarHistorico){
+                            try{
+                              setErro("");
+                              await onSalvarHistorico({...pendingSave,status:opt.status});
+                              setSalvou(true);
+                              setShowStatusModal(false);setPendingSave(null);
+                            }catch{
+                              setErro("Não foi possível salvar. Verifique sua conexão e tente novamente.");
+                            }
+                          }
                         }} style={{background:opt.bg,border:`1.5px solid ${opt.color}33`,borderRadius:13,padding:"14px 16px",cursor:"pointer",textAlign:"left",display:"flex",alignItems:"center",gap:12}}>
                           <span style={{fontSize:26}}>{opt.emoji}</span>
                           <div>
@@ -4167,7 +4181,7 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
                         </button>
                       ))}
                     </div>
-                    <button onClick={()=>setShowStatusModal(false)} style={{width:"100%",padding:"11px",background:C.subtle,border:`1px solid ${C.border}`,borderRadius:11,cursor:"pointer",color:C.text2,fontWeight:600,fontSize:14}}>Cancelar</button>
+                    <button onClick={()=>{setShowStatusModal(false);setErro("");}} style={{width:"100%",padding:"11px",background:C.subtle,border:`1px solid ${C.border}`,borderRadius:11,cursor:"pointer",color:C.text2,fontWeight:600,fontSize:14}}>Cancelar</button>
                   </div>
                 </div>
               )}
@@ -4711,7 +4725,7 @@ const Rotas=()=>{
               {l:"Frete",v:`R$ ${r.gain}`,c:C.green,bold:true},
               {l:"Lucro",v:`R$ ${(lucro||0).toFixed(0)}`,c:lucro>=0?C.green:C.red,bold:true},
               {l:"Receita por km (bruto)",v:`R$ ${(r.distance>0?(r.gain||0)/r.distance:0).toFixed(2)}/km`,c:C.navy},
-              {l:"Lucro por km (líquido)",v:`R$ ${(r.distance>0?(lucro||0/r.distance):0).toFixed(2)}/km`,c:lucro>=0?C.green:C.red},
+              {l:"Lucro por km (líquido)",v:`R$ ${(r.distance>0?((lucro||0)/r.distance):0).toFixed(2)}/km`,c:lucro>=0?C.green:C.red},
             ].map((item,i)=>(
               <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"7px 0",borderBottom:i<6?`1px solid ${C.border}`:"none"}}>
                 <span style={{color:C.muted,fontSize:12}}>{item.l}</span><span style={{color:item.c||C.text,fontWeight:item.bold?800:600,fontSize:14}}>{item.v}</span>
@@ -4926,6 +4940,8 @@ const FreteDetRow=({label,value,valueStyle={},rowStyle={}})=>(
 const isPerfilGuincheiro=(perfil)=>perfil?.tipo==="Guincheiro"||perfil?.profile==="guincheiro";
 const Comparador=({historicoFretes,jornadas=[],onAddFrete,onUpdateFrete,onDeleteFrete,onUpdateJornada,onDeleteJornada,perfil,uid,onOpenChecklist})=>{
   const[del,setDel]=useState(null);
+  const[erroDel,setErroDel]=useState("");
+  const[erroForm,setErroForm]=useState("");
   const[detalhe,setDetalhe]=useState(null);
   const[showAdd,setShowAdd]=useState(false);
   const[editItem,setEditItem]=useState(null);
@@ -5027,9 +5043,14 @@ const Comparador=({historicoFretes,jornadas=[],onAddFrete,onUpdateFrete,onDelete
       lucro:parseNumeroBR(form.lucro)||0,
       distance:parseNumeroBR(form.distance)||0,
     };
-    await onAddFrete?.(item);
-    setForm({origin:"",dest:"",date:"",distance:"",freteSugerido:"",custoTotal:"",lucro:"",vkm:"",adicional:"",veiculo:"",cargo:""});
-    setShowAdd(false);
+    setErroForm("");
+    try{
+      await onAddFrete?.(item);
+      setForm({origin:"",dest:"",date:"",distance:"",freteSugerido:"",custoTotal:"",lucro:"",vkm:"",adicional:"",veiculo:"",cargo:""});
+      setShowAdd(false);
+    }catch{
+      setErroForm("Não foi possível salvar. Verifique sua conexão e tente novamente.");
+    }
   };
 
   const saveEdit=async()=>{
@@ -5041,9 +5062,14 @@ const Comparador=({historicoFretes,jornadas=[],onAddFrete,onUpdateFrete,onDelete
       freteSugerido:parseNumeroBR(form.freteSugerido)||editItem.freteSugerido,
       lucro:(parseNumeroBR(form.freteSugerido)||editItem.freteSugerido)-(parseNumeroBR(form.custoTotal)||editItem.custoTotal),
     };
-    await onUpdateFrete?.(updated);
-    setEditItem(null);
-    setForm({origin:"",dest:"",date:"",distance:"",freteSugerido:"",custoTotal:"",lucro:"",vkm:"",adicional:"",veiculo:"",cargo:""});
+    setErroForm("");
+    try{
+      await onUpdateFrete?.(updated);
+      setEditItem(null);
+      setForm({origin:"",dest:"",date:"",distance:"",freteSugerido:"",custoTotal:"",lucro:"",vkm:"",adicional:"",veiculo:"",cargo:""});
+    }catch{
+      setErroForm("Não foi possível atualizar. Verifique sua conexão e tente novamente.");
+    }
   };
 
   const startEdit=(h)=>{
@@ -5242,7 +5268,7 @@ const Comparador=({historicoFretes,jornadas=[],onAddFrete,onUpdateFrete,onDelete
             </button>
           )}
           <div style={{display:"flex",gap:9,marginTop:16}}>
-            <button onClick={()=>{setDel(detalhe);setDetalhe(null);}}
+            <button onClick={()=>{setDel(detalhe);setErroDel("");setDetalhe(null);}}
               style={{flex:1,minHeight:44,padding:"12px 8px",background:C.redLight,border:`1px solid ${C.red}33`,borderRadius:11,cursor:"pointer",color:C.red,fontWeight:700,fontSize:15,display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
               <Trash2Icon size={13}/> Excluir
             </button>
@@ -5273,7 +5299,7 @@ const Comparador=({historicoFretes,jornadas=[],onAddFrete,onUpdateFrete,onDelete
       {/* Modal de adicionar manual */}
       {showAdd&&(
         <ModalWrap>
-          <ModalHeader title="Registrar Frete" sub="Adicionar ao histórico manualmente" icon={PlusIcon} iconColor={C.orange} onClose={()=>setShowAdd(false)}/>
+          <ModalHeader title="Registrar Frete" sub="Adicionar ao histórico manualmente" icon={PlusIcon} iconColor={C.orange} onClose={()=>{setShowAdd(false);setErroForm("");}}/>
           <div style={{display:"flex",flexDirection:"column",gap:12}}>
             <Field label="Origem" value={form.origin} onChange={v=>setForm(f=>({...f,origin:v}))} placeholder="São Paulo, SP"/>
             <StopsField stops={stops} setStops={setStops}/>
@@ -5295,14 +5321,15 @@ const Comparador=({historicoFretes,jornadas=[],onAddFrete,onUpdateFrete,onDelete
               </div>
             )}
           </div>
+          {erroForm&&<div style={{background:"#FFF5F5",border:"1.5px solid #FCA5A5",borderRadius:10,padding:"10px 13px",color:"#DC2626",fontSize:13,fontWeight:600,marginTop:12}}>⚠️ {erroForm}</div>}
           <PrimaryBtn onClick={add} style={{width:"100%",marginTop:16}}>Salvar no Histórico →</PrimaryBtn>
         </ModalWrap>
       )}
 
-      {del&&<DeleteConfirm message={`Excluir frete "${del.origin} → ${del.dest}"?`} onConfirm={async()=>{await onDeleteFrete?.(del.id);setDel(null);}} onCancel={()=>setDel(null)}/>}
+      {del&&<DeleteConfirm message={`Excluir frete "${del.origin} → ${del.dest}"?`} error={erroDel} onConfirm={async()=>{setErroDel("");try{await onDeleteFrete?.(del.id);setDel(null);}catch{setErroDel("Não foi possível excluir. Verifique sua conexão e tente novamente.");}}} onCancel={()=>{setDel(null);setErroDel("");}}/>}
 
       {/* Modal de edição */}
-      {editItem&&(<ModalWrap><ModalHeader title="Editar Frete" sub={`${editItem.origin} → ${editItem.dest}`} icon={EditIcon} iconColor={C.navy} onClose={()=>setEditItem(null)}/>
+      {editItem&&(<ModalWrap><ModalHeader title="Editar Frete" sub={`${editItem.origin} → ${editItem.dest}`} icon={EditIcon} iconColor={C.navy} onClose={()=>{setEditItem(null);setErroForm("");}}/>
         <div style={{display:"flex",flexDirection:"column",gap:12}}>
           <Field label="Origem" value={form.origin} onChange={v=>setForm(f=>({...f,origin:v}))} placeholder="São Paulo, SP"/>
           <StopsField stops={[]} setStops={()=>{}}/>
@@ -5322,6 +5349,7 @@ const Comparador=({historicoFretes,jornadas=[],onAddFrete,onUpdateFrete,onDelete
             </div>
           )}
         </div>
+        {erroForm&&<div style={{background:"#FFF5F5",border:"1.5px solid #FCA5A5",borderRadius:10,padding:"10px 13px",color:"#DC2626",fontSize:13,fontWeight:600,marginTop:12}}>⚠️ {erroForm}</div>}
         <PrimaryBtn onClick={saveEdit} style={{width:"100%",marginTop:16}}>✓ Salvar Alterações</PrimaryBtn>
       </ModalWrap>)}
 
@@ -5438,6 +5466,8 @@ const Despesas=({despesas,onAddDespesa,onUpdateDespesa,onDeleteDespesa,uid,perfi
   const[editCatVal,setEditCatVal]=useState("");
   const[form,setForm]=useState({categoria:"Café da manhã",descricao:"",valor:"",date:""});
   const[editingId,setEditingId]=useState(null);
+  const[erroForm,setErroForm]=useState("");
+  const[erroDel,setErroDel]=useState("");
   const hoje=new Date();
   const[mesSel,setMesSel]=useState(hoje.getMonth());
   const[anoSel,setAnoSel]=useState(hoje.getFullYear());
@@ -5464,22 +5494,29 @@ const Despesas=({despesas,onAddDespesa,onUpdateDespesa,onDeleteDespesa,uid,perfi
   };
 
   const add=async()=>{
-    if(editingId){
-      await onUpdateDespesa?.({id:editingId,...form,valor:parseNumeroBR(form.valor)||0});
-      setEditingId(null);
-    } else {
-      if(!isPago&&uid){
-        const{bloqueado}=await checarLimiteFree(uid,perfil,"despesas");
-        if(bloqueado){setLimiteDesp(true);setShowAdd(false);return;}
+    setErroForm("");
+    try{
+      if(editingId){
+        await onUpdateDespesa?.({id:editingId,...form,valor:parseNumeroBR(form.valor)||0});
+        setEditingId(null);
+      } else {
+        if(!isPago&&uid){
+          const{bloqueado}=await checarLimiteFree(uid,perfil,"despesas");
+          if(bloqueado){setLimiteDesp(true);setShowAdd(false);return;}
+        }
+        await onAddDespesa?.({...form,valor:parseNumeroBR(form.valor)||0});
+        if(!isPago&&uid){
+          void incrementarUso(uid,"despesas");
+          setLimiteDesp(!(await podeUsar(uid,"despesas",FREE_LIMITS.despesas)));
+        }
       }
-      await onAddDespesa?.({...form,valor:parseNumeroBR(form.valor)||0});
-      if(!isPago&&uid){
-        void incrementarUso(uid,"despesas");
-        setLimiteDesp(!(await podeUsar(uid,"despesas",FREE_LIMITS.despesas)));
-      }
+      setForm({categoria:"Café da manhã",descricao:"",valor:"",date:""});
+      setShowAdd(false);
+    }catch{
+      setErroForm(editingId
+        ?"Não foi possível atualizar. Verifique sua conexão e tente novamente."
+        :"Não foi possível salvar. Verifique sua conexão e tente novamente.");
     }
-    setForm({categoria:"Café da manhã",descricao:"",valor:"",date:""});
-    setShowAdd(false);
   };
 
   // agrupar por categoria
@@ -5539,7 +5576,7 @@ const Despesas=({despesas,onAddDespesa,onUpdateDespesa,onDeleteDespesa,uid,perfi
       ))}
 
       {/* Modal registrar */}
-      {showAdd&&(<ModalWrap><ModalHeader title={editingId?"Editar Despesa":"Registrar Despesa"} icon={DollarSignIcon} iconColor={C.red} onClose={()=>{setShowAdd(false);setEditingId(null);setForm({categoria:"Café da manhã",descricao:"",valor:"",date:""});}}/>
+      {showAdd&&(<ModalWrap><ModalHeader title={editingId?"Editar Despesa":"Registrar Despesa"} icon={DollarSignIcon} iconColor={C.red} onClose={()=>{setShowAdd(false);setEditingId(null);setErroForm("");setForm({categoria:"Café da manhã",descricao:"",valor:"",date:""});}}/>
         <ModalFormLayout footer={<PrimaryBtn onClick={add} variant="red" style={{width:"100%"}}>{editingId?"Salvar alterações →":"Salvar Despesa →"}</PrimaryBtn>}>
           <div style={{display:"flex",flexDirection:"column",gap:12}}>
             <div style={{display:"flex",flexDirection:"column",gap:5}}>
@@ -5556,6 +5593,7 @@ const Despesas=({despesas,onAddDespesa,onUpdateDespesa,onDeleteDespesa,uid,perfi
             <Field label="Descrição (opcional)" value={form.descricao} onChange={v=>setForm(f=>({...f,descricao:v}))} placeholder="ex: Almoço em Campinas"/>
             <Field label="Valor (R$)" value={form.valor} onChange={v=>setForm(f=>({...f,valor:v}))} placeholder="25.00" prefix="R$"/>
             <DatePicker fullScreen label="Data" value={form.date} onChange={v=>setForm(f=>({...f,date:v}))}/>
+            {erroForm&&<div style={{background:"#FFF5F5",border:"1.5px solid #FCA5A5",borderRadius:10,padding:"10px 13px",color:"#DC2626",fontSize:13,fontWeight:600}}>⚠️ {erroForm}</div>}
           </div>
         </ModalFormLayout>
       </ModalWrap>)}
@@ -5587,7 +5625,7 @@ const Despesas=({despesas,onAddDespesa,onUpdateDespesa,onDeleteDespesa,uid,perfi
         </div>
       </ModalWrap>)}
 
-      {del&&<DeleteConfirm message={`Excluir despesa "${del.descricao||del.categoria}" de ${formatMoeda(del.valor||0)}?`} onConfirm={async()=>{await onDeleteDespesa?.(del.id);setDel(null);}} onCancel={()=>setDel(null)}/>}
+      {del&&<DeleteConfirm message={`Excluir despesa "${del.descricao||del.categoria}" de ${formatMoeda(del.valor||0)}?`} error={erroDel} onConfirm={async()=>{setErroDel("");try{await onDeleteDespesa?.(del.id);setDel(null);}catch{setErroDel("Não foi possível excluir. Verifique sua conexão e tente novamente.");}}} onCancel={()=>{setDel(null);setErroDel("");}}/>}
     </div>
   );
 };
@@ -5617,7 +5655,7 @@ const maintMetaParts=(item)=>{
 const Manutencao=({manutencoes:items,onAddManutencao,onUpdateManutencao,onDeleteManutencao,uid,perfil,vehicles,setVehicles,historicoFretes=[],jornadas=[]})=>{
   const isPago=getPlanoAtual(perfil).isPago;
   const[limiteManut,setLimiteManut]=useState(false);
-  const[stypes,setStypes]=useState(INIT_STYPE);const[showAdd,setShowAdd]=useState(false);const[showManage,setShowManage]=useState(false);const[del,setDel]=useState(null);const[editTIdx,setEditTIdx]=useState(null);const[editTVal,setEditTVal]=useState("");const[newType,setNewType]=useState("");const[form,setForm]=useState({type:"",vehicle:"",km:"",cost:"",nextKm:"",date:""});const[editingId,setEditingId]=useState(null);
+  const[stypes,setStypes]=useState(INIT_STYPE);const[showAdd,setShowAdd]=useState(false);const[showManage,setShowManage]=useState(false);const[del,setDel]=useState(null);const[erroForm,setErroForm]=useState("");const[erroDel,setErroDel]=useState("");const[editTIdx,setEditTIdx]=useState(null);const[editTVal,setEditTVal]=useState("");const[newType,setNewType]=useState("");const[form,setForm]=useState({type:"",vehicle:"",km:"",cost:"",nextKm:"",date:""});const[editingId,setEditingId]=useState(null);
   const[editVeh,setEditVeh]=useState(null);
   const[editVehVals,setEditVehVals]=useState({});
   const[custoForm,setCustoForm]=useState(()=>formFromCustoVeiculoPersist(readCustoVeiculoLocalCache()));
@@ -5642,7 +5680,7 @@ const Manutencao=({manutencoes:items,onAddManutencao,onUpdateManutencao,onDelete
   const alerts=items.filter(i=>i.status!=="ok").length;
   const totalManut=itemsMes.reduce((a,i)=>a+(i.cost||0),0);
   const resetForm=()=>setForm({type:"",vehicle:"",km:"",cost:"",nextKm:"",date:""});
-  const closeModal=()=>{setShowAdd(false);setEditingId(null);resetForm();};
+  const closeModal=()=>{setShowAdd(false);setEditingId(null);setErroForm("");resetForm();};
   const openEdit=(item)=>{
     setForm({type:item.type||"",vehicle:item.vehicle||"",km:item.km!=null?String(item.km):"",cost:item.cost!=null?String(item.cost):"",nextKm:item.nextKm!=null?String(item.nextKm):"",date:item.date||""});
     setEditingId(item.id);
@@ -5782,23 +5820,31 @@ const Manutencao=({manutencoes:items,onAddManutencao,onUpdateManutencao,onDelete
 
   const save=async()=>{
     const payload={...form,cost:parseNumeroBR(form.cost)||0};
-    if(editingId){
-      const orig=items.find(i=>i.id===editingId);
-      await onUpdateManutencao?.({id:editingId,...payload,status:orig?.status||"ok"});
-      setEditingId(null);
-    } else {
-      if(!isPago&&uid){
-        const{bloqueado}=await checarLimiteFree(uid,perfil,"manutencao");
-        if(bloqueado){setLimiteManut(true);closeModal();return;}
+    const wasEditing=!!editingId;
+    setErroForm("");
+    try{
+      if(editingId){
+        const orig=items.find(i=>i.id===editingId);
+        await onUpdateManutencao?.({id:editingId,...payload,status:orig?.status||"ok"});
+        setEditingId(null);
+      } else {
+        if(!isPago&&uid){
+          const{bloqueado}=await checarLimiteFree(uid,perfil,"manutencao");
+          if(bloqueado){setLimiteManut(true);closeModal();return;}
+        }
+        await onAddManutencao?.({...payload,status:"ok"});
+        if(!isPago&&uid){
+          void incrementarUso(uid,"manutencao");
+          setLimiteManut(!(await podeUsar(uid,"manutencao",FREE_LIMITS.manutencao)));
+        }
       }
-      await onAddManutencao?.({...payload,status:"ok"});
-      if(!isPago&&uid){
-        void incrementarUso(uid,"manutencao");
-        setLimiteManut(!(await podeUsar(uid,"manutencao",FREE_LIMITS.manutencao)));
-      }
+      resetForm();
+      setShowAdd(false);
+    }catch{
+      setErroForm(wasEditing
+        ?"Não foi possível atualizar. Verifique sua conexão e tente novamente."
+        :"Não foi possível salvar. Verifique sua conexão e tente novamente.");
     }
-    resetForm();
-    setShowAdd(false);
   };
   return(
     <div style={{display:"flex",flexDirection:"column",gap:18}}>
@@ -6096,6 +6142,7 @@ const Manutencao=({manutencoes:items,onAddManutencao,onUpdateManutencao,onDelete
           <Field label="Próxima Revisão (KM)" value={form.nextKm} onChange={v=>setForm(f=>({...f,nextKm:v}))} placeholder="152.500" suffix="km"/>
           <Field label="Custo (R$)" value={form.cost} onChange={v=>setForm(f=>({...f,cost:v}))} placeholder="320.00" prefix="R$"/>
         </div>
+        {erroForm&&<div style={{background:"#FFF5F5",border:"1.5px solid #FCA5A5",borderRadius:10,padding:"10px 13px",color:"#DC2626",fontSize:13,fontWeight:600,marginTop:12}}>⚠️ {erroForm}</div>}
         <PrimaryBtn onClick={save} style={{width:"100%",marginTop:16}}>{editingId?"Salvar alterações →":"Salvar →"}</PrimaryBtn>
       </ModalWrap>)}
       {showManage&&(<ModalWrap><ModalHeader title="Tipos de Serviço" icon={WrenchIcon} iconColor={C.amber} onClose={()=>setShowManage(false)}/>
@@ -6121,7 +6168,7 @@ const Manutencao=({manutencoes:items,onAddManutencao,onUpdateManutencao,onDelete
           <PrimaryBtn onClick={()=>{if(!newType.trim())return;setStypes(t=>[...t,newType.trim()]);setNewType("");}} small><PlusIcon size={13}/> Adicionar</PrimaryBtn>
         </div>
       </ModalWrap>)}
-      {del&&<DeleteConfirm message={`Excluir "${del.type}" do ${del.vehicle}?`} onConfirm={async()=>{await onDeleteManutencao?.(del.id);setDel(null);}} onCancel={()=>setDel(null)}/>}
+      {del&&<DeleteConfirm message={`Excluir "${del.type}" do ${del.vehicle}?`} error={erroDel} onConfirm={async()=>{setErroDel("");try{await onDeleteManutencao?.(del.id);setDel(null);}catch{setErroDel("Não foi possível excluir. Verifique sua conexão e tente novamente.");}}} onCancel={()=>{setDel(null);setErroDel("");}}/>}
     </div>
   );
 };
@@ -6148,6 +6195,8 @@ const Documentos=({docs,onAddDocumento,onDeleteDocumento,uid,perfil})=>{
   const[limiteDocs,setLimiteDocs]=useState(false);
   const[showAdd,setShowAdd]=useState(false);
   const[del,setDel]=useState(null);
+  const[erroForm,setErroForm]=useState("");
+  const[erroDel,setErroDel]=useState("");
   const[form,setForm]=useState({type:"CNH",vehicle:"",number:"",expiry:""});
 
   useEffect(()=>{
@@ -6170,13 +6219,18 @@ const Documentos=({docs,onAddDocumento,onDeleteDocumento,uid,perfil})=>{
       const{bloqueado}=await checarLimiteFree(uid,perfil,"documentos");
       if(bloqueado){setLimiteDocs(true);setShowAdd(false);return;}
     }
-    await onAddDocumento?.({...form,status:"ok"});
-    if(!isPago&&uid){
-      void incrementarUso(uid,"documentos");
-      setLimiteDocs(!(await podeUsar(uid,"documentos",FREE_LIMITS.documentos)));
+    setErroForm("");
+    try{
+      await onAddDocumento?.({...form,status:"ok"});
+      if(!isPago&&uid){
+        void incrementarUso(uid,"documentos");
+        setLimiteDocs(!(await podeUsar(uid,"documentos",FREE_LIMITS.documentos)));
+      }
+      setForm({type:"CNH",vehicle:"",number:"",expiry:""});
+      setShowAdd(false);
+    }catch{
+      setErroForm("Não foi possível salvar. Verifique sua conexão e tente novamente.");
     }
-    setForm({type:"CNH",vehicle:"",number:"",expiry:""});
-    setShowAdd(false);
   };
 
   const docsComStatus=docs.map(doc=>{
@@ -6252,17 +6306,18 @@ const Documentos=({docs,onAddDocumento,onDeleteDocumento,uid,perfil})=>{
         ))}
       </Card>
 
-      {showAdd&&(<ModalWrap><ModalHeader title="Novo Documento" icon={FileTextIcon} iconColor={C.navy} onClose={()=>setShowAdd(false)}/>
+      {showAdd&&(<ModalWrap><ModalHeader title="Novo Documento" icon={FileTextIcon} iconColor={C.navy} onClose={()=>{setShowAdd(false);setErroForm("");}}/>
         <ModalFormLayout footer={<PrimaryBtn onClick={salvarDocumento} style={{width:"100%"}}>Salvar →</PrimaryBtn>}>
           <div style={{display:"flex",flexDirection:"column",gap:12}}>
             <SelectField label="Tipo" value={form.type} onChange={v=>setForm(f=>({...f,type:v}))} options={["CNH","CRLV","Seguro","Tacógrafo","Licença ANTT","Outros"]}/>
             {form.type!=="CNH"&&<Field label="Veículo / Titular" value={form.vehicle} onChange={v=>setForm(f=>({...f,vehicle:v}))} placeholder="Caminhão MB 1620"/>}
             <Field label="Número / Registro" value={form.number} onChange={v=>setForm(f=>({...f,number:v}))} placeholder="ABC-1234"/>
             <DatePicker fullScreen label="Data de Vencimento" value={form.expiry} onChange={v=>setForm(f=>({...f,expiry:v}))}/>
+            {erroForm&&<div style={{background:"#FFF5F5",border:"1.5px solid #FCA5A5",borderRadius:10,padding:"10px 13px",color:"#DC2626",fontSize:13,fontWeight:600}}>⚠️ {erroForm}</div>}
           </div>
         </ModalFormLayout>
       </ModalWrap>)}
-      {del&&<DeleteConfirm message={`Excluir "${del.type}" de ${del.vehicle}?`} onConfirm={async()=>{await onDeleteDocumento?.(del.id);setDel(null);}} onCancel={()=>setDel(null)}/>}
+      {del&&<DeleteConfirm message={`Excluir "${del.type}" de ${del.vehicle}?`} error={erroDel} onConfirm={async()=>{setErroDel("");try{await onDeleteDocumento?.(del.id);setDel(null);}catch{setErroDel("Não foi possível excluir. Verifique sua conexão e tente novamente.");}}} onCancel={()=>{setDel(null);setErroDel("");}}/>}
     </div>
   );
 };
@@ -7022,8 +7077,8 @@ export default function App(){
   const[showCalc,setShowCalc]=useState(false);
   const[calcMode,setCalcMode]=useState(null);
   const uiRestoredRef=useRef(false);
-  const[plan,setPlan]=useState(()=>(readProPlanActive()?"pro":"free"));
-  const[trialDias,setTrialDias]=useState(()=>(readProPlanActive()?readProTrialDaysLeft():0));
+  const[plan,setPlan]=useState("free");
+  const[trialDias,setTrialDias]=useState(0);
   const perfilPlanoFirestoreRef=useRef(false);
   const[vehicles,setVehicles]=useState(()=>readVehiclesLocalCache(DEFAULT_VEHICLES));
   const[metaMes,setMetaMes]=useState(()=>readMetaMesLocalCache(8000));
@@ -7075,11 +7130,6 @@ export default function App(){
       setTrialDias(dias);
       return;
     }
-    if(readProPlanActive()){
-      setPlan("pro");
-      setTrialDias(readProTrialDaysLeft());
-      return;
-    }
     setPlan("free");
     setTrialDias(0);
   },[perfil,profileGateOk]);
@@ -7088,6 +7138,12 @@ export default function App(){
     return subscribeAuth((user)=>{
       setFirebaseUser(user);
       setAuthReady(true);
+      if(user?.uid){
+        try{
+          localStorage.removeItem("logrotas_plano");
+          localStorage.removeItem("logrotas_plano_expiry");
+        }catch{/* ignore */}
+      }
     });
   },[]);
 
@@ -7231,7 +7287,10 @@ export default function App(){
       const rounded=roundFreteCostsForSave(item);
       const saved=await addFreteWithFinanceiro(uid,rounded);
       setHistoricoFretes(h=>[saved,...h]);
-    }catch{/* ignore */}
+    }catch(err){
+      console.error("[Frete] erro em salvar:",err);
+      throw err;
+    }
   },[firebaseUser?.uid]);
 
   const handleUpdateFrete=useCallback(async(item)=>{
@@ -7241,7 +7300,10 @@ export default function App(){
       const rounded=roundFreteCostsForSave(item);
       const saved=await updateFreteWithFinanceiro(uid,item.id,rounded);
       setHistoricoFretes(h=>h.map(x=>x.id===item.id?saved:x));
-    }catch{/* ignore */}
+    }catch(err){
+      console.error("[Frete] erro em atualizar:",err);
+      throw err;
+    }
   },[firebaseUser?.uid]);
 
   const handleDeleteFrete=useCallback(async(id)=>{
@@ -7250,7 +7312,10 @@ export default function App(){
     try{
       await deleteFreteWithFinanceiro(uid,id);
       setHistoricoFretes(h=>h.filter(x=>x.id!==id));
-    }catch{/* ignore */}
+    }catch(err){
+      console.error("[Frete] erro em excluir:",err);
+      throw err;
+    }
   },[firebaseUser?.uid]);
 
   const handleOpenChecklist=useCallback(async(frete,existente)=>{
@@ -7492,7 +7557,10 @@ export default function App(){
     try{
       const saved=await addDespesaWithFinanceiro(uid,item);
       setDespesas(d=>[saved,...d]);
-    }catch{/* ignore */}
+    }catch(err){
+      console.error("[Despesa] erro em salvar:",err);
+      throw err;
+    }
   },[firebaseUser?.uid]);
 
   // V293 — Fechamento do dia: grava só a jornada (receita + custo próprios no Financeiro)
@@ -7524,7 +7592,10 @@ export default function App(){
     try{
       const saved=await updateDespesaWithFinanceiro(uid,item.id,item);
       setDespesas(d=>d.map(x=>x.id===item.id?saved:x));
-    }catch{/* ignore */}
+    }catch(err){
+      console.error("[Despesa] erro em atualizar:",err);
+      throw err;
+    }
   },[firebaseUser?.uid]);
 
   const handleDeleteDespesa=useCallback(async(id)=>{
@@ -7533,7 +7604,10 @@ export default function App(){
     try{
       await deleteDespesaWithFinanceiro(uid,id);
       setDespesas(d=>d.filter(x=>x.id!==id));
-    }catch{/* ignore */}
+    }catch(err){
+      console.error("[Despesa] erro em excluir:",err);
+      throw err;
+    }
   },[firebaseUser?.uid]);
 
   const handleAddManutencao=useCallback(async(item)=>{
@@ -7542,7 +7616,10 @@ export default function App(){
     try{
       const saved=await addManutencaoWithFinanceiro(uid,item);
       setManutencoes(m=>[saved,...m]);
-    }catch{/* ignore */}
+    }catch(err){
+      console.error("[Manutencao] erro em salvar:",err);
+      throw err;
+    }
   },[firebaseUser?.uid]);
 
   const handleUpdateManutencao=useCallback(async(item)=>{
@@ -7551,7 +7628,10 @@ export default function App(){
     try{
       const saved=await updateManutencaoWithFinanceiro(uid,item.id,item);
       setManutencoes(m=>m.map(x=>x.id===item.id?saved:x));
-    }catch{/* ignore */}
+    }catch(err){
+      console.error("[Manutencao] erro em atualizar:",err);
+      throw err;
+    }
   },[firebaseUser?.uid]);
 
   const handleDeleteManutencao=useCallback(async(id)=>{
@@ -7560,7 +7640,10 @@ export default function App(){
     try{
       await deleteManutencaoWithFinanceiro(uid,id);
       setManutencoes(m=>m.filter(x=>x.id!==id));
-    }catch{/* ignore */}
+    }catch(err){
+      console.error("[Manutencao] erro em excluir:",err);
+      throw err;
+    }
   },[firebaseUser?.uid]);
 
   const handleAddDocumento=useCallback(async(item)=>{
@@ -7569,7 +7652,10 @@ export default function App(){
     try{
       const saved=await addDocumento(uid,item);
       setDocs(d=>[saved,...d]);
-    }catch{/* ignore */}
+    }catch(err){
+      console.error("[Documento] erro em salvar:",err);
+      throw err;
+    }
   },[firebaseUser?.uid]);
 
   const handleDeleteDocumento=useCallback(async(id)=>{
@@ -7578,7 +7664,10 @@ export default function App(){
     try{
       await deleteDocumento(uid,id);
       setDocs(d=>d.filter(x=>x.id!==id));
-    }catch{/* ignore */}
+    }catch(err){
+      console.error("[Documento] erro em excluir:",err);
+      throw err;
+    }
   },[firebaseUser?.uid]);
 
   useEffect(()=>{
