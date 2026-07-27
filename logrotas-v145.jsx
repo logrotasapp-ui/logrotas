@@ -171,7 +171,7 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="v337";
+const APP_VERSION="v338";
 const SUPORTE_EMAIL="suporte@logrotas.com.br";
 const PEDAGIO_AVISO_RESULTADO="Pedágio estimado pelo Google. Pode haver variação — confirme o valor da praça.";
 const PAGE_SWIPE_ORDER=["dashboard","financeiro","despesas","comparador","manutencao","documentos","perfil"];
@@ -2626,23 +2626,25 @@ const OtimizarEntregasModal=({onClose,perfil,plan,uid,resumeNavigation=false,onN
                   <div style={{color:getParadaStatus(p)!=="pendente"?"#64748B":C.text,fontSize:13,textDecoration:getParadaStatus(p)!=="pendente"?"line-through":"none",lineHeight:1.4}}>
                     {p.endereco}
                   </div>
-                  {pacotesNumerosLabel(p)?(
-                    <div style={{display:"inline-block",marginTop:4,background:"#fff",border:`1px solid ${OTIMIZAR_LARANJA}`,borderRadius:10,padding:"2px 8px",color:OTIMIZAR_LARANJA,fontSize:12,fontWeight:500}}>
-                      📦 {pacotesNumerosLabel(p)}
-                    </div>
-                  ):(
-                    <div style={{display:"inline-block",marginTop:4,color:C.muted,fontSize:11,fontWeight:600,opacity:.85}}>
-                      📦 + nº
-                    </div>
-                  )}
+                  <div style={{display:"flex",flexWrap:"wrap",gap:12,rowGap:6,marginTop:6,alignItems:"center"}}>
+                    {pacotesNumerosLabel(p)?(
+                      <div style={{display:"inline-block",background:"#fff",border:`1px solid ${OTIMIZAR_LARANJA}`,borderRadius:10,padding:"2px 8px",color:OTIMIZAR_LARANJA,fontSize:12,fontWeight:500}}>
+                        📦 {pacotesNumerosLabel(p)}
+                      </div>
+                    ):(
+                      <div style={{display:"inline-block",color:C.muted,fontSize:11,fontWeight:600,opacity:.85}}>
+                        📦 + nº
+                      </div>
+                    )}
+                    {getParadaStatus(p)==="pendente"&&(
+                      <span style={{display:"inline-block",color:OTIMIZAR_LARANJA,fontSize:12,fontWeight:500}}>
+                        📦 {resumoPacotesLabel(p)}
+                      </span>
+                    )}
+                  </div>
                   {getParadaStatus(p)==="concluida"&&<div style={{color:C.green,fontSize:11,marginTop:4}}>✅ Concluída · {p.horario||""}</div>}
                   {getParadaStatus(p)==="entregue"&&<div style={{color:C.green,fontSize:11,marginTop:4}}>✅ Entregue · {p.horario||""}</div>}
                   {getParadaStatus(p)==="nao_entregue"&&<div style={{color:C.red,fontSize:11,marginTop:4}}>❌ {p.motivo||"Não entregue"}</div>}
-                  {getParadaStatus(p)==="pendente"&&(
-                    <span style={{display:"inline-block",marginTop:4,color:OTIMIZAR_LARANJA,fontSize:12,fontWeight:500}}>
-                      📦 {resumoPacotesLabel(p)}
-                    </span>
-                  )}
                 </div>
               </div>
               {String(editNumId)===String(p.id)&&(
@@ -2951,12 +2953,14 @@ const OtimizarEntregasModal=({onClose,perfil,plan,uid,resumeNavigation=false,onN
                     </div>
                     <div style={{flex:1,minWidth:0}}>
                       <div style={{color:C.text,fontSize:13,lineHeight:1.4}}>{p.endereco}</div>
-                      {pacotesNumerosLabel(p)&&(
-                        <div style={{display:"inline-block",marginTop:4,background:"#fff",border:`1px solid ${OTIMIZAR_LARANJA}`,borderRadius:10,padding:"2px 8px",color:OTIMIZAR_LARANJA,fontSize:12,fontWeight:500}}>
-                          📦 {pacotesNumerosLabel(p)}
-                        </div>
-                      )}
-                      <div style={{color:OTIMIZAR_LARANJA,fontSize:12,fontWeight:500,marginTop:4}}>📦 {resumoPacotesLabel(p)}</div>
+                      <div style={{display:"flex",flexWrap:"wrap",gap:12,rowGap:6,marginTop:6,alignItems:"center"}}>
+                        {pacotesNumerosLabel(p)&&(
+                          <div style={{display:"inline-block",background:"#fff",border:`1px solid ${OTIMIZAR_LARANJA}`,borderRadius:10,padding:"2px 8px",color:OTIMIZAR_LARANJA,fontSize:12,fontWeight:500}}>
+                            📦 {pacotesNumerosLabel(p)}
+                          </div>
+                        )}
+                        <div style={{color:OTIMIZAR_LARANJA,fontSize:12,fontWeight:500}}>📦 {resumoPacotesLabel(p)}</div>
+                      </div>
                       {st==="concluida"&&<div style={{color:C.green,fontSize:11,marginTop:4}}>✅ Concluída · {p.horario}</div>}
                       {st==="entregue"&&<div style={{color:C.green,fontSize:11,marginTop:4}}>✅ Entregue · {p.horario}</div>}
                       {st==="nao_entregue"&&<div style={{color:C.red,fontSize:11,marginTop:4}}>❌ {p.motivo}</div>}
