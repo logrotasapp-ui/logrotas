@@ -171,7 +171,7 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="v336";
+const APP_VERSION="v337";
 const SUPORTE_EMAIL="suporte@logrotas.com.br";
 const PEDAGIO_AVISO_RESULTADO="Pedágio estimado pelo Google. Pode haver variação — confirme o valor da praça.";
 const PAGE_SWIPE_ORDER=["dashboard","financeiro","despesas","comparador","manutencao","documentos","perfil"];
@@ -1209,6 +1209,7 @@ const CalcSelector=({onFrete,onViagem,onOtimizar,onClose})=>(
 // ── OTIMIZAR ENTREGAS (V166 — origem GPS do motorista na otimização) ───────────
 const OTIMIZAR_AZUL="#3B82F6";
 const OTIMIZAR_AZUL_MID="#2563EB";
+const OTIMIZAR_LARANJA="#ED6A2C";
 const MOTIVOS_NAO_ENTREGUE=["Cliente ausente","Cliente recusou","Endereço não encontrado","Outro"];
 
 function paradaBolinhaCor(p,i,paradaAtualIdx,modoNavegacao){
@@ -2354,7 +2355,7 @@ const OtimizarEntregasModal=({onClose,perfil,plan,uid,resumeNavigation=false,onN
     if(!resultado)return[];
     return[
       resultado.kmOtimizado!=null&&{emoji:"📍",label:"Distância otimizada",valor:formatKmDecimal(resultado.kmOtimizado)},
-      resultado.tempoEstimado!=null&&{emoji:"⏱️",label:"Tempo estimado",valor:`~${resultado.tempoEstimado} min`},
+      resultado.tempoEstimado!=null&&{emoji:"⏱️",label:"Tempo estimado",valor:`${resultado.tempoEstimado} min`},
       resultado.custoTotal!=null&&{emoji:"⛽",label:"Custo combustível",valor:formatMoeda(resultado.custoTotal)},
       !resultado.semOtimizacao&&{emoji:"✂️",label:"Distância economizada",valor:formatKmDecimal(resultado.economiaKm),cor:OTIMIZAR_AZUL},
       !resultado.semOtimizacao&&{emoji:"💰",label:"Economia em R$",valor:formatMoeda(resultado.economiaCusto),cor:OTIMIZAR_AZUL},
@@ -2373,7 +2374,7 @@ const OtimizarEntregasModal=({onClose,perfil,plan,uid,resumeNavigation=false,onN
       formatDurationApprox(resultado.tempoEstimadoSeg)!=null
         ?formatDurationApprox(resultado.tempoEstimadoSeg)
         :(resultado.tempoEstimado!=null?formatDurationApprox(resultado.tempoEstimado*60):null);
-    if(dur)parts.push(dur);
+    if(dur)parts.push(`Tempo estimado: ${dur}`);
     if(paradasDedup.length>0)parts.push(`${paradasDedup.length} parada${paradasDedup.length!==1?"s":""}`);
     if(resultado.kmOtimizado!=null){
       const km=formatKmDecimal(resultado.kmOtimizado);
@@ -2608,23 +2609,25 @@ const OtimizarEntregasModal=({onClose,perfil,plan,uid,resumeNavigation=false,onN
               display:"flex",flexDirection:"column",gap:8,
               background:paradaCardBg(p),
               border:`1.5px solid ${p.geocodeFalhou||p.outlier?C.amber:paradaCardBorder(p,i,paradaAtualIdx,modoNavegacao)}`,
-              borderRadius:11,padding:"10px 13px",transition:"all .3s",position:"relative",cursor:"pointer",
+              borderRadius:11,padding:"10px 11px",transition:"all .3s",position:"relative",cursor:"pointer",
             }}>
-              <div style={{display:"flex",alignItems:"flex-start",gap:10,paddingRight:36}}>
-                <div style={{width:24,height:24,borderRadius:"50%",background:paradaBolinhaCor(p,i,paradaAtualIdx,modoNavegacao),display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,marginTop:1}}>
-                  <span style={{color:"#fff",fontWeight:800,fontSize:11}}>{i+1}</span>
+              <div style={{display:"flex",alignItems:"center",gap:10,paddingRight:36}}>
+                <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:4,minWidth:44,flexShrink:0}}>
+                  <div style={{width:30,height:30,borderRadius:"50%",background:OTIMIZAR_AZUL_MID,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                    <span style={{color:"#fff",fontWeight:700,fontSize:12}}>{i+1}</span>
+                  </div>
+                  {etasParadas[i]&&etasParadas[i]!=="—"&&(
+                    <span style={{fontSize:11,fontWeight:600,color:"#6B7280",lineHeight:1.2}}>
+                      {etasParadas[i]}
+                    </span>
+                  )}
                 </div>
                 <div style={{flex:1,minWidth:0}}>
                   <div style={{color:getParadaStatus(p)!=="pendente"?"#64748B":C.text,fontSize:13,textDecoration:getParadaStatus(p)!=="pendente"?"line-through":"none",lineHeight:1.4}}>
                     {p.endereco}
                   </div>
-                  {etasParadas[i]&&etasParadas[i]!=="—"&&(
-                    <span style={{display:"inline-block",marginTop:4,marginRight:6,color:OTIMIZAR_AZUL,fontSize:11,fontWeight:700}}>
-                      {etasParadas[i]}
-                    </span>
-                  )}
                   {pacotesNumerosLabel(p)?(
-                    <div style={{display:"inline-block",marginTop:4,background:"#EEF4FF",border:`1px solid ${OTIMIZAR_AZUL}`,borderRadius:6,padding:"2px 7px",color:OTIMIZAR_AZUL,fontSize:11,fontWeight:800}}>
+                    <div style={{display:"inline-block",marginTop:4,background:"#fff",border:`1px solid ${OTIMIZAR_LARANJA}`,borderRadius:10,padding:"2px 8px",color:OTIMIZAR_LARANJA,fontSize:12,fontWeight:500}}>
                       📦 {pacotesNumerosLabel(p)}
                     </div>
                   ):(
@@ -2636,7 +2639,7 @@ const OtimizarEntregasModal=({onClose,perfil,plan,uid,resumeNavigation=false,onN
                   {getParadaStatus(p)==="entregue"&&<div style={{color:C.green,fontSize:11,marginTop:4}}>✅ Entregue · {p.horario||""}</div>}
                   {getParadaStatus(p)==="nao_entregue"&&<div style={{color:C.red,fontSize:11,marginTop:4}}>❌ {p.motivo||"Não entregue"}</div>}
                   {getParadaStatus(p)==="pendente"&&(
-                    <span style={{display:"inline-block",marginTop:4,color:OTIMIZAR_AZUL,fontSize:11,fontWeight:700}}>
+                    <span style={{display:"inline-block",marginTop:4,color:OTIMIZAR_LARANJA,fontSize:12,fontWeight:500}}>
                       📦 {resumoPacotesLabel(p)}
                     </span>
                   )}
@@ -2933,31 +2936,33 @@ const OtimizarEntregasModal=({onClose,perfil,plan,uid,resumeNavigation=false,onN
                   onClick={multi?undefined:()=>toggleListaExpand(p.id)}
                   onKeyDown={multi?undefined:e=>{if(e.key==="Enter"||e.key===" ")toggleListaExpand(p.id);}}
                   style={{
-                  padding:"12px",marginBottom:8,borderRadius:11,cursor:multi?"default":"pointer",
+                  padding:"10px 11px",marginBottom:8,borderRadius:11,cursor:multi?"default":"pointer",
                   background:paradaCardBg(p),
                   border:`1.5px solid ${paradaCardBorder(p,i,paradaAtualIdx,true)}`,
                 }}>
-                  <div style={{display:"flex",gap:10,alignItems:"flex-start"}}>
-                    <span style={{width:24,height:24,borderRadius:"50%",background:paradaBolinhaCor(p,i,paradaAtualIdx,true),color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:800,flexShrink:0}}>{i+1}</span>
-                    <div style={{flex:1}}>
-                      <div style={{color:C.text,fontSize:13,lineHeight:1.4}}>{p.endereco}</div>
+                  <div style={{display:"flex",gap:10,alignItems:"center"}}>
+                    <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:4,minWidth:44,flexShrink:0}}>
+                      <span style={{width:30,height:30,borderRadius:"50%",background:OTIMIZAR_AZUL_MID,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:700,flexShrink:0}}>{i+1}</span>
                       {etasParadas[i]&&etasParadas[i]!=="—"&&(
-                        <span style={{display:"inline-block",marginTop:4,marginRight:6,color:OTIMIZAR_AZUL,fontSize:11,fontWeight:700}}>
+                        <span style={{fontSize:11,fontWeight:600,color:"#6B7280",lineHeight:1.2}}>
                           {etasParadas[i]}
                         </span>
                       )}
+                    </div>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{color:C.text,fontSize:13,lineHeight:1.4}}>{p.endereco}</div>
                       {pacotesNumerosLabel(p)&&(
-                        <div style={{display:"inline-block",marginTop:4,background:"#EEF4FF",border:`1px solid ${OTIMIZAR_AZUL}`,borderRadius:6,padding:"2px 7px",color:OTIMIZAR_AZUL,fontSize:11,fontWeight:800}}>
+                        <div style={{display:"inline-block",marginTop:4,background:"#fff",border:`1px solid ${OTIMIZAR_LARANJA}`,borderRadius:10,padding:"2px 8px",color:OTIMIZAR_LARANJA,fontSize:12,fontWeight:500}}>
                           📦 {pacotesNumerosLabel(p)}
                         </div>
                       )}
-                      <div style={{color:OTIMIZAR_AZUL,fontSize:11,fontWeight:700,marginTop:4}}>📦 {resumoPacotesLabel(p)}</div>
+                      <div style={{color:OTIMIZAR_LARANJA,fontSize:12,fontWeight:500,marginTop:4}}>📦 {resumoPacotesLabel(p)}</div>
                       {st==="concluida"&&<div style={{color:C.green,fontSize:11,marginTop:4}}>✅ Concluída · {p.horario}</div>}
                       {st==="entregue"&&<div style={{color:C.green,fontSize:11,marginTop:4}}>✅ Entregue · {p.horario}</div>}
                       {st==="nao_entregue"&&<div style={{color:C.red,fontSize:11,marginTop:4}}>❌ {p.motivo}</div>}
                       {i===paradaAtualIdx&&st==="pendente"&&<div style={{color:OTIMIZAR_AZUL,fontSize:11,fontWeight:700,marginTop:4}}>→ Parada atual</div>}
                     </div>
-                    {!multi&&<span style={{color:C.muted,fontSize:14,fontWeight:700}}>{expandida?"▾":"▸"}</span>}
+                    {!multi&&<span style={{color:C.muted,fontSize:14,fontWeight:700,flexShrink:0}}>{expandida?"▾":"▸"}</span>}
                   </div>
                   {multi&&(
                     <button type="button" onClick={()=>abrirPacotesTela(p.id)}
@@ -3564,8 +3569,8 @@ const TripCalcModal=({onClose,vehicles,onConcluido,onGoMeuVeiculo})=>{
               <div style={{color:"#BFDBFE",fontSize:14,fontWeight:700,letterSpacing:1,textTransform:"uppercase",marginBottom:6}}>💸 CUSTO TOTAL DA VIAGEM</div>
               <div style={{color:"#fff",fontWeight:900,fontSize:40,fontFamily:"'Sora',sans-serif",lineHeight:1,marginBottom:4}}>{formatMoeda(result.total||0)}</div>
               <div style={{color:"#93C5FD",fontSize:12}}>{formatKmDecimal(result.dist||0)}</div>
-              <div style={{color:"#93C5FD",fontSize:12,marginTop:4}}>
-                Tempo estimado: {formatDurationApprox(result.tempoEstimadoSeg)||"—"}
+              <div style={{color:"#93C5FD",fontSize:14,fontWeight:600,marginTop:6}}>
+                ⏱️ Tempo estimado: {formatDurationApprox(result.tempoEstimadoSeg)||"—"}
               </div>
             </div>
             <div style={{background:"#F8FAFC",borderRadius:14,padding:"14px 16px",display:"flex",flexDirection:"column",gap:0}}>
@@ -4060,7 +4065,7 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
                 <div>
                   <div style={{color:ok?"#15803D":"#DC2626",fontWeight:700,fontSize:15,fontFamily:"'Sora',sans-serif"}}>{ok?"Frete cobre os custos!":"Custos acima do frete"}</div>
                   <div style={{color:C.muted,fontSize:12,marginTop:2}}>{result.tot} km{result.isElec?" · ⚡ Elétrico":""}</div>
-                  <div style={{color:C.muted,fontSize:12,marginTop:2}}>
+                  <div style={{color:ok?"#15803D":"#64748B",fontSize:13,fontWeight:600,marginTop:4}}>
                     Tempo estimado: {formatDurationApprox(result.tempoEstimadoSeg)||"—"}
                   </div>
                 </div>
