@@ -54,7 +54,6 @@ import {
   pluralDocumentosVence,
 } from "./src/services/formatUtils.js";
 import ScannerModule from "./src/components/ScannerModule.js";
-import { playWhooshSound } from "./src/utils/whooshSound.js";
 import DeliveryMap from "./src/components/DeliveryMap.js";
 import NavigationMap from "./src/components/NavigationMap.jsx";
 import ProgressOverlay from "./src/components/ProgressOverlay.jsx";
@@ -2271,7 +2270,6 @@ const OtimizarEntregasModal=({onClose,perfil,plan,uid,resumeNavigation=false,onN
   // V166 (legado, USE_HYBRID_OPTIMIZER=false) — geocoding → GPS como origin → waypoints otimizáveis.
   const handleOtimizarRota=async()=>{
     if(paradas.length<2||otimizando)return;
-    playWhooshSound();
     setOtimizando(true);
     setErroOtimizar("");
     setAvisoGps("");
