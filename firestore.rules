@@ -8,13 +8,36 @@ service cloud.firestore {
 
     function isAdmin() {
       return request.auth != null &&
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == "admin";
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', '') == 'admin';
     }
 
     // ── Dados do motorista (perfil + subcoleções) ──────────────────────────
     match /users/{userId} {
       allow read: if isOwner(userId) || isAdmin();
-      allow write: if isOwner(userId);
+
+      allow create: if isOwner(userId);
+
+      allow update: if isOwner(userId) && (
+        !request.resource.data.diff(resource.data).affectedKeys()
+          .hasAny([
+            'tipoAcesso',
+            'acessoValidoAte',
+            'acessoVitalicio',
+            'codigoUsado',
+            'codigoBetaUsado',
+            'betaAccess',
+            'role',
+            'plano',
+            'planType',
+            'assinaturaId',
+            'asaasCustomerId',
+            'subscriptionStatus',
+            'indicacoes'
+          ])
+      );
+
+      allow delete: if false;
 
       // Checklists — contém CPF/RG/CNH de terceiros (LGPD)
       match /checklists/{checklistId} {
@@ -59,9 +82,9 @@ service cloud.firestore {
       }
     }
 
-    // ── Códigos beta (leitura autenticada + admin; gravação só Cloud Function) ─
+    // ── Códigos beta (leitura só admin; gravação só Cloud Function) ─
     match /betaCodes/{codeId} {
-      allow read: if request.auth != null || isAdmin();
+      allow read: if isAdmin();
       allow write: if false;
     }
 

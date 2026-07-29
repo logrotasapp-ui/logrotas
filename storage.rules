@@ -36,10 +36,15 @@ service firebase.storage {
       allow write: if isOwner(userId) && isValidChecklistUpload(fileName);
     }
 
-    // Demais arquivos do usuário (somente dentro de /users/{userId}/)
-    match /users/{userId}/{allPaths=**} {
+    // Logo da empresa no perfil (único uso real deste padrão hoje)
+    match /users/{userId}/profile/{fileName} {
       allow read: if isOwner(userId);
       allow write: if isOwner(userId) && isAllowedImageType() && isPhotoSize();
+    }
+
+    // Qualquer outro caminho dentro de /users/{userId}/ que não bata nas regras acima: negado
+    match /users/{userId}/{allPaths=**} {
+      allow read, write: if false;
     }
 
     // Tudo fora de /users/{userId}/ — negado explicitamente

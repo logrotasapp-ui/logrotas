@@ -474,6 +474,43 @@ async function savePagamentoHistorico({ uid, event, body, userData }) {
   return ref.id;
 }
 
+async function assertFaturaPertenceAoUsuario(faturaId, uid) {
+  const userSnap = await getDb().collection(USERS_COLLECTION).doc(uid).get();
+  const asaasCustomerId = userSnap.exists ? userSnap.data()?.asaasCustomerId : null;
+
+  if (!asaasCustomerId) {
+    throw new HttpsError(
+      "permission-denied",
+      "Não foi possível verificar a titularidade desta fatura.",
+      { reason: "customer-nao-encontrado" }
+    );
+  }
+
+  const payment = await asaasFetch(`/payments/${encodeURIComponent(faturaId)}`);
+  const paymentCustomerId =
+    typeof payment?.customer === "string"
+      ? payment.customer.trim()
+      : payment?.customer?.id
+        ? String(payment.customer.id).trim()
+        : "";
+
+  if (paymentCustomerId !== asaasCustomerId) {
+    logger.warn("Tentativa de acesso a fatura de outro usuario", {
+      uid,
+      faturaId,
+      paymentCustomerId,
+      asaasCustomerId,
+    });
+    throw new HttpsError(
+      "permission-denied",
+      "Você não tem permissão para acessar esta fatura.",
+      { reason: "fatura-nao-pertence-ao-usuario" }
+    );
+  }
+
+  return payment;
+}
+
 // ── Callables ─────────────────────────────────────────────────────────────────
 
 /**
@@ -716,7 +753,7 @@ const getFatura = onCall(
     }
 
     try {
-      const payment = await asaasFetch(`/payments/${encodeURIComponent(faturaId)}`);
+      const payment = await assertFaturaPertenceAoUsuario(faturaId, uid);
 
       const customerId =
         typeof payment?.customer === "string"
@@ -841,6 +878,8 @@ const getPixQrCode = onCall(
     }
 
     try {
+      await assertFaturaPertenceAoUsuario(faturaId, uid);
+
       const pixQrCode = await asaasFetch(
         `/payments/${encodeURIComponent(faturaId)}/pixQrCode`
       );
@@ -891,6 +930,13 @@ const payWithCard = onCall(
         "ID da fatura é obrigatório.",
         { reason: "fatura-id-ausente" }
       );
+    }
+
+    try {
+      await assertFaturaPertenceAoUsuario(faturaId, uid);
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      mapAsaasErrorToHttps(err, { uid, faturaId, step: "payWithCard" });
     }
 
     const holderName = String(cartao.nome || "").trim();
