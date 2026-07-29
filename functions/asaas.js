@@ -230,6 +230,13 @@ async function updateAsaasCustomerCpfCnpj(customerId, cpfCnpj) {
   });
 }
 
+async function updateAsaasCustomerNotifications(customerId) {
+  return asaasFetch(`/customers/${encodeURIComponent(customerId)}`, {
+    method: "PUT",
+    body: { notificationDisabled: true },
+  });
+}
+
 /** Busca logradouro/bairro/cidade/UF via ViaCEP (API pública). */
 async function fetchAddressByCep(postalCode) {
   const cep = String(postalCode || "").replace(/\D/g, "");
@@ -613,6 +620,13 @@ const createAsaasSubscription = onCall(
             { merge: true }
           );
           logger.info("Customer Asaas existente atualizado com CPF/CNPJ", {
+            uid,
+            asaasCustomerId,
+          });
+        }
+        if (existingCustomer?.notificationDisabled !== true) {
+          await updateAsaasCustomerNotifications(asaasCustomerId);
+          logger.info("Customer Asaas existente atualizado com notificationDisabled", {
             uid,
             asaasCustomerId,
           });
