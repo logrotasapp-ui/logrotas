@@ -184,7 +184,9 @@ async function checkRateLimit(clientKey) {
 function getClientKey(request) {
   const forwarded = request?.rawRequest?.headers?.["x-forwarded-for"];
   const ip =
-    (typeof forwarded === "string" ? forwarded.split(",")[0].trim() : null) ||
+    (typeof forwarded === "string"
+      ? forwarded.split(",").map(s => s.trim()).filter(Boolean).pop()
+      : null) ||
     request?.rawRequest?.ip ||
     "unknown";
   return `ip_${ip.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 120)}`;

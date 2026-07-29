@@ -171,7 +171,7 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="v338";
+const APP_VERSION="v339";
 const SUPORTE_EMAIL="suporte@logrotas.com.br";
 const PEDAGIO_AVISO_RESULTADO="Pedágio estimado pelo Google. Pode haver variação — confirme o valor da praça.";
 const PAGE_SWIPE_ORDER=["dashboard","financeiro","despesas","comparador","manutencao","documentos","perfil"];
@@ -3648,6 +3648,7 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
   const[salvou,setSalvou]=useState(false);
   const[cargo,setCargo]=useState("");
   const[observacao,setObservacao]=useState("");
+  const[nomeCliente,setNomeCliente]=useState("");
   const[erro,setErro]=useState("");
   const[buscandoDist,setBuscandoDist]=useState(false);
   const[showStatusModal,setShowStatusModal]=useState(false);
@@ -4143,12 +4144,22 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
                 </div>
               )}
 
+              {/* Campo nome do cliente */}
+              {freteSug>0&&(
+                <div style={{background:"#F8FAFC",border:`1.5px solid ${C.border}`,borderRadius:12,padding:"12px 14px"}}>
+                  <div style={{color:C.text2,fontSize:14,fontWeight:700,marginBottom:6}}>👤 Nome do cliente (opcional)</div>
+                  <input value={nomeCliente} onChange={e=>setNomeCliente(e.target.value)}
+                    placeholder="Ex: Sr. Renato, João da Transportadora XYZ..."
+                    style={{width:"100%",background:"transparent",border:"none",outline:"none",color:C.text,fontSize:14,lineHeight:1.5,resize:"none",boxSizing:"border-box"}}/>
+                </div>
+              )}
+
               {/* Campo de observação */}
               {freteSug>0&&(
                 <div style={{background:"#F8FAFC",border:`1.5px solid ${C.border}`,borderRadius:12,padding:"12px 14px"}}>
                   <div style={{color:C.text2,fontSize:14,fontWeight:700,marginBottom:6}}>📝 Observação (opcional)</div>
                   <input value={observacao} onChange={e=>setObservacao(e.target.value)}
-                    placeholder="Ex: Nome do cliente, telefone, observações da carga..."
+                    placeholder="Ex: telefone, instruções da carga, horário preferencial..."
                     style={{width:"100%",background:"transparent",border:"none",outline:"none",color:C.text,fontSize:14,lineHeight:1.5,resize:"none",boxSizing:"border-box"}}/>
                 </div>
               )}
@@ -4170,7 +4181,39 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
                 const destino=stops[stops.length-1]?.v||"Destino";
                 const paradasMid=stops.slice(1,-1).map(s=>s.v).filter(Boolean);
                 const empresaTopo=(perfil?.empresa||"").trim();
-                const msg=(empresaTopo?`*${empresaTopo}*\n\n`:"")+`🚛 *Orçamento de Frete*\n\n`+`📍 *Origem:* ${origem}\n`+(paradasMid.length>0?`🔀 *Paradas:* ${paradasMid.join(" → ")}\n`:"")+`🏁 *Destino:* ${destino}\n`+`📏 *Distância:* ${result.tot} km\n`+`💰 *Valor do frete:* R$ ${freteSug.toFixed(2)}\n`+(observacao?`📝 *Obs:* ${observacao}\n`:"")+`\n_Cotação gerada pelo app LogRotas_`;
+                const clienteTopo=(nomeCliente||"").trim();
+                const dEmissao=new Date();
+                const dataAtualFormatada=`${String(dEmissao.getDate()).padStart(2,"0")}/${String(dEmissao.getMonth()+1).padStart(2,"0")}/${dEmissao.getFullYear()}`;
+                let msg="";
+                if(empresaTopo) msg+=`${empresaTopo}\n\n`;
+                msg+="PROPOSTA DE PRESTAÇÃO DE SERVIÇO\n\n";
+                if(clienteTopo) msg+=`Cliente: ${clienteTopo}\n`;
+                msg+=`Data da emissão: ${dataAtualFormatada}\n`;
+                msg+="Validade da proposta: 48 horas\n";
+                msg+="━━━━━━━━━━━━━━━━━━━━━━\n";
+                msg+="Origem\n";
+                msg+=`📍 ${origem}\n`;
+                if(paradasMid.length>0){
+                  msg+=`${paradasMid.length===1?"Parada":"Paradas"}\n`;
+                  msg+=`🔄 ${paradasMid.join(" → ")}\n`;
+                }
+                msg+="Destino\n";
+                msg+=`🏁 ${destino}\n`;
+                msg+="Distância estimada\n";
+                msg+=`📏 ${result.tot} km\n`;
+                msg+="━━━━━━━━━━━━━━━━━━━━━━\n";
+                msg+="VALOR DO SERVIÇO\n";
+                msg+=`R$ ${freteSug.toFixed(2)}\n`;
+                msg+="━━━━━━━━━━━━━━━━━━━━━━\n";
+                if(observacao){
+                  msg+=`📝 Obs: ${observacao}\n`;
+                  msg+="━━━━━━━━━━━━━━━━━━━━━━\n";
+                }
+                msg+="Agradecemos pela oportunidade de atendê-lo.\n";
+                msg+="Esta proposta foi elaborada com base nas informações fornecidas e permanecerá válida pelo período informado acima.\n";
+                msg+="Permanecemos à disposição e aguardamos sua confirmação para iniciarmos o atendimento.\n";
+                msg+="━━━━━━━━━━━━━━━━━━━━━━\n";
+                msg+="Orçamento gerado pelo app LogRotas";
                 const wppUrl=`https://wa.me/?text=${encodeURIComponent(msg)}`;
                 return(
                   <div style={{position:"fixed",inset:0,background:"#00000066",zIndex:600,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
