@@ -171,7 +171,7 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="v339";
+const APP_VERSION="v340";
 const SUPORTE_EMAIL="suporte@logrotas.com.br";
 const PEDAGIO_AVISO_RESULTADO="Pedágio estimado pelo Google. Pode haver variação — confirme o valor da praça.";
 const PAGE_SWIPE_ORDER=["dashboard","financeiro","despesas","comparador","manutencao","documentos","perfil"];
@@ -4217,12 +4217,12 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
                 const wppUrl=`https://wa.me/?text=${encodeURIComponent(msg)}`;
                 return(
                   <div style={{position:"fixed",inset:0,background:"#00000066",zIndex:600,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
-                    <div style={{background:C.surface,borderRadius:20,width:"100%",maxWidth:380,padding:24,boxShadow:"0 20px 60px #00000033"}}>
-                      <div style={{color:C.navy,fontWeight:700,fontSize:15,fontFamily:"'Sora',sans-serif",marginBottom:14}}>📋 Prévia da mensagem</div>
-                      <div style={{background:"#F0FDF4",border:"1px solid #BBF7D0",borderRadius:12,padding:"14px 16px",marginBottom:18}}>
+                    <div style={{background:C.surface,borderRadius:20,width:"100%",maxWidth:380,padding:24,boxShadow:"0 20px 60px #00000033",maxHeight:"85vh",display:"flex",flexDirection:"column"}}>
+                      <div style={{color:C.navy,fontWeight:700,fontSize:15,fontFamily:"'Sora',sans-serif",marginBottom:14,flexShrink:0}}>📋 Prévia da mensagem</div>
+                      <div style={{background:"#F0FDF4",border:"1px solid #BBF7D0",borderRadius:12,padding:"14px 16px",marginBottom:18,flex:1,overflowY:"auto",minHeight:0}}>
                         <div style={{color:"#166534",fontSize:14,lineHeight:1.8,whiteSpace:"pre-line"}}>{msg.replace(/\*/g,"")}</div>
                       </div>
-                      <div style={{display:"flex",gap:10}}>
+                      <div style={{display:"flex",gap:10,flexShrink:0}}>
                         <button onClick={()=>setShowWpp(false)} style={{flex:1,padding:"12px 0",background:C.subtle,border:`1px solid ${C.border}`,borderRadius:11,cursor:"pointer",color:C.text2,fontWeight:600,fontSize:14}}>Cancelar</button>
                         <a href={wppUrl} target="_blank" rel="noreferrer" onClick={()=>setTimeout(()=>setShowWpp(false),200)}
                           style={{flex:2,padding:"12px 0",background:"#22C55E",borderRadius:11,color:"#fff",fontWeight:600,fontSize:14,display:"flex",alignItems:"center",justifyContent:"center",gap:7,textDecoration:"none"}}>
