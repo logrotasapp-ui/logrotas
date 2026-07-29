@@ -68,6 +68,23 @@ function normalizeTipoPerfil(raw) {
   return PROFILE_LABELS[slug] ? slug : null;
 }
 
+function isValidCpf(raw) {
+  const cpf = String(raw || "").replace(/\D/g, "");
+  if (cpf.length !== 11) return false;
+  if (/^(\d)\1{10}$/.test(cpf)) return false;
+  let sum = 0;
+  for (let i = 0; i < 9; i++) sum += parseInt(cpf[i], 10) * (10 - i);
+  let rev = (sum * 10) % 11;
+  if (rev === 10 || rev === 11) rev = 0;
+  if (rev !== parseInt(cpf[9], 10)) return false;
+  sum = 0;
+  for (let i = 0; i < 10; i++) sum += parseInt(cpf[i], 10) * (11 - i);
+  rev = (sum * 10) % 11;
+  if (rev === 10 || rev === 11) rev = 0;
+  if (rev !== parseInt(cpf[10], 10)) return false;
+  return true;
+}
+
 function buildTrialAcessoValidoAte() {
   const expiresAt = new Date();
   expiresAt.setDate(expiresAt.getDate() + 14);
@@ -79,6 +96,7 @@ function buildUserProfilePayload({
   email,
   telefone,
   telefoneDigits,
+  cpf,
   profileSlug,
   codigoBeta,
   accessMode,
@@ -89,7 +107,7 @@ function buildUserProfilePayload({
     telefone,
     telefoneDigits,
     perfil: profileSlug,
-    documento: "",
+    documento: cpf,
     profile: profileSlug,
     tipo: PROFILE_LABELS[profileSlug],
     veiculo: "",
@@ -311,7 +329,7 @@ async function createUniqueBetaCode() {
  * Cadastro: site envia dados + código beta opcional; function cria Auth + users/{uid}.
  * Sem código: trial 14 dias. Com código válido: acesso vitalício beta.
  *
- * Entrada: { email, senha, nome, telefone, tipoPerfil, codigoBeta? }
+ * Entrada: { email, senha, nome, telefone, tipoPerfil, cpf, codigoBeta? }
  * Sucesso: { uid, email }
  */
 exports.registerWithBetaCode = onCall(
@@ -328,6 +346,7 @@ exports.registerWithBetaCode = onCall(
     const nome = String(data.nome || "").trim();
     const telefone = String(data.telefone || "").trim();
     const tipoPerfil = data.tipoPerfil;
+    const cpf = String(data.cpf || "").replace(/\D/g, "");
     const codigoBeta = normalizeBetaCode(data.codigoBeta);
     const hasBetaCode = codigoBeta !== "";
 
@@ -348,10 +367,11 @@ exports.registerWithBetaCode = onCall(
       );
     }
 
-    if (senha.length < 6) {
+    const senhaForte = /^(?=.*[A-Za-z])(?=.*\d).{8,}$/.test(senha);
+    if (!senhaForte) {
       throw new HttpsError(
         "invalid-argument",
-        "A senha precisa ter pelo menos 6 caracteres.",
+        "A senha precisa ter pelo menos 8 caracteres, incluindo letra e número.",
         { reason: "senha-fraca" }
       );
     }
@@ -371,6 +391,14 @@ exports.registerWithBetaCode = onCall(
         "invalid-argument",
         "Tipo de perfil inválido. Escolha: caminhoneiro, guincheiro, motoqueiro, entregador ou outros.",
         { reason: "perfil-invalido" }
+      );
+    }
+
+    if (!isValidCpf(cpf)) {
+      throw new HttpsError(
+        "invalid-argument",
+        "CPF inválido. Confira o número digitado.",
+        { reason: "cpf-invalido" }
       );
     }
 
@@ -404,6 +432,7 @@ exports.registerWithBetaCode = onCall(
         email,
         telefone,
         telefoneDigits,
+        cpf,
         profileSlug,
         codigoBeta: claimedBetaCode,
         accessMode: hasBetaCode ? "beta" : "trial",
