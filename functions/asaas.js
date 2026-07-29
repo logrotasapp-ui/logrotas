@@ -332,18 +332,19 @@ async function createAsaasSubscriptionRecord({ customerId, plan, nextDueDate }) 
   });
 }
 
-/** Primeira cobrança gerada pela assinatura — link de pagamento. */
+/** Primeira cobrança gerada pela assinatura — link de pagamento e id da fatura. */
 async function fetchFirstInvoiceUrl(subscriptionId) {
   const result = await asaasFetch(
     `/payments?subscription=${encodeURIComponent(subscriptionId)}&limit=1`
   );
   const payment = result?.data?.[0];
-  return (
+  const invoiceUrl =
     payment?.invoiceUrl ||
     payment?.bankSlipUrl ||
     payment?.transactionReceiptUrl ||
-    null
-  );
+    null;
+  const faturaId = payment?.id ? String(payment.id).trim() : null;
+  return { invoiceUrl, faturaId };
 }
 
 const OPEN_PAYMENT_STATUSES = ["PENDING", "OVERDUE"];
@@ -523,7 +524,7 @@ async function assertFaturaPertenceAoUsuario(faturaId, uid) {
 /**
  * Cria assinatura Asaas para usuário autenticado.
  * Entrada: { planType: "FRETE" | "COMPLETO", cpfCnpj: string }
- * Sucesso: { success: true, invoiceUrl, subscriptionId }
+ * Sucesso: { success: true, invoiceUrl, faturaId, subscriptionId }
  */
 const createAsaasSubscription = onCall(
   { region: FUNCTION_REGION, maxInstances: 10, secrets: [ASAAS_API_KEY_SECRET] },
@@ -645,7 +646,7 @@ const createAsaasSubscription = onCall(
         throw new Error("Resposta Asaas sem id de assinatura");
       }
 
-      const invoiceUrl = await fetchFirstInvoiceUrl(subscriptionId);
+      const { invoiceUrl, faturaId } = await fetchFirstInvoiceUrl(subscriptionId);
 
       await userRef.set(
         {
@@ -664,11 +665,13 @@ const createAsaasSubscription = onCall(
         subscriptionId,
         asaasCustomerId,
         hasInvoiceUrl: !!invoiceUrl,
+        hasFaturaId: !!faturaId,
       });
 
       return {
         success: true,
         invoiceUrl,
+        faturaId,
         subscriptionId,
       };
     } catch (err) {
