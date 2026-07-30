@@ -1,5 +1,5 @@
 /**
- * Gera icon-192.png e icon-512.png a partir do LOGO_B64 em logrotas-v145.jsx.
+ * Gera icon-192.png e icon-512.png a partir de public/logo.png.
  * Ícones quadrados (cantos retos — sem border-radius); o SO aplica arredondamento.
  * Logo centralizado com padding (~70% da área) sobre fundo #ECEEF0.
  */
@@ -10,22 +10,13 @@ import sharp from "sharp";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const root = join(__dirname, "..");
-const jsxPath = join(root, "logrotas-v145.jsx");
+const logoPath = join(root, "public", "logo.png");
 const publicDir = join(root, "public");
 
 const ICON_BG = { r: 236, g: 238, b: 240, alpha: 1 }; // #ECEEF0
 const LOGO_SCALE = 0.7;
 
-const jsx = readFileSync(jsxPath, "utf8");
-const match = jsx.match(/const LOGO_B64="(data:image\/[^"]+)"/);
-if (!match) {
-  console.error("LOGO_B64 não encontrado em logrotas-v145.jsx");
-  process.exit(1);
-}
-
-const [, dataUrl] = match;
-const base64 = dataUrl.replace(/^data:image\/\w+;base64,/, "");
-const input = Buffer.from(base64, "base64");
+const input = readFileSync(logoPath);
 
 async function writeIcon(size, filename) {
   const out = join(publicDir, filename);
