@@ -171,14 +171,14 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="v340";
+const APP_VERSION="v341";
 const SUPORTE_EMAIL="suporte@logrotas.com.br";
 const PEDAGIO_AVISO_RESULTADO="Pedágio estimado pelo Google. Pode haver variação — confirme o valor da praça.";
 const PAGE_SWIPE_ORDER=["dashboard","financeiro","despesas","comparador","manutencao","documentos","perfil"];
 const PAGE_SWIPE_MIN_PX=30;
 const PAGE_SWIPE_DELTA=28;
 const PAGE_SWIPE_H_MIN_RATIO=0.8;
-const SPLASH_MS=1500;
+const MIN_SPLASH_MS=400;
 
 const OfflineRestoredBanner=({show})=>show?(
   <div style={{background:"#F0F9FF",border:"1px solid #BAE6FD",borderRadius:8,padding:"6px 12px",marginBottom:10,fontSize:11,color:"#0369A1",fontWeight:600,textAlign:"center"}}>
@@ -7234,13 +7234,15 @@ export default function App(){
   const[loadingExiting,setLoadingExiting]=useState(false);
   const[appVisible,setAppVisible]=useState(false);
   const navTabRefs=useRef({});
+  const splashStartRef=useRef(Date.now());
 
   useEffect(()=>{
-    const t=setTimeout(()=>{
-      setSplashDone(true);
-    },SPLASH_MS);
+    if(!authReady)return;
+    const decorrido=Date.now()-splashStartRef.current;
+    const faltam=Math.max(0,MIN_SPLASH_MS-decorrido);
+    const t=setTimeout(()=>setSplashDone(true),faltam);
     return()=>clearTimeout(t);
-  },[]);
+  },[authReady]);
 
   useEffect(()=>{
     if(!profileGateOk)return;
@@ -7889,9 +7891,6 @@ export default function App(){
       document.documentElement.style.overflow=prevHtml;
     };
   },[screen]);
-
-  const FRASES=["Calcule melhor, lucre mais.","Sua rota, seu controle.","Gestão inteligente na estrada.","Cada km conta no seu bolso."];
-  const frase=FRASES[Math.floor(Math.random()*FRASES.length)];
 
   const handleLogout=async()=>{
     try{
