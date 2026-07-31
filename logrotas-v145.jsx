@@ -179,7 +179,7 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="v353";
+const APP_VERSION="v354";
 const SUPORTE_EMAIL="suporte@logrotas.com.br";
 const PEDAGIO_AVISO_RESULTADO="Pedágio estimado pelo Google. Pode haver variação — confirme o valor da praça.";
 const PAGE_SWIPE_ORDER=["dashboard","financeiro","despesas","comparador","manutencao","documentos","perfil"];
@@ -5034,11 +5034,12 @@ const FRETE_FILTRO_OPTS=[
   {id:"todos",label:"Todos"},
 ];
 const freteValorBaseInfo=(f)=>{
-  const minVal=Number(f.valorMinSaida??f.valorMinimoSaida??0);
-  const kmInc=Number(f.kmInclusosMin??f.kmInclusosMinimo??0);
+  const minVal=parseNumeroBR(f.valorMinSaida??f.valorMinimoSaida??0)||0;
+  const kmInc=parseNumeroBR(f.kmInclusosMin??f.kmInclusosMinimo??0)||0;
   if(minVal<=0||kmInc<=0)return null;
-  const kmExc=Number(f.kmExcedente??Math.max(0,(Number(f.distance)||0)-kmInc));
-  const vkm=Number(f.vkm||0);
+  const kmExcRaw=parseNumeroBR(f.kmExcedente);
+  const kmExc=Number.isFinite(kmExcRaw)?kmExcRaw:Math.max(0,(parseNumeroBR(f.distance)||0)-kmInc);
+  const vkm=parseNumeroBR(f.vkm||0)||0;
   return{minVal,kmInc,kmExc,vkm};
 };
 const FRETE_DET_PAD=14;
@@ -5332,8 +5333,8 @@ const Comparador=({historicoFretes,jornadas=[],onAddFrete,onUpdateFrete,onDelete
           {/* Informações */}
           {(()=>{
             const baseInfo=freteValorBaseInfo(detalhe);
-            const adicNum=Number(detalhe.adicional||0);
-            const vkmNum=Number(detalhe.vkm||0);
+            const adicNum=parseNumeroBR(detalhe.adicional||0)||0;
+            const vkmNum=parseNumeroBR(detalhe.vkm||0)||0;
             const infoRows=[
               {l:"Data",v:freteDataHora(detalhe)},
               {l:"Distância",v:`${detalhe.distance||0} km`},
@@ -5360,7 +5361,7 @@ const Comparador=({historicoFretes,jornadas=[],onAddFrete,onUpdateFrete,onDelete
           {(()=>{
             const{combVal,pedNum,arla,custoVeiculo,showComb,showPed,showArla,showDesgaste,custoTotal}=freteCustoBreakdown(detalhe);
             const lucroPos=(detalhe.lucro||0)>=0;
-            const dist=Number(detalhe.distance)||0;
+            const dist=parseNumeroBR(detalhe.distance)||0;
             return(
               <>
                 {showComb&&<FreteDetRow label="Combustível" value={freteMoeda(combVal)}/>}
@@ -5811,7 +5812,7 @@ const Manutencao=({manutencoes:items,onAddManutencao,onUpdateManutencao,onDelete
   const[custoMsg,setCustoMsg]=useState("");
   const[odometroSalvo,setOdometroSalvo]=useState(()=>{
     const c=readCustoVeiculoLocalCache();
-    const n=Number(c?.odometro);
+    const n=parseNumeroBR(c?.odometro);
     return Number.isFinite(n)&&n>0?n:null;
   });
   const[odometroAtualizadoEm,setOdometroAtualizadoEm]=useState(()=>readCustoVeiculoLocalCache()?.odometroAtualizadoEm||null);
@@ -5920,7 +5921,7 @@ const Manutencao=({manutencoes:items,onAddManutencao,onUpdateManutencao,onDelete
         if(fromFs){
           setCustoForm(formFromCustoVeiculoPersist(fromFs));
           writeCustoVeiculoLocalCache(fromFs);
-          const odoN=Number(fromFs.odometro);
+          const odoN=parseNumeroBR(fromFs.odometro);
           if(Number.isFinite(odoN)&&odoN>0){
             setOdometroSalvo(odoN);
             setOdometroAtualizadoEm(fromFs.odometroAtualizadoEm||null);
@@ -5955,7 +5956,7 @@ const Manutencao=({manutencoes:items,onAddManutencao,onUpdateManutencao,onDelete
     if(!custoPersistDiffers(saved,resultado))return;
     const dataOdo=saved.odometroAtualizadoEm||odometroAtualizadoEm||null;
     const payload=buildCustoVeiculoPersistPayload(form,resultado,{
-      odometro:Number(saved.odometro)>0?saved.odometro:odometroSalvo,
+      odometro:(()=>{const n=parseNumeroBR(saved.odometro);return Number.isFinite(n)&&n>0?n:odometroSalvo;})(),
       ...(dataOdo?{odometroAtualizadoEm:dataOdo}:{}),
     });
     if(payload.odometro!=null&&!payload.odometroAtualizadoEm&&saved.odometroAtualizadoEm){
@@ -6022,7 +6023,14 @@ const Manutencao=({manutencoes:items,onAddManutencao,onUpdateManutencao,onDelete
   };
 
   const save=async()=>{
-    const payload={...form,cost:parseNumeroBR(form.cost)||0};
+    const kmN=parseNumeroBR(form.km);
+    const nextN=parseNumeroBR(form.nextKm);
+    const payload={
+      ...form,
+      cost:parseNumeroBR(form.cost)||0,
+      km:Number.isFinite(kmN)&&kmN>0?kmN:0,
+      nextKm:Number.isFinite(nextN)&&nextN>0?nextN:"",
+    };
     const wasEditing=!!editingId;
     setErroForm("");
     try{

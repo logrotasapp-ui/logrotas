@@ -88,7 +88,7 @@ export function somarKmMes(historicoFretes, jornadas, mes, ano) {
     const p = String(f.date).split("/");
     if (p.length !== 3) return a;
     if (parseInt(p[1], 10) - 1 !== mes || parseInt(p[2], 10) !== ano) return a;
-    return a + (Number(f.distance) || 0);
+    return a + (parseNumeroBR(f.distance) || 0);
   }, 0);
   const jornadasKm = (jornadas || []).reduce((a, j) => {
     const dt = j?.data || j?.date || "";
@@ -96,7 +96,7 @@ export function somarKmMes(historicoFretes, jornadas, mes, ano) {
     const p = String(dt).split("/");
     if (p.length !== 3) return a;
     if (parseInt(p[1], 10) - 1 !== mes || parseInt(p[2], 10) !== ano) return a;
-    return a + (Number(j.km) || 0);
+    return a + (parseNumeroBR(j.km) || 0);
   }, 0);
   return fretesKm + jornadasKm;
 }
@@ -165,8 +165,8 @@ export function calcularCustoVeiculo(params = {}) {
     kmMes = r.valor > 0 ? r.valor : P.kmMes;
     kmMesEstimado = !(r.valor > 0);
     kmMesFonte = kmMesEstimado ? "padrao" : "manual";
-  } else if (campoPreenchido(params.kmMesAuto) && Number(params.kmMesAuto) > 0) {
-    kmMes = Number(params.kmMesAuto);
+  } else if (campoPreenchido(params.kmMesAuto) && (parseNumeroBR(params.kmMesAuto) || 0) > 0) {
+    kmMes = parseNumeroBR(params.kmMesAuto);
     kmMesEstimado = params.kmMesAutoEstimado === true;
     kmMesFonte = kmMesEstimado ? "padrao" : "auto";
   } else {
@@ -369,7 +369,7 @@ export function buildCustoVeiculoPersistPayload(form, resultado, extras = {}) {
       : [],
     atualizadoEm: new Date().toISOString(),
   };
-  const odo = Number(extras.odometro);
+  const odo = parseNumeroBR(extras.odometro);
   if (Number.isFinite(odo) && odo > 0) {
     payload.odometro = odo;
     // Nunca inventar data: só grava se o chamador informar explicitamente.
@@ -435,7 +435,7 @@ export function maiorKmManutencoes(manutencoes) {
   let maxKm = 0;
   let date = null;
   (manutencoes || []).forEach((m) => {
-    const km = Number(m?.km);
+    const km = parseNumeroBR(m?.km);
     if (!Number.isFinite(km) || km <= 0) return;
     if (km > maxKm) {
       maxKm = km;
@@ -451,7 +451,7 @@ export function maiorKmManutencoes(manutencoes) {
  * @returns {{ km: number|null, origem: "manual"|"registro"|null, atualizadoEm: string|null, dataOrigem: string|null }}
  */
 export function resolveOdometroAtual({ odometroSalvo, odometroAtualizadoEm, manutencoes } = {}) {
-  const manual = Number(odometroSalvo);
+  const manual = parseNumeroBR(odometroSalvo);
   const hasManual = Number.isFinite(manual) && manual > 0;
   const fromReg = maiorKmManutencoes(manutencoes);
   const regKm = fromReg?.km || 0;
@@ -496,14 +496,14 @@ export function listarProximasManutencoes(manutencoes, odometroKm, agora = new D
   (manutencoes || []).forEach((m) => {
     const type = String(m?.type || "").trim();
     if (!type) return;
-    const nextKm = Number(m?.nextKm);
+    const nextKm = parseNumeroBR(m?.nextKm);
     const hasNext = Number.isFinite(nextKm) && nextKm > 0;
     if (!hasNext) return;
     const prev = byType.get(type);
     const d = parseDataManutencao(m.date);
     const prevD = prev ? parseDataManutencao(prev.date) : null;
-    const km = Number(m?.km) || 0;
-    const prevKm = prev ? Number(prev.km) || 0 : 0;
+    const km = parseNumeroBR(m?.km) || 0;
+    const prevKm = prev ? parseNumeroBR(prev.km) || 0 : 0;
     let newer = false;
     if (!prev) newer = true;
     else if (d && prevD) newer = d > prevD;
@@ -512,12 +512,13 @@ export function listarProximasManutencoes(manutencoes, odometroKm, agora = new D
     if (newer) byType.set(type, m);
   });
 
-  const hasOdo = Number.isFinite(Number(odometroKm)) && Number(odometroKm) > 0;
-  const odo = hasOdo ? Number(odometroKm) : null;
+  const odoParsed = parseNumeroBR(odometroKm);
+  const hasOdo = Number.isFinite(odoParsed) && odoParsed > 0;
+  const odo = hasOdo ? odoParsed : null;
 
   return Array.from(byType.entries())
     .map(([type, m]) => {
-      const nextKm = Number(m.nextKm);
+      const nextKm = parseNumeroBR(m.nextKm);
       const meses = mesesDesde(m.date, agora);
       if (hasOdo) {
         const faltam = nextKm - odo;
@@ -553,7 +554,7 @@ export function listarProximasManutencoes(manutencoes, odometroKm, agora = new D
 /** Mescla odômetro no payload de custoVeiculo sem apagar outros campos. */
 export function mergeCustoVeiculoOdometro(basePayload, odometro, odometroAtualizadoEm) {
   const base = basePayload && typeof basePayload === "object" ? { ...basePayload } : {};
-  const n = Number(odometro);
+  const n = parseNumeroBR(odometro);
   if (Number.isFinite(n) && n > 0) {
     base.odometro = n;
     base.odometroAtualizadoEm =
