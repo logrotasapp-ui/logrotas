@@ -50,7 +50,9 @@ import {
   formatKwhPrice,
   formatConsumoKmL,
   formatEnquantoDigitaMoeda,
+  formatEnquantoDigitaKm,
   formatMoedaParaCampo,
+  formatKmParaCampo,
   parseNumeroBR,
   plural,
   pluralWord,
@@ -177,7 +179,7 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="v351";
+const APP_VERSION="v352";
 const SUPORTE_EMAIL="suporte@logrotas.com.br";
 const PEDAGIO_AVISO_RESULTADO="Pedágio estimado pelo Google. Pode haver variação — confirme o valor da praça.";
 const PAGE_SWIPE_ORDER=["dashboard","financeiro","despesas","comparador","manutencao","documentos","perfil"];
@@ -534,22 +536,23 @@ const Field=({label,value,onChange,placeholder,prefix,suffix,type="text",hint,re
   const [focused,setFocused]=useState(false);
   const inputRef=useRef(null);
   const isMoney=prefix==="R$";
+  const isKm=String(suffix||"").toLowerCase()==="km";
   const isNumeric=!!(prefix||suffix)&&type==="text";
   const idleBorder=calc?CALC_INPUT_BORDER:C.border;
   const idleBg=calc?"#fff":C.subtle;
-  const displayValue=isMoney?formatMoedaParaCampo(value):value;
+  const displayValue=isMoney?formatMoedaParaCampo(value):isKm?formatKmParaCampo(value):value;
   useLayoutEffect(()=>{
-    if(!isMoney||!focused)return;
+    if((!isMoney&&!isKm)||!focused)return;
     const el=inputRef.current;
     if(el&&document.activeElement===el){
       const len=String(el.value||"").length;
       el.setSelectionRange(len,len);
     }
-  },[displayValue,isMoney,focused]);
+  },[displayValue,isMoney,isKm,focused]);
   const handleChange=(e)=>{
     if(readOnly)return;
     const raw=e.target.value;
-    onChange(isMoney?formatEnquantoDigitaMoeda(raw):raw);
+    onChange(isMoney?formatEnquantoDigitaMoeda(raw):isKm?formatEnquantoDigitaKm(raw):raw);
   };
   return(
     <div style={{display:"flex",flexDirection:"column",gap:5}}>
@@ -6181,14 +6184,14 @@ const Manutencao=({manutencoes:items,onAddManutencao,onUpdateManutencao,onDelete
               Num frete de 100 km, são <strong style={{fontWeight:800}}>{formatMoeda(exemplo100)}</strong> que hoje não aparecem na conta.
             </div>
             <div style={{marginTop:10,display:"inline-flex",background:"#ffffff22",borderRadius:20,padding:"4px 10px",color:"#fff",fontSize:11,fontWeight:700}}>
-              {custoCalc.qtdPreenchidos} de {custoCalc.qtdTotal} são seus
+              {custoCalc.qtdPreenchidos} de {custoCalc.qtdTotal} preenchidos
             </div>
           </div>
 
           <button type="button" onClick={()=>setCustoAberto(a=>!a)}
-            style={{width:"100%",background:C.subtle,border:`1px solid ${C.border}`,borderRadius:12,padding:"12px 14px",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"space-between",color:C.navy,fontWeight:700,fontSize:13}}>
-            <span>{custoAberto?"Ocultar campos":"Ajustar custos (IPVA, seguro, pneus…)"}</span>
-            <span style={{color:C.muted,fontSize:16}}>{custoAberto?"▴":"▾"}</span>
+            style={{width:"100%",background:"#F0F4FF",border:`1.5px solid ${C.navy}44`,borderRadius:12,padding:"13px 16px",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"space-between",color:C.navy,fontWeight:800,fontSize:14,boxShadow:"0 1px 3px #1E3A8A12"}}>
+            <span>{custoAberto?"Ocultar campos":"Mostrar campos"}</span>
+            <span style={{color:C.navy,fontSize:22,lineHeight:1,fontWeight:700}}>{custoAberto?"▴":"▾"}</span>
           </button>
 
           {custoAberto&&(

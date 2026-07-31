@@ -1,4 +1,16 @@
 /**
+ * Máscara de quilometragem enquanto digita (pt-BR, inteiro).
+ * Só dígitos; ponto de milhar automático. Ex: "40000" → "40.000".
+ */
+export function formatEnquantoDigitaKm(texto) {
+  const digits = String(texto ?? "").replace(/\D/g, "");
+  if (!digits) return "";
+  let intPart = digits.replace(/^0+/, "");
+  if (!intPart) intPart = "0";
+  return intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+}
+
+/**
  * Máscara de dinheiro estilo caixa eletrônico (cents-first, pt-BR).
  * Só dígitos contam; vírgula/ponto digitados são ignorados. Sempre 2 casas decimais.
  * Ex: "5" → "0,05"; "5500" → "55,00"; "550000" → "5.500,00".
@@ -76,6 +88,17 @@ export function formatMoedaParaCampo(raw) {
   const n = typeof raw === "number" ? raw : parseNumeroBR(raw);
   if (!Number.isFinite(n)) return formatEnquantoDigitaMoeda(String(raw));
   return formatEnquantoDigitaMoeda(String(Math.round(roundMoney(n) * 100)));
+}
+
+/**
+ * Normaliza km já salvo/carregado para o formato do campo (milhar com ponto).
+ * Vazio permanece "".
+ */
+export function formatKmParaCampo(raw) {
+  if (raw == null || String(raw).trim() === "") return "";
+  const n = typeof raw === "number" ? raw : parseNumeroBR(raw);
+  if (!Number.isFinite(n)) return formatEnquantoDigitaKm(String(raw));
+  return formatEnquantoDigitaKm(String(Math.round(Math.abs(n))));
 }
 
 /** R$ 1.234,56 */
