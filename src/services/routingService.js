@@ -357,23 +357,6 @@ export function buildCalculatorStopSearchBias(originLabel, originCoords) {
   return bias;
 }
 
-function querySuggestsSaoPaulo(text) {
-  const norm = String(text || "")
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "");
-  return (
-    norm.includes("sao paulo") ||
-    /,\s*sp\b/.test(norm) ||
-    /-\s*sp\b/.test(norm)
-  );
-}
-
-function augmentQueryForSpBounds(query, bounds) {
-  if (!bounds || querySuggestsSaoPaulo(query)) return query;
-  return `${query}, São Paulo, SP`;
-}
-
 async function searchAddressesGoogle(query, searchOpts = {}) {
   warmGeocodeProximity();
 
@@ -390,7 +373,7 @@ async function searchAddressesGoogle(query, searchOpts = {}) {
     const proximityLngLat = bounds
       ? searchOpts.proximityLngLat ?? [-46.6333, -23.5505]
       : searchOpts.proximityLngLat ?? cachedGeocodeProximity;
-    const queryForApi = augmentQueryForSpBounds(query, bounds);
+    const queryForApi = query;
     const suggestions = await fetchGooglePlacePredictions(queryForApi, {
       proximityLngLat,
       bounds,
