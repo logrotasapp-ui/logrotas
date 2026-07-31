@@ -177,7 +177,7 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="v350";
+const APP_VERSION="v351";
 const SUPORTE_EMAIL="suporte@logrotas.com.br";
 const PEDAGIO_AVISO_RESULTADO="Pedágio estimado pelo Google. Pode haver variação — confirme o valor da praça.";
 const PAGE_SWIPE_ORDER=["dashboard","financeiro","despesas","comparador","manutencao","documentos","perfil"];
@@ -3570,9 +3570,9 @@ const TripCalcModal=({onClose,vehicles,onConcluido,onGoMeuVeiculo})=>{
         <div style={{background:C.subtle,borderRadius:14,padding:"14px 16px",display:"flex",flexDirection:"column",gap:10}}>
           <div style={{color:C.navy,fontWeight:700,fontSize:12,textTransform:"uppercase",letterSpacing:0.5}}>⛽ Custos</div>
           {isElec
-            ?<Field label="⚡ Energia (R$/kWh)" value={combustivel} onChange={setCombustivel} placeholder="Ex: 1.85" prefix="R$" calc/>
-            :<Field label="⛽ Combustível (R$/L)" value={combustivel} onChange={setCombustivel} placeholder="Ex: 6.49" prefix="R$" calc/>}
-          <Field label={isElec?"⚡ Consumo (kWh/100km)":"⛽ Consumo (km/L)"} value={consumo} onChange={setConsumo} placeholder={isElec?"Ex: 15":`Ex: ${veiculo.consumption}`} suffix={isElec?"kWh/100km":"km/L"} calc/>
+            ?<Field label="⚡ Energia (R$/kWh)" value={combustivel} onChange={setCombustivel} prefix="R$" calc/>
+            :<Field label="⛽ Combustível (R$/L)" value={combustivel} onChange={setCombustivel} prefix="R$" calc/>}
+          <Field label={isElec?"⚡ Consumo (kWh/100km)":"⛽ Consumo (km/L)"} value={consumo} onChange={setConsumo} suffix={isElec?"kWh/100km":"km/L"} calc/>
         </div>
 
         {/* Erro */}
@@ -3974,7 +3974,7 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
                 <div style={{color:C.muted,fontSize:12,flexShrink:0,minWidth:56}}>{`Trecho ${i+1}`}:</div>
                 <div style={{display:"flex",alignItems:"stretch",background:"#fff",border:`1.5px solid ${buscandoDist?C.orange:C.calcBorder}`,borderRadius:10,overflow:"hidden",flex:1,minWidth:0,minHeight:CALC_INPUT_ROW_H,transition:"border-color .3s"}}>
                   <input value={dists[i]||""} onChange={e=>setDists(d=>{const n=[...d];n[i]=e.target.value;return n;})}
-                    placeholder={buscandoDist?"Calculando...":"0"} type="number" inputMode="decimal"
+                    placeholder={buscandoDist?"Calculando...":""} type="number" inputMode="decimal"
                     style={{flex:1,background:"transparent",border:"none",outline:"none",color:C.text,...calcFieldInputStyle,fontWeight:700}}/>
                   <span style={{padding:"0 10px",color:buscandoDist?C.orange:C.muted,fontSize:12,borderLeft:`1px solid ${C.border}`,background:C.subtle,alignSelf:"stretch",display:"flex",alignItems:"center"}}>
                     {buscandoDist?"🔍":"km"}
@@ -4039,12 +4039,12 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
           </div>
           <div style={{display:"flex",flexDirection:"column",gap:10}}>
             {isElec
-              ?<Field label="⚡ Energia (R$/kWh)" value={fuelPrice} onChange={setFuelPrice} placeholder="1.85" prefix="R$" calc/>
-              :<Field label="⛽ Combustível (R$/L)" value={fuelPrice} onChange={setFuelPrice} placeholder="Ex: 6.49" prefix="R$" calc/>}
-            <Field label={isElec?"⚡ Consumo (kWh/100km)":"⛽ Consumo (km/L)"} value={consumo} onChange={setConsumo} placeholder={isElec?"Ex: 15":"Ex: 12"} suffix={isElec?"kWh/100km":"km/L"} calc/>
+              ?<Field label="⚡ Energia (R$/kWh)" value={fuelPrice} onChange={setFuelPrice} prefix="R$" calc/>
+              :<Field label="⛽ Combustível (R$/L)" value={fuelPrice} onChange={setFuelPrice} prefix="R$" calc/>}
+            <Field label={isElec?"⚡ Consumo (kWh/100km)":"⛽ Consumo (km/L)"} value={consumo} onChange={setConsumo} suffix={isElec?"kWh/100km":"km/L"} calc/>
             {isTruck&&<>
-              <Field label="🟦 ARLA 32 (R$/L) — coloque 0 se não usar" value={arlaPrice} onChange={setArlaPrice} placeholder="Ex: 4.50" prefix="R$" calc/>
-              <Field label="🟦 Consumo ARLA 32 (L/100km)" value={arlaConsumption} onChange={setArlaConsumption} placeholder="3.5" suffix="L/100km" hint="Padrão: 3.5 L por 100km" calc/>
+              <Field label="🟦 ARLA 32 (R$/L) — coloque 0 se não usar" value={arlaPrice} onChange={setArlaPrice} prefix="R$" calc/>
+              <Field label="🟦 Consumo ARLA 32 (L/100km)" value={arlaConsumption} onChange={setArlaConsumption} suffix="L/100km" hint="Padrão: 3.5 L por 100km" calc/>
             </>}
             <Field label="📦 Tipo de Carga (opcional)" value={cargo} onChange={setCargo} placeholder="ex: Eletrônicos, Alimentos" calc/>
           </div>
@@ -4057,11 +4057,11 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
             <span style={{color:C.navy,fontWeight:800,fontSize:14,fontFamily:"'Sora',sans-serif"}}>Meu Frete</span>
           </div>
           <div style={{display:"flex",flexDirection:"column",gap:10}}>
-            <Field label="Meu valor por km (R$)" value={metaLocal} onChange={v=>setMetaLocal(v)} placeholder="3.50" prefix="R$" suffix="/km" calc/>
-            <Field label="Adicional fixo — opcional (R$)" value={freight} onChange={setFreight} placeholder="Ex: 50.00" prefix="R$" hint="Taxa extra por carga especial, espera, etc." calc/>
-            <Field label="Valor mínimo de saída (R$)" value={valorMinSaida} onChange={setValorMinSaida} placeholder="Ex: 150.00" prefix="R$" hint="Opcional — frete mínimo para viagens curtas." calc/>
-            <Field label="KM inclusos no mínimo" value={kmInclusosMin} onChange={setKmInclusosMin} placeholder="Ex: 40" suffix="km" hint="Opcional — km cobertos pelo valor mínimo de saída." calc/>
-            <Field label="Meta de lucro mínima (%)" value={metaLucro} onChange={setMetaLucro} placeholder="Ex: 25" suffix="%" hint="Veja se o frete bate sua meta de lucro." calc/>
+            <Field label="Meu valor por km (R$)" value={metaLocal} onChange={v=>setMetaLocal(v)} prefix="R$" suffix="/km" calc/>
+            <Field label="Adicional fixo — opcional (R$)" value={freight} onChange={setFreight} prefix="R$" hint="Taxa extra por carga especial, espera, etc." calc/>
+            <Field label="Valor mínimo de saída (R$)" value={valorMinSaida} onChange={setValorMinSaida} prefix="R$" hint="Opcional — frete mínimo para viagens curtas." calc/>
+            <Field label="KM inclusos no mínimo" value={kmInclusosMin} onChange={setKmInclusosMin} suffix="km" hint="Opcional — km cobertos pelo valor mínimo de saída." calc/>
+            <Field label="Meta de lucro mínima (%)" value={metaLucro} onChange={setMetaLucro} suffix="%" hint="Veja se o frete bate sua meta de lucro." calc/>
           </div>
         </div>
 
@@ -4500,10 +4500,10 @@ const FechamentoDia=({uid,perfil,setPerfil,vehicles=[],onSalvar,onClose,onGoMeuV
           </div>
 
           <div style={{color:C.muted,fontSize:12,fontWeight:700,letterSpacing:0.4,textTransform:"uppercase"}}>O que você fez hoje</div>
-          <Field label="🚗 Km rodado hoje" value={km} onChange={setKm} placeholder="Ex: 180" suffix="km" calc/>
-          <Field label="💰 Valor recebido" value={valor} onChange={setValor} placeholder="Ex: 240,00" prefix="R$" calc/>
-          <Field label="⛽ Combustível abastecido (valor total)" value={combustivelInput} onChange={setCombustivelInput} placeholder="Ex: 100,00" prefix="R$" calc/>
-          <Field label="🅿️ Pedágio / outros gastos (opcional)" value={pedagio} onChange={setPedagio} placeholder="Ex: 12,50" prefix="R$" calc/>
+          <Field label="🚗 Km rodado hoje" value={km} onChange={setKm} suffix="km" calc/>
+          <Field label="💰 Valor recebido" value={valor} onChange={setValor} prefix="R$" calc/>
+          <Field label="⛽ Combustível abastecido (valor total)" value={combustivelInput} onChange={setCombustivelInput} prefix="R$" calc/>
+          <Field label="🅿️ Pedágio / outros gastos (opcional)" value={pedagio} onChange={setPedagio} prefix="R$" calc/>
           <div style={{display:"flex",flexDirection:"column",gap:5}}>
             <label style={{color:C.text2,fontSize:14,fontWeight:700,letterSpacing:0.4}}>📝 Observações (opcional)</label>
             <textarea value={observacoes} onChange={e=>setObservacoes(e.target.value)} placeholder="Anotações livres do dia…" rows={3} autoComplete="off"
@@ -4925,9 +4925,9 @@ const Agenda=()=>{
           <StopsField stops={stops} setStops={setStops}/>
           <Field label="Destino" value={form.dest} onChange={v=>setForm(f=>({...f,dest:v}))} placeholder="Rio de Janeiro, RJ"/>
           <DatePicker label="Data" value={form.date} onChange={v=>setForm(f=>({...f,date:v}))}/>
-          <Field label="Horário" value={form.time} onChange={v=>setForm(f=>({...f,time:v}))} placeholder="06:00"/>
+          <Field label="Horário" value={form.time} onChange={v=>setForm(f=>({...f,time:v}))}/>
           <Field label="Tipo de Carga (opcional)" value={form.cargo} onChange={v=>setForm(f=>({...f,cargo:v}))} placeholder="Eletrônicos"/>
-          <Field label="Valor do Frete (R$)" value={form.frete} onChange={v=>setForm(f=>({...f,frete:v}))} placeholder="850.00" prefix="R$"/>
+          <Field label="Valor do Frete (R$)" value={form.frete} onChange={v=>setForm(f=>({...f,frete:v}))} prefix="R$"/>
         </div>
         <PrimaryBtn onClick={add} style={{width:"100%",marginTop:16}}>Agendar →</PrimaryBtn>
       </ModalWrap>)}
@@ -5448,13 +5448,13 @@ const Comparador=({historicoFretes,jornadas=[],onAddFrete,onUpdateFrete,onDelete
             <StopsField stops={stops} setStops={setStops}/>
             <Field label="Destino" value={form.dest} onChange={v=>setForm(f=>({...f,dest:v}))} placeholder="Rio de Janeiro, RJ"/>
             <DatePicker label="Data" value={form.date} onChange={v=>setForm(f=>({...f,date:v}))}/>
-            <Field label="KM Total" value={form.distance} onChange={v=>setForm(f=>({...f,distance:v}))} placeholder="430" suffix="km"/>
+            <Field label="KM Total" value={form.distance} onChange={v=>setForm(f=>({...f,distance:v}))} suffix="km"/>
             <Field label="Veículo" value={form.veiculo} onChange={v=>setForm(f=>({...f,veiculo:v}))} placeholder="Caminhão"/>
             <Field label="Tipo de Carga (opcional)" value={form.cargo} onChange={v=>setForm(f=>({...f,cargo:v}))} placeholder="Eletrônicos"/>
-            <Field label="Valor por km (R$)" value={form.vkm} onChange={v=>setForm(f=>({...f,vkm:v}))} placeholder="3.50" prefix="R$" suffix="/km"/>
-            <Field label="Adicional fixo (R$)" value={form.adicional} onChange={v=>setForm(f=>({...f,adicional:v}))} placeholder="Ex: 50.00" prefix="R$"/>
-            <Field label="Custo Total da Viagem (R$)" value={form.custoTotal} onChange={v=>setForm(f=>({...f,custoTotal:v}))} placeholder="350.00" prefix="R$"/>
-            <Field label="Frete Cobrado (R$)" value={form.freteSugerido} onChange={v=>setForm(f=>({...f,freteSugerido:v,lucro:String((parseNumeroBR(v)||0)-(parseNumeroBR(form.custoTotal)||0))}))} placeholder="850.00" prefix="R$"/>
+            <Field label="Valor por km (R$)" value={form.vkm} onChange={v=>setForm(f=>({...f,vkm:v}))} prefix="R$" suffix="/km"/>
+            <Field label="Adicional fixo (R$)" value={form.adicional} onChange={v=>setForm(f=>({...f,adicional:v}))} prefix="R$"/>
+            <Field label="Custo Total da Viagem (R$)" value={form.custoTotal} onChange={v=>setForm(f=>({...f,custoTotal:v}))} prefix="R$"/>
+            <Field label="Frete Cobrado (R$)" value={form.freteSugerido} onChange={v=>setForm(f=>({...f,freteSugerido:v,lucro:String((parseNumeroBR(v)||0)-(parseNumeroBR(form.custoTotal)||0))}))} prefix="R$"/>
             {form.freteSugerido&&form.custoTotal&&(
               <div style={{background:C.navyLight,borderRadius:10,padding:"10px 14px",display:"flex",justifyContent:"space-between"}}>
                 <span style={{color:C.text2,fontSize:12}}>Lucro calculado</span>
@@ -5478,11 +5478,11 @@ const Comparador=({historicoFretes,jornadas=[],onAddFrete,onUpdateFrete,onDelete
           <StopsField stops={[]} setStops={()=>{}}/>
           <Field label="Destino" value={form.dest} onChange={v=>setForm(f=>({...f,dest:v}))} placeholder="Rio de Janeiro, RJ"/>
           <DatePicker label="Data" value={form.date} onChange={v=>setForm(f=>({...f,date:v}))}/>
-          <Field label="KM Total" value={form.distance} onChange={v=>setForm(f=>({...f,distance:v}))} placeholder="430" suffix="km"/>
+          <Field label="KM Total" value={form.distance} onChange={v=>setForm(f=>({...f,distance:v}))} suffix="km"/>
           <Field label="Veículo" value={form.veiculo} onChange={v=>setForm(f=>({...f,veiculo:v}))} placeholder="Caminhão"/>
           <Field label="Tipo de Carga (opcional)" value={form.cargo} onChange={v=>setForm(f=>({...f,cargo:v}))} placeholder="Eletrônicos"/>
-          <Field label="Custo Total (R$)" value={form.custoTotal} onChange={v=>setForm(f=>({...f,custoTotal:v}))} placeholder="350.00" prefix="R$"/>
-          <Field label="Frete Cobrado (R$)" value={form.freteSugerido} onChange={v=>setForm(f=>({...f,freteSugerido:v}))} placeholder="850.00" prefix="R$"/>
+          <Field label="Custo Total (R$)" value={form.custoTotal} onChange={v=>setForm(f=>({...f,custoTotal:v}))} prefix="R$"/>
+          <Field label="Frete Cobrado (R$)" value={form.freteSugerido} onChange={v=>setForm(f=>({...f,freteSugerido:v}))} prefix="R$"/>
           {form.freteSugerido&&form.custoTotal&&(
             <div style={{background:C.navyLight,borderRadius:10,padding:"10px 14px",display:"flex",justifyContent:"space-between"}}>
               <span style={{color:C.text2,fontSize:12}}>Lucro calculado</span>
@@ -5571,10 +5571,10 @@ const Comparador=({historicoFretes,jornadas=[],onAddFrete,onUpdateFrete,onDelete
             <div style={{display:"flex",flexDirection:"column",gap:12}}>
               <Field label="Serviço" value={formJ.servico} onChange={v=>setFormJ(f=>({...f,servico:v}))} placeholder="Uber, iFood, 99…"/>
               <DatePicker label="Data" value={formJ.date} onChange={v=>setFormJ(f=>({...f,date:v}))}/>
-              <Field label="Km rodado" value={formJ.km} onChange={v=>setFormJ(f=>({...f,km:v}))} placeholder="Ex: 180" suffix="km"/>
-              <Field label="Valor recebido" value={formJ.valorRecebido} onChange={v=>setFormJ(f=>({...f,valorRecebido:v}))} placeholder="Ex: 240,00" prefix="R$"/>
-              <Field label="Combustível (valor total)" value={formJ.combustivel} onChange={v=>setFormJ(f=>({...f,combustivel:v}))} placeholder="Ex: 100,00" prefix="R$"/>
-              <Field label="Pedágio / outros" value={formJ.pedagio} onChange={v=>setFormJ(f=>({...f,pedagio:v}))} placeholder="Ex: 12,50" prefix="R$"/>
+              <Field label="Km rodado" value={formJ.km} onChange={v=>setFormJ(f=>({...f,km:v}))} suffix="km"/>
+              <Field label="Valor recebido" value={formJ.valorRecebido} onChange={v=>setFormJ(f=>({...f,valorRecebido:v}))} prefix="R$"/>
+              <Field label="Combustível (valor total)" value={formJ.combustivel} onChange={v=>setFormJ(f=>({...f,combustivel:v}))} prefix="R$"/>
+              <Field label="Pedágio / outros" value={formJ.pedagio} onChange={v=>setFormJ(f=>({...f,pedagio:v}))} prefix="R$"/>
               <div style={{display:"flex",flexDirection:"column",gap:5}}>
                 <label style={{color:C.text2,fontSize:14,fontWeight:700,letterSpacing:0.4}}>Observações (opcional)</label>
                 <textarea value={formJ.observacoes} onChange={e=>setFormJ(f=>({...f,observacoes:e.target.value}))} placeholder="Anotações livres do dia…" rows={3}
@@ -5734,7 +5734,7 @@ const Despesas=({despesas,onAddDespesa,onUpdateDespesa,onDeleteDespesa,uid,perfi
               </div>
             </div>
             <Field label="Descrição (opcional)" value={form.descricao} onChange={v=>setForm(f=>({...f,descricao:v}))} placeholder="ex: Almoço em Campinas"/>
-            <Field label="Valor (R$)" value={form.valor} onChange={v=>setForm(f=>({...f,valor:v}))} placeholder="25.00" prefix="R$"/>
+            <Field label="Valor (R$)" value={form.valor} onChange={v=>setForm(f=>({...f,valor:v}))} prefix="R$"/>
             <DatePicker fullScreen label="Data" value={form.date} onChange={v=>setForm(f=>({...f,date:v}))}/>
             {erroForm&&<div style={{background:"#FFF5F5",border:"1.5px solid #FCA5A5",borderRadius:10,padding:"10px 13px",color:"#DC2626",fontSize:13,fontWeight:600}}>⚠️ {erroForm}</div>}
           </div>
@@ -6057,10 +6057,10 @@ const Manutencao=({manutencoes:items,onAddManutencao,onUpdateManutencao,onDelete
                 {editVeh===v.id&&(
                   <div style={{display:"flex",flexDirection:"column",gap:8}}>
                     {v.electric
-                      ?<Field label="Preço por kWh (R$)" value={editVehVals.kwh||""} onChange={val=>setEditVehVals(e=>({...e,kwh:val}))} placeholder="1.85" prefix="R$"/>
-                      :<Field label="Consumo (km/L)" value={editVehVals.consumption||""} onChange={val=>setEditVehVals(e=>({...e,consumption:val}))} placeholder="12" suffix="km/L"/>}
+                      ?<Field label="Preço por kWh (R$)" value={editVehVals.kwh||""} onChange={val=>setEditVehVals(e=>({...e,kwh:val}))} prefix="R$"/>
+                      :<Field label="Consumo (km/L)" value={editVehVals.consumption||""} onChange={val=>setEditVehVals(e=>({...e,consumption:val}))} suffix="km/L"/>}
                     {v.id==="caminhao"
-                      ?<Field label="Número de Eixos" value={editVehVals.axles||""} onChange={val=>setEditVehVals(e=>({...e,axles:val}))} placeholder="2" suffix="eixos" hint="Define o multiplicador de pedágio do caminhão."/>
+                      ?<Field label="Número de Eixos" value={editVehVals.axles||""} onChange={val=>setEditVehVals(e=>({...e,axles:val}))} suffix="eixos" hint="Define o multiplicador de pedágio do caminhão."/>
                       :v.id==="moto"
                         ?<div style={{background:C.navyLight,border:`1px solid ${C.navy}22`,borderRadius:9,padding:"8px 12px",color:C.navy,fontSize:12}}>Pedágio estimado pela categoria moto (Google).</div>
                         :<Field label="Número de Eixos" value={String(EIXOS_CATEGORIA_CARRO)} readOnly suffix="eixos" hint="Categoria fixa para pedágio (carro)."/>}
@@ -6079,7 +6079,7 @@ const Manutencao=({manutencoes:items,onAddManutencao,onUpdateManutencao,onDelete
           {editandoOdo?(
             <div style={{display:"flex",alignItems:"flex-end",gap:10}}>
               <div style={{flex:1}}>
-                <Field label="Km atuais" value={draftOdo} onChange={setDraftOdo} placeholder={odoInfo.km?String(Math.round(odoInfo.km)):"Ex: 152500"} suffix="km"/>
+                <Field label="Km atuais" value={draftOdo} onChange={setDraftOdo} suffix="km"/>
               </div>
               <button type="button" onClick={()=>void salvarOdometro()} disabled={salvandoOdo}
                 style={{background:C.navy,border:"none",borderRadius:10,padding:"11px 14px",cursor:salvandoOdo?"wait":"pointer",color:"#fff",fontWeight:800,fontSize:13,opacity:salvandoOdo?0.7:1,marginBottom:1}}>
@@ -6200,23 +6200,23 @@ const Manutencao=({manutencoes:items,onAddManutencao,onUpdateManutencao,onDelete
                     ?`${formatKm(kmAutoInfo.kmMes)} km/mês · média do que você registrou nos últimos 3 meses`
                     :`≈ ${formatKm(CUSTO_VEICULO_PADROES.kmMes)} km/mês · estimativa — você ainda tem poucas viagens registradas. Se roda mais que isso, ajuste abaixo.`}
                 </div>
-                <Field label="Ajustar km/mês (opcional)" value={custoForm.kmMesManual??""} onChange={v=>setCustoCampo("kmMesManual",v)} placeholder={String(Math.round(kmAutoInfo.kmMes||CUSTO_VEICULO_PADROES.kmMes))} suffix="km" hint="Se preencher, este valor manda no cálculo."/>
+                <Field label="Ajustar km/mês (opcional)" value={custoForm.kmMesManual??""} onChange={v=>setCustoCampo("kmMesManual",v)} suffix="km" hint="Se preencher, este valor manda no cálculo."/>
               </div>
 
               <div style={{background:C.subtle,border:`1px solid ${C.border}`,borderRadius:12,padding:"12px 14px",display:"flex",flexDirection:"column",gap:10}}>
                 <div style={{color:C.navy,fontWeight:800,fontSize:13}}>Por tempo (por ano)</div>
-                <Field label="IPVA + licenciamento (R$/ano)" value={custoForm.ipvaAno} onChange={v=>setCustoCampo("ipvaAno",v)} placeholder={String(CUSTO_VEICULO_PADROES.ipvaAno)} prefix="R$"/>
-                <Field label="Seguro (R$/ano)" value={custoForm.seguroAno} onChange={v=>setCustoCampo("seguroAno",v)} placeholder={String(CUSTO_VEICULO_PADROES.seguroAno)} prefix="R$"/>
+                <Field label="IPVA + licenciamento (R$/ano)" value={custoForm.ipvaAno} onChange={v=>setCustoCampo("ipvaAno",v)} prefix="R$"/>
+                <Field label="Seguro (R$/ano)" value={custoForm.seguroAno} onChange={v=>setCustoCampo("seguroAno",v)} prefix="R$"/>
               </div>
 
               <div style={{background:C.subtle,border:`1px solid ${C.border}`,borderRadius:12,padding:"12px 14px",display:"flex",flexDirection:"column",gap:10}}>
                 <div style={{color:C.navy,fontWeight:800,fontSize:13}}>Por quilometragem</div>
-                <Field label="Jogo de pneus (R$)" value={custoForm.pneuValor} onChange={v=>setCustoCampo("pneuValor",v)} placeholder={String(CUSTO_VEICULO_PADROES.pneuValor)} prefix="R$"/>
-                <Field label="Pneus duram quantos km" value={custoForm.pneuVidaKm} onChange={v=>setCustoCampo("pneuVidaKm",v)} placeholder={String(CUSTO_VEICULO_PADROES.pneuVidaKm)} suffix="km"/>
-                <Field label="Troca de óleo (R$)" value={custoForm.oleoValor} onChange={v=>setCustoCampo("oleoValor",v)} placeholder={String(CUSTO_VEICULO_PADROES.oleoValor)} prefix="R$"/>
-                <Field label="Óleo a cada (km)" value={custoForm.oleoIntervaloKm} onChange={v=>setCustoCampo("oleoIntervaloKm",v)} placeholder={String(CUSTO_VEICULO_PADROES.oleoIntervaloKm)} suffix="km"/>
-                <Field label="Revisão (R$)" value={custoForm.revisaoValor} onChange={v=>setCustoCampo("revisaoValor",v)} placeholder={String(CUSTO_VEICULO_PADROES.revisaoValor)} prefix="R$" hint="Se você já lança suas revisões na aba Manutenção, deixe este campo vazio para não contar duas vezes."/>
-                <Field label="Revisão a cada (km)" value={custoForm.revisaoIntervaloKm} onChange={v=>setCustoCampo("revisaoIntervaloKm",v)} placeholder={String(CUSTO_VEICULO_PADROES.revisaoIntervaloKm)} suffix="km"/>
+                <Field label="Jogo de pneus (R$)" value={custoForm.pneuValor} onChange={v=>setCustoCampo("pneuValor",v)} prefix="R$"/>
+                <Field label="Pneus duram quantos km" value={custoForm.pneuVidaKm} onChange={v=>setCustoCampo("pneuVidaKm",v)} suffix="km"/>
+                <Field label="Troca de óleo (R$)" value={custoForm.oleoValor} onChange={v=>setCustoCampo("oleoValor",v)} prefix="R$"/>
+                <Field label="Óleo a cada (km)" value={custoForm.oleoIntervaloKm} onChange={v=>setCustoCampo("oleoIntervaloKm",v)} suffix="km"/>
+                <Field label="Revisão (R$)" value={custoForm.revisaoValor} onChange={v=>setCustoCampo("revisaoValor",v)} prefix="R$" hint="Se você já lança suas revisões na aba Manutenção, deixe este campo vazio para não contar duas vezes."/>
+                <Field label="Revisão a cada (km)" value={custoForm.revisaoIntervaloKm} onChange={v=>setCustoCampo("revisaoIntervaloKm",v)} suffix="km"/>
               </div>
 
               <div style={{background:C.amberLight,border:`1px solid ${C.amber}44`,borderRadius:12,padding:"11px 14px",color:C.text2,fontSize:12,lineHeight:1.45}}>
@@ -6319,9 +6319,9 @@ const Manutencao=({manutencoes:items,onAddManutencao,onUpdateManutencao,onDelete
           </div>
           <Field label="Veículo" value={form.vehicle} onChange={v=>setForm(f=>({...f,vehicle:v}))} placeholder="Caminhão MB 1620"/>
           <DatePicker label="Data do Serviço" value={form.date} onChange={v=>setForm(f=>({...f,date:v}))}/>
-          <Field label="KM Atual" value={form.km} onChange={v=>setForm(f=>({...f,km:v}))} placeholder="142.500" suffix="km"/>
-          <Field label="Próxima Revisão (KM)" value={form.nextKm} onChange={v=>setForm(f=>({...f,nextKm:v}))} placeholder="152.500" suffix="km"/>
-          <Field label="Custo (R$)" value={form.cost} onChange={v=>setForm(f=>({...f,cost:v}))} placeholder="320.00" prefix="R$"/>
+          <Field label="KM Atual" value={form.km} onChange={v=>setForm(f=>({...f,km:v}))} suffix="km"/>
+          <Field label="Próxima Revisão (KM)" value={form.nextKm} onChange={v=>setForm(f=>({...f,nextKm:v}))} suffix="km"/>
+          <Field label="Custo (R$)" value={form.cost} onChange={v=>setForm(f=>({...f,cost:v}))} prefix="R$"/>
         </div>
         {erroForm&&<div style={{background:"#FFF5F5",border:"1.5px solid #FCA5A5",borderRadius:10,padding:"10px 13px",color:"#DC2626",fontSize:13,fontWeight:600,marginTop:12}}>⚠️ {erroForm}</div>}
         <PrimaryBtn onClick={save} style={{width:"100%",marginTop:16}}>{editingId?"Salvar alterações →":"Salvar →"}</PrimaryBtn>
