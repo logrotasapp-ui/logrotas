@@ -1,4 +1,37 @@
 /**
+ * Máscara de dinheiro enquanto digita (pt-BR): milhar com ponto, decimal opcional com vírgula.
+ * Não força centavos. Ex: "5500" → "5.500"; "5500,5" → "5.500,5"; "5500,50" → "5.500,50".
+ */
+export function formatEnquantoDigitaMoeda(texto) {
+  let cleaned = "";
+  let sawComma = false;
+  for (const ch of String(texto ?? "")) {
+    if (ch >= "0" && ch <= "9") cleaned += ch;
+    else if (ch === "," && !sawComma) {
+      cleaned += ",";
+      sawComma = true;
+    }
+  }
+  if (!cleaned) return "";
+
+  const commaIdx = cleaned.indexOf(",");
+  const hasComma = commaIdx !== -1;
+  let intDigits = hasComma ? cleaned.slice(0, commaIdx) : cleaned;
+  let decDigits = hasComma ? cleaned.slice(commaIdx + 1) : "";
+  if (decDigits.length > 2) decDigits = decDigits.slice(0, 2);
+
+  if (intDigits === "") {
+    intDigits = hasComma ? "0" : "";
+  } else {
+    intDigits = intDigits.replace(/^0+/, "");
+    if (intDigits === "") intDigits = "0";
+  }
+
+  const intFormatted = intDigits.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+  return hasComma ? `${intFormatted},${decDigits}` : intFormatted;
+}
+
+/**
  * V235 — Entrada numérica tolerante (pt-BR e en):
  *  a) "6,4" → 6.4 (vírgula = decimal)
  *  b) "6.4" / "6.49" → decimal (ponto com 1-2 dígitos depois)

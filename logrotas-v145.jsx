@@ -1,4 +1,4 @@
-﻿import { useState, useRef, useEffect, useCallback, useMemo } from "react";
+﻿import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from "react";
 import { useSwipeable } from "react-swipeable";
 import { createPortal, flushSync } from "react-dom";
 import {
@@ -49,6 +49,7 @@ import {
   formatDecimal,
   formatKwhPrice,
   formatConsumoKmL,
+  formatEnquantoDigitaMoeda,
   parseNumeroBR,
   plural,
   pluralWord,
@@ -175,7 +176,7 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="v348";
+const APP_VERSION="v349";
 const SUPORTE_EMAIL="suporte@logrotas.com.br";
 const PEDAGIO_AVISO_RESULTADO="Pedágio estimado pelo Google. Pode haver variação — confirme o valor da praça.";
 const PAGE_SWIPE_ORDER=["dashboard","financeiro","despesas","comparador","manutencao","documentos","perfil"];
@@ -530,15 +531,30 @@ const CALC_INPUT_ROW_H=44;
 const calcFieldInputStyle={padding:"10px 12px",fontSize:14,minWidth:0,boxSizing:"border-box"};
 const Field=({label,value,onChange,placeholder,prefix,suffix,type="text",hint,readOnly=false,calc=false})=>{
   const [focused,setFocused]=useState(false);
+  const inputRef=useRef(null);
+  const isMoney=prefix==="R$";
   const isNumeric=!!(prefix||suffix)&&type==="text";
   const idleBorder=calc?CALC_INPUT_BORDER:C.border;
   const idleBg=calc?"#fff":C.subtle;
+  useLayoutEffect(()=>{
+    if(!isMoney||!focused)return;
+    const el=inputRef.current;
+    if(el&&document.activeElement===el){
+      const len=String(el.value||"").length;
+      el.setSelectionRange(len,len);
+    }
+  },[value,isMoney,focused]);
+  const handleChange=(e)=>{
+    if(readOnly)return;
+    const raw=e.target.value;
+    onChange(isMoney?formatEnquantoDigitaMoeda(raw):raw);
+  };
   return(
     <div style={{display:"flex",flexDirection:"column",gap:5}}>
       {label&&<label style={{color:C.text2,fontSize:14,fontWeight:700,letterSpacing:0.4}}>{label}</label>}
       <div style={{display:"flex",alignItems:"center",background:readOnly?C.subtle:focused?C.surface:idleBg,border:`1.5px solid ${readOnly?C.border:focused?C.orange:idleBorder}`,borderRadius:10,overflow:"hidden",transition:"border .15s",boxShadow:calc&&!focused&&!readOnly?"0 1px 2px #1E3A8A0A":"none",...(calc?{minHeight:CALC_INPUT_ROW_H}:{})}}>
         {prefix&&<span style={{padding:"0 10px",color:C.muted,fontSize:12,flexShrink:0,borderRight:`1px solid ${C.border}`,background:"#fff",alignSelf:"stretch",display:"flex",alignItems:"center"}}>{prefix}</span>}
-        <input type={type} inputMode={isNumeric||type==="number"?"decimal":undefined} value={value} onChange={e=>!readOnly&&onChange(e.target.value)} onFocus={()=>!readOnly&&setFocused(true)} onBlur={()=>setFocused(false)} placeholder={placeholder}
+        <input ref={inputRef} type={type} inputMode={isNumeric||type==="number"?"decimal":undefined} value={value} onChange={handleChange} onFocus={()=>!readOnly&&setFocused(true)} onBlur={()=>setFocused(false)} placeholder={placeholder}
           readOnly={readOnly}
           style={{flex:1,background:"transparent",border:"none",outline:"none",color:readOnly?C.muted:C.text,...calcFieldInputStyle,cursor:readOnly?"default":"text"}}/>
         {suffix&&<span style={{padding:"0 10px",color:C.muted,fontSize:12,flexShrink:0,borderLeft:`1px solid ${C.border}`,background:"#fff",alignSelf:"stretch",display:"flex",alignItems:"center"}}>{suffix}</span>}
@@ -6788,7 +6804,7 @@ const Financeiro=({historicoFretes,manutencoes,despesas=[],jornadas=[],uid,metaM
           <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12}}>
             <div style={{display:"flex",alignItems:"center",background:"#ffffff22",border:"1.5px solid #ffffff55",borderRadius:11,overflow:"hidden",flex:1}}>
               <span style={{padding:"0 10px",color:"#BFDBFE",fontSize:14,borderRight:"1px solid #ffffff33"}}>R$</span>
-              <input value={draftMeta} onChange={e=>setDraftMeta(e.target.value)} autoFocus
+              <input value={draftMeta} onChange={e=>setDraftMeta(formatEnquantoDigitaMoeda(e.target.value))} autoFocus
                 style={{flex:1,background:"transparent",border:"none",outline:"none",color:"#fff",padding:"10px 12px",fontSize:20,fontWeight:900,fontFamily:"'Sora',sans-serif"}}/>
             </div>
             <button onClick={()=>void salvarMeta()} disabled={salvandoMeta} style={{background:C.orange,border:"none",borderRadius:11,padding:"10px 16px",cursor:salvandoMeta?"wait":"pointer",color:"#fff",fontWeight:800,fontSize:14,opacity:salvandoMeta?0.7:1}}>{salvandoMeta?"…":"✓ Salvar"}</button>
