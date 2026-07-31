@@ -180,7 +180,7 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="v363";
+const APP_VERSION="v364";
 const SUPORTE_EMAIL="suporte@logrotas.com.br";
 const PEDAGIO_AVISO_RESULTADO="Pedágio estimado pelo Google. Pode haver variação — confirme o valor da praça.";
 const PAGE_SWIPE_ORDER=["dashboard","financeiro","despesas","comparador","manutencao","documentos","perfil"];
@@ -5839,6 +5839,7 @@ const Manutencao=({manutencoes:items,onAddManutencao,onUpdateManutencao,onDelete
   const[kmAutoPreenchido,setKmAutoPreenchido]=useState(false);
   const[expandedId,setExpandedId]=useState(null);
   const[expandedGroupId,setExpandedGroupId]=useState(null);
+  const[debugCorreiaMsg,setDebugCorreiaMsg]=useState("");
   const[editVeh,setEditVeh]=useState(null);
   const[editVehVals,setEditVehVals]=useState({});
   const[custoForm,setCustoForm]=useState(()=>formFromCustoVeiculoPersist(readCustoVeiculoLocalCache()));
@@ -6202,12 +6203,32 @@ const Manutencao=({manutencoes:items,onAddManutencao,onUpdateManutencao,onDelete
           <div style={{fontWeight:900,fontSize:15,marginBottom:12,fontFamily:"'Sora',sans-serif"}}>
             🔍 DEBUG - Registros com Correia ({debugCorreia.length})
           </div>
+          {debugCorreiaMsg&&(
+            <div style={{background:"#166534",borderRadius:8,padding:"8px 10px",marginBottom:12,fontWeight:700,fontSize:13}}>{debugCorreiaMsg}</div>
+          )}
           <div style={{display:"flex",flexDirection:"column",gap:12}}>
             {debugCorreia.map((item,i)=>(
-              <pre
-                key={item.id||`correia-${i}`}
-                style={{margin:0,padding:"10px 12px",background:"#0f0a1a",borderRadius:8,border:"1px solid #7c3aed",color:"#e9d5ff",fontSize:11,lineHeight:1.45,fontFamily:"ui-monospace,SFMono-Regular,Menlo,Consolas,monospace",overflow:"auto",maxHeight:280,whiteSpace:"pre-wrap",wordBreak:"break-word"}}
-              >{JSON.stringify(item,null,2)}</pre>
+              <div key={item.id||`correia-${i}`}>
+                <pre
+                  style={{margin:0,padding:"10px 12px",background:"#0f0a1a",borderRadius:8,border:"1px solid #7c3aed",color:"#e9d5ff",fontSize:11,lineHeight:1.45,fontFamily:"ui-monospace,SFMono-Regular,Menlo,Consolas,monospace",overflow:"auto",maxHeight:280,whiteSpace:"pre-wrap",wordBreak:"break-word"}}
+                >{JSON.stringify(item,null,2)}</pre>
+                <button
+                  type="button"
+                  onClick={async()=>{
+                    if(!item?.id){setDebugCorreiaMsg("Sem id — não foi possível excluir.");return;}
+                    setDebugCorreiaMsg("");
+                    try{
+                      await onDeleteManutencao?.(item.id);
+                      setDebugCorreiaMsg("Excluído!");
+                    }catch{
+                      setDebugCorreiaMsg("Erro ao excluir. Tente de novo.");
+                    }
+                  }}
+                  style={{marginTop:8,width:"100%",background:"#7f1d1d",border:"1px solid #fca5a5",borderRadius:8,padding:"10px 12px",cursor:"pointer",color:"#fecaca",fontWeight:800,fontSize:13}}
+                >
+                  🗑️ Excluir este registro
+                </button>
+              </div>
             ))}
           </div>
         </div>
