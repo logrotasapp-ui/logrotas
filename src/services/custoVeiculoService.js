@@ -490,7 +490,7 @@ function mesesDesde(dateStr, agora = new Date()) {
 /**
  * Alertas de próxima manutenção por tipo (registro mais recente com nextKm).
  * Com odômetro: faltam = nextKm - km. Sem odômetro: alerta por tempo (meses desde a data).
- * Formato novo: types[] + nextKmPorTipo → N entradas (uma por tipo com nextKm).
+ * types[]: cada tipo gera entrada; nextKm único do registro (ou nextKmPorTipo se existir — v355 raro).
  * Formato antigo: type + nextKm (comportamento inalterado).
  */
 export function listarProximasManutencoes(manutencoes, odometroKm, agora = new Date()) {
@@ -514,13 +514,22 @@ export function listarProximasManutencoes(manutencoes, odometroKm, agora = new D
     if (newer) byType.set(type, { m, nextKm });
   };
 
+  const hasNextKmPorTipo = (m) => {
+    const map = m?.nextKmPorTipo;
+    if (!map || typeof map !== "object") return false;
+    return Object.values(map).some((v) => {
+      const n = parseNumeroBR(v);
+      return Number.isFinite(n) && n > 0;
+    });
+  };
+
   (manutencoes || []).forEach((m) => {
     if (Array.isArray(m?.types) && m.types.length > 0) {
-      const map =
-        m.nextKmPorTipo && typeof m.nextKmPorTipo === "object"
-          ? m.nextKmPorTipo
-          : {};
-      m.types.forEach((t) => consider(t, map[t], m));
+      if (hasNextKmPorTipo(m)) {
+        m.types.forEach((t) => consider(t, m.nextKmPorTipo[t], m));
+      } else {
+        m.types.forEach((t) => consider(t, m.nextKm, m));
+      }
     } else {
       consider(m?.type, m?.nextKm, m);
     }

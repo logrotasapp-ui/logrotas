@@ -179,7 +179,7 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="v356";
+const APP_VERSION="v357";
 const SUPORTE_EMAIL="suporte@logrotas.com.br";
 const PEDAGIO_AVISO_RESULTADO="Pedágio estimado pelo Google. Pode haver variação — confirme o valor da praça.";
 const PAGE_SWIPE_ORDER=["dashboard","financeiro","despesas","comparador","manutencao","documentos","perfil"];
@@ -5792,7 +5792,7 @@ const DespesaItem=({item,last,onEdit,onDelete})=>(
 );
 
 // ── MANUTENÇÃO ────────────────────────────────────────────────────────────────
-const emptyMaintForm=(extra={})=>({types:[],typeDraft:"",vehicle:"",km:"",cost:"",date:"",nextKmPorTipo:{},...extra});
+const emptyMaintForm=(extra={})=>({types:[],typeDraft:"",vehicle:"",km:"",cost:"",nextKm:"",date:"",...extra});
 const maintTypesLabel=(item)=>{
   if(Array.isArray(item?.types)&&item.types.length)return item.types.join(" + ");
   return item?.type||"";
@@ -5802,11 +5802,18 @@ const maintTypesList=(item)=>{
   const t=String(item?.type||"").trim();
   return t?[t]:[];
 };
+/** nextKm por tipo p/ painel expandido: nextKmPorTipo (v355 raro) ou nextKm único p/ todos. */
 const maintNextKmMap=(item)=>{
-  if(item?.nextKmPorTipo&&typeof item.nextKmPorTipo==="object")return item.nextKmPorTipo;
-  const t=String(item?.type||"").trim();
-  if(t&&item?.nextKm!=null&&String(item.nextKm).trim()!=="")return{[t]:item.nextKm};
-  return{};
+  const map=item?.nextKmPorTipo;
+  if(map&&typeof map==="object"){
+    const filled=Object.entries(map).filter(([,v])=>v!=null&&String(v).trim()!=="");
+    if(filled.length)return Object.fromEntries(filled);
+  }
+  const nk=item?.nextKm;
+  if(nk==null||String(nk).trim()==="")return{};
+  const out={};
+  maintTypesList(item).forEach(t=>{out[t]=nk;});
+  return out;
 };
 const maintMetaParts=(item)=>{
   const parts=[];
@@ -5852,13 +5859,22 @@ const Manutencao=({manutencoes:items,onAddManutencao,onUpdateManutencao,onDelete
     const types=Array.isArray(item.types)&&item.types.length
       ?item.types.map(t=>String(t).trim()).filter(Boolean)
       :(item.type?[String(item.type).trim()].filter(Boolean):[]);
-    let nextKmPorTipo={};
-    if(item.nextKmPorTipo&&typeof item.nextKmPorTipo==="object"){
-      Object.entries(item.nextKmPorTipo).forEach(([k,v])=>{
-        if(v!=null&&String(v).trim()!=="")nextKmPorTipo[k]=String(v);
+    let nextKm="";
+    const porTipo=item.nextKmPorTipo;
+    if(porTipo&&typeof porTipo==="object"){
+      let max=null;
+      Object.values(porTipo).forEach(v=>{
+        const n=parseNumeroBR(v);
+        if(Number.isFinite(n)&&n>0&&(max==null||n>max))max=n;
       });
-    }else if(item.type&&item.nextKm!=null&&String(item.nextKm).trim()!==""){
-      nextKmPorTipo={[item.type]:String(item.nextKm)};
+      if(max!=null)nextKm=String(max);
+    }
+    if(!nextKm&&item.nextKm!=null&&String(item.nextKm).trim()!=="")nextKm=String(item.nextKm);
+    if(types.length){
+      setStypes(ts=>{
+        const missing=types.filter(t=>!ts.some(s=>String(s).toLowerCase()===String(t).toLowerCase()));
+        return missing.length?[...ts,...missing]:ts;
+      });
     }
     setForm(emptyMaintForm({
       types,
@@ -5866,7 +5882,7 @@ const Manutencao=({manutencoes:items,onAddManutencao,onUpdateManutencao,onDelete
       km:item.km!=null?String(item.km):"",
       cost:item.cost!=null?String(item.cost):"",
       date:item.date||"",
-      nextKmPorTipo,
+      nextKm,
     }));
     setKmAutoPreenchido(false);
     setEditingId(item.id);
@@ -5875,27 +5891,24 @@ const Manutencao=({manutencoes:items,onAddManutencao,onUpdateManutencao,onDelete
   const toggleMaintType=(t)=>{
     setForm(f=>{
       const has=(f.types||[]).includes(t);
-      if(has){
-        const nextMap={...(f.nextKmPorTipo||{})};
-        delete nextMap[t];
-        return{...f,types:(f.types||[]).filter(x=>x!==t),nextKmPorTipo:nextMap};
-      }
-      return{...f,types:[...(f.types||[]),t]};
+      return{...f,types:has?(f.types||[]).filter(x=>x!==t):[...(f.types||[]),t]};
     });
   };
   const addMaintTypeDraft=()=>{
-    const t=String(form.typeDraft||"").trim();
-    if(!t)return;
+    const raw=String(form.typeDraft||"").trim();
+    if(!raw)return;
+    const existing=stypes.find(s=>String(s).toLowerCase()===raw.toLowerCase());
+    if(existing){
+      setForm(f=>{
+        const has=(f.types||[]).includes(existing);
+        return{...f,types:has?(f.types||[]).filter(x=>x!==existing):[...(f.types||[]),existing],typeDraft:""};
+      });
+      return;
+    }
+    setStypes(ts=>[...ts,raw]);
     setForm(f=>{
-      if((f.types||[]).includes(t))return{...f,typeDraft:""};
-      return{...f,types:[...(f.types||[]),t],typeDraft:""};
-    });
-  };
-  const removeMaintType=(t)=>{
-    setForm(f=>{
-      const nextMap={...(f.nextKmPorTipo||{})};
-      delete nextMap[t];
-      return{...f,types:(f.types||[]).filter(x=>x!==t),nextKmPorTipo:nextMap};
+      if((f.types||[]).includes(raw))return{...f,typeDraft:""};
+      return{...f,types:[...(f.types||[]),raw],typeDraft:""};
     });
   };
   const startEditVeh=v=>{setEditVeh(v.id);setEditVehVals({consumption:String(v.consumption),axles:String(v.axles),kwh:String(v.kwh||"")});};
@@ -6089,21 +6102,12 @@ const Manutencao=({manutencoes:items,onAddManutencao,onUpdateManutencao,onDelete
       setErroForm("Selecione pelo menos um tipo de serviço.");
       return;
     }
-    const nextKmPorTipo={};
-    let maxNext=null;
-    types.forEach(t=>{
-      const n=parseNumeroBR(form.nextKmPorTipo?.[t]);
-      if(Number.isFinite(n)&&n>0){
-        nextKmPorTipo[t]=n;
-        if(maxNext==null||n>maxNext)maxNext=n;
-      }
-    });
     const kmN=parseNumeroBR(form.km);
+    const nextN=parseNumeroBR(form.nextKm);
     const payload={
       types,
       type:types.join(" + "),
-      nextKmPorTipo,
-      nextKm:maxNext!=null?maxNext:"",
+      nextKm:Number.isFinite(nextN)&&nextN>0?nextN:"",
       vehicle:form.vehicle||"",
       date:form.date||"",
       cost:parseNumeroBR(form.cost)||0,
@@ -6448,16 +6452,6 @@ const Manutencao=({manutencoes:items,onAddManutencao,onUpdateManutencao,onDelete
                 onFocus={e=>e.target.parentElement.style.borderColor=C.orange} onBlur={e=>e.target.parentElement.style.borderColor=C.border}/>
               <button type="button" onClick={addMaintTypeDraft} style={{background:"none",border:"none",cursor:"pointer",color:C.orange,padding:"0 10px",display:"flex",fontWeight:800,fontSize:18}} aria-label="Adicionar tipo"><PlusIcon size={16}/></button>
             </div>
-            {(form.types||[]).length>0&&(
-              <div style={{display:"flex",flexWrap:"wrap",gap:6,marginTop:2}}>
-                {form.types.map(t=>(
-                  <span key={t} style={{display:"inline-flex",alignItems:"center",gap:4,background:C.orangeLight,border:`1.5px solid ${C.orange}`,borderRadius:20,padding:"4px 8px 4px 12px",color:C.orange,fontSize:12,fontWeight:700}}>
-                    {t}
-                    <button type="button" onClick={()=>removeMaintType(t)} style={{background:"none",border:"none",cursor:"pointer",color:C.orange,padding:0,display:"flex"}} aria-label={`Remover ${t}`}><XIcon size={12}/></button>
-                  </span>
-                ))}
-              </div>
-            )}
             <div style={{display:"flex",flexWrap:"wrap",gap:6,marginTop:4}}>
               {stypes.map((t,i)=>{
                 const ativo=(form.types||[]).includes(t);
@@ -6473,15 +6467,7 @@ const Manutencao=({manutencoes:items,onAddManutencao,onUpdateManutencao,onDelete
           <Field label="Veículo" value={form.vehicle} onChange={v=>setForm(f=>({...f,vehicle:v}))} placeholder="Caminhão MB 1620"/>
           <DatePicker label="Data do Serviço" value={form.date} onChange={v=>setForm(f=>({...f,date:v}))}/>
           <Field label="KM Atual" value={form.km} onChange={v=>{setForm(f=>({...f,km:v}));if(!String(v||"").trim())setKmAutoPreenchido(false);}} suffix="km" hint={kmAutoPreenchido?"Preenchido com o odômetro atual — ajuste se for diferente":undefined}/>
-          {(form.types||[]).map(t=>(
-            <Field
-              key={t}
-              label={`Próxima Revisão — ${t} (KM)`}
-              value={form.nextKmPorTipo?.[t]||""}
-              onChange={v=>setForm(f=>({...f,nextKmPorTipo:{...(f.nextKmPorTipo||{}),[t]:v}}))}
-              suffix="km"
-            />
-          ))}
+          <Field label="Próxima Revisão (KM)" value={form.nextKm} onChange={v=>setForm(f=>({...f,nextKm:v}))} suffix="km"/>
           <Field label="Custo (R$)" value={form.cost} onChange={v=>setForm(f=>({...f,cost:v}))} prefix="R$"/>
         </div>
         {erroForm&&<div style={{background:"#FFF5F5",border:"1.5px solid #FCA5A5",borderRadius:10,padding:"10px 13px",color:"#DC2626",fontSize:13,fontWeight:600,marginTop:12}}>⚠️ {erroForm}</div>}
