@@ -474,7 +474,7 @@ export function resolveOdometroAtual({ odometroSalvo, odometroAtualizadoEm, manu
   return { km: null, origem: null, atualizadoEm: null, dataOrigem: null };
 }
 
-function parseDataManutencao(dateStr) {
+export function parseDataManutencao(dateStr) {
   return parseDataBR(dateStr);
 }
 
