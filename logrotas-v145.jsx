@@ -179,7 +179,7 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="v355";
+const APP_VERSION="v356";
 const SUPORTE_EMAIL="suporte@logrotas.com.br";
 const PEDAGIO_AVISO_RESULTADO="Pedágio estimado pelo Google. Pode haver variação — confirme o valor da praça.";
 const PAGE_SWIPE_ORDER=["dashboard","financeiro","despesas","comparador","manutencao","documentos","perfil"];
@@ -6236,8 +6236,9 @@ const Manutencao=({manutencoes:items,onAddManutencao,onUpdateManutencao,onDelete
           <CardHeader title="🔧 Próximas manutenções"/>
           <div style={{padding:"8px 18px 16px",display:"flex",flexDirection:"column",gap:10}}>
             {proximasManut.map((p)=>{
-              const cor=p.status==="vencido"?C.red:p.status==="proximo"?C.amber:C.green;
-              const bg=p.status==="vencido"?C.redLight:p.status==="proximo"?C.amberLight:C.greenLight;
+              const alertaForte=p.status==="vencido"||p.status==="urgente";
+              const cor=alertaForte?C.red:p.status==="proximo"?C.amber:C.green;
+              const bg=alertaForte?C.redLight:p.status==="proximo"?C.amberLight:C.greenLight;
               let sub="";
               let pctBar=100;
               if(p.modo==="km"){

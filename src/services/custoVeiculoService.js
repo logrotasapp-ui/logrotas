@@ -537,6 +537,7 @@ export function listarProximasManutencoes(manutencoes, odometroKm, agora = new D
         const faltam = nextKm - odo;
         let status = "ok";
         if (faltam <= 0) status = "vencido";
+        else if (faltam <= 1000) status = "urgente";
         else if (faltam <= 2000) status = "proximo";
         return {
           type,
