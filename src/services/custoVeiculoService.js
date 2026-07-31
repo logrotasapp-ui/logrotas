@@ -372,8 +372,12 @@ export function buildCustoVeiculoPersistPayload(form, resultado, extras = {}) {
   const odo = Number(extras.odometro);
   if (Number.isFinite(odo) && odo > 0) {
     payload.odometro = odo;
-    payload.odometroAtualizadoEm =
-      extras.odometroAtualizadoEm || new Date().toISOString();
+    // Nunca inventar data: só grava se o chamador informar explicitamente.
+    // (new Date fica só em salvarOdometro / mergeCustoVeiculoOdometro)
+    const dataEm = extras.odometroAtualizadoEm;
+    if (dataEm != null && String(dataEm).trim() !== "") {
+      payload.odometroAtualizadoEm = dataEm;
+    }
   }
   return payload;
 }

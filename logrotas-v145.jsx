@@ -179,7 +179,7 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="v352";
+const APP_VERSION="v353";
 const SUPORTE_EMAIL="suporte@logrotas.com.br";
 const PEDAGIO_AVISO_RESULTADO="Pedágio estimado pelo Google. Pode haver variação — confirme o valor da praça.";
 const PAGE_SWIPE_ORDER=["dashboard","financeiro","despesas","comparador","manutencao","documentos","perfil"];
@@ -5801,7 +5801,8 @@ const maintMetaParts=(item)=>{
 const Manutencao=({manutencoes:items,onAddManutencao,onUpdateManutencao,onDeleteManutencao,uid,perfil,vehicles,setVehicles,historicoFretes=[],jornadas=[]})=>{
   const isPago=getPlanoAtual(perfil).isPago;
   const[limiteManut,setLimiteManut]=useState(false);
-  const[stypes,setStypes]=useState(INIT_STYPE);const[showAdd,setShowAdd]=useState(false);const[showManage,setShowManage]=useState(false);const[del,setDel]=useState(null);const[erroForm,setErroForm]=useState("");const[erroDel,setErroDel]=useState("");const[editTIdx,setEditTIdx]=useState(null);const[editTVal,setEditTVal]=useState("");const[newType,setNewType]=useState("");const[form,setForm]=useState({type:"",vehicle:"",km:"",cost:"",nextKm:"",date:""});const[editingId,setEditingId]=useState(null);
+  const[stypes,setStypes]=useState(INIT_STYPE);const[showAdd,setShowAdd]=useState(false);const[showManage,setShowManage]=useState(false);const[del,setDel]=useState(null);const[erroForm,setErroForm]=useState("");const[erroDel,setErroDel]=useState("");const[editTIdx,setEditTIdx]=useState(null);const[editTVal,setEditTVal]=useState("");const[newType,setNewType]=useState("");  const[form,setForm]=useState({type:"",vehicle:"",km:"",cost:"",nextKm:"",date:""});const[editingId,setEditingId]=useState(null);
+  const[kmAutoPreenchido,setKmAutoPreenchido]=useState(false);
   const[editVeh,setEditVeh]=useState(null);
   const[editVehVals,setEditVehVals]=useState({});
   const[custoForm,setCustoForm]=useState(()=>formFromCustoVeiculoPersist(readCustoVeiculoLocalCache()));
@@ -5827,10 +5828,11 @@ const Manutencao=({manutencoes:items,onAddManutencao,onUpdateManutencao,onDelete
   const itemsMes=filtrarPorMesData(items,mesSel,anoSel);
   const alerts=items.filter(i=>i.status!=="ok").length;
   const totalManut=itemsMes.reduce((a,i)=>a+(i.cost||0),0);
-  const resetForm=()=>setForm({type:"",vehicle:"",km:"",cost:"",nextKm:"",date:""});
+  const resetForm=()=>{setForm({type:"",vehicle:"",km:"",cost:"",nextKm:"",date:""});setKmAutoPreenchido(false);};
   const closeModal=()=>{setShowAdd(false);setEditingId(null);setErroForm("");resetForm();};
   const openEdit=(item)=>{
     setForm({type:item.type||"",vehicle:item.vehicle||"",km:item.km!=null?String(item.km):"",cost:item.cost!=null?String(item.cost):"",nextKm:item.nextKm!=null?String(item.nextKm):"",date:item.date||""});
+    setKmAutoPreenchido(false);
     setEditingId(item.id);
     setShowAdd(true);
   };
@@ -5875,10 +5877,15 @@ const Manutencao=({manutencoes:items,onAddManutencao,onUpdateManutencao,onDelete
       manutencoes:items,
     });
     const cache=readCustoVeiculoLocalCache()||{};
+    const dataOdo=odometroAtualizadoEm||cache.odometroAtualizadoEm||null;
     const payload=buildCustoVeiculoPersistPayload(custoForm,resultado,{
       odometro:odometroSalvo??cache.odometro,
-      odometroAtualizadoEm:odometroAtualizadoEm||cache.odometroAtualizadoEm,
+      ...(dataOdo?{odometroAtualizadoEm:dataOdo}:{}),
     });
+    // Se o payload omitiu a data, preservar a já salva no cache (não inventar "hoje")
+    if(payload.odometro!=null&&!payload.odometroAtualizadoEm&&cache.odometroAtualizadoEm){
+      payload.odometroAtualizadoEm=cache.odometroAtualizadoEm;
+    }
     writeCustoVeiculoLocalCache(payload);
     try{
       if(uid)await saveUserCustoVeiculo(uid,payload);
@@ -5946,10 +5953,14 @@ const Manutencao=({manutencoes:items,onAddManutencao,onUpdateManutencao,onDelete
       manutencoes:items,
     });
     if(!custoPersistDiffers(saved,resultado))return;
+    const dataOdo=saved.odometroAtualizadoEm||odometroAtualizadoEm||null;
     const payload=buildCustoVeiculoPersistPayload(form,resultado,{
       odometro:Number(saved.odometro)>0?saved.odometro:odometroSalvo,
-      odometroAtualizadoEm:saved.odometroAtualizadoEm||odometroAtualizadoEm,
+      ...(dataOdo?{odometroAtualizadoEm:dataOdo}:{}),
     });
+    if(payload.odometro!=null&&!payload.odometroAtualizadoEm&&saved.odometroAtualizadoEm){
+      payload.odometroAtualizadoEm=saved.odometroAtualizadoEm;
+    }
     writeCustoVeiculoLocalCache(payload);
     setCustoForm(form);
     if(uid){
@@ -5962,6 +5973,16 @@ const Manutencao=({manutencoes:items,onAddManutencao,onUpdateManutencao,onDelete
       const{bloqueado}=await checarLimiteFree(uid,perfil,"manutencao");
       if(bloqueado){setLimiteManut(true);return;}
     }
+    const odo=resolveOdometroAtual({
+      odometroSalvo,
+      odometroAtualizadoEm,
+      manutencoes:items,
+    });
+    const kmInit=odo.km!=null&&odo.km>0?String(Math.round(odo.km)):"";
+    setEditingId(null);
+    setErroForm("");
+    setForm({type:"",vehicle:"",km:kmInit,cost:"",nextKm:"",date:""});
+    setKmAutoPreenchido(kmInit!=="");
     setShowAdd(true);
   };
 
@@ -6322,7 +6343,7 @@ const Manutencao=({manutencoes:items,onAddManutencao,onUpdateManutencao,onDelete
           </div>
           <Field label="Veículo" value={form.vehicle} onChange={v=>setForm(f=>({...f,vehicle:v}))} placeholder="Caminhão MB 1620"/>
           <DatePicker label="Data do Serviço" value={form.date} onChange={v=>setForm(f=>({...f,date:v}))}/>
-          <Field label="KM Atual" value={form.km} onChange={v=>setForm(f=>({...f,km:v}))} suffix="km"/>
+          <Field label="KM Atual" value={form.km} onChange={v=>{setForm(f=>({...f,km:v}));if(!String(v||"").trim())setKmAutoPreenchido(false);}} suffix="km" hint={kmAutoPreenchido?"Preenchido com o odômetro atual — ajuste se for diferente":undefined}/>
           <Field label="Próxima Revisão (KM)" value={form.nextKm} onChange={v=>setForm(f=>({...f,nextKm:v}))} suffix="km"/>
           <Field label="Custo (R$)" value={form.cost} onChange={v=>setForm(f=>({...f,cost:v}))} prefix="R$"/>
         </div>
