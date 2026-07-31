@@ -131,6 +131,10 @@ import {
   formFromCustoVeiculoPersist,
   CUSTO_VEICULO_PADROES,
   resolveCustoKmSalvo,
+  resolveCamposAusentesSalvo,
+  formatAvisoCamposAusentes,
+  hasCustoVeiculoPersistido,
+  custoPersistDiffers,
   resolveOdometroAtual,
   listarProximasManutencoes,
   mergeCustoVeiculoOdometro,
@@ -171,7 +175,7 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="v345";
+const APP_VERSION="v346";
 const SUPORTE_EMAIL="suporte@logrotas.com.br";
 const PEDAGIO_AVISO_RESULTADO="Pedágio estimado pelo Google. Pode haver variação — confirme o valor da praça.";
 const PAGE_SWIPE_ORDER=["dashboard","financeiro","despesas","comparador","manutencao","documentos","perfil"];
@@ -3577,10 +3581,12 @@ const TripCalcModal=({onClose,vehicles,onConcluido,onGoMeuVeiculo})=>{
               {[
                 {emoji:isElec?"⚡":"⛽",l:isElec?"Custo energia":"Custo combustível",v:formatMoeda(result.custoComb||0),sub:isElec?`${formatDecimal(result.dist/100*(parseNumeroBR(consumo)||veiculo.kwh),1)} kWh`:`${formatDecimal(result.litros||0,1)} litros · ${formatConsumoKmL(result.cons)}`},
                 {emoji:"🏁",l:"Pedágio",v:formatMoeda(result.custoPed||0),isPedagio:true},
-                (result.custoVeiculo||0)>0&&{emoji:"🚗",l:"Desgaste do veículo",v:formatMoeda(result.custoVeiculo||0)},
-              ].filter(Boolean).map((r,i,arr)=>(
+                (result.custoVeiculo||0)>0&&{emoji:"🚗",l:"Desgaste do veículo",v:formatMoeda(result.custoVeiculo||0),isDesgaste:true},
+              ].filter(Boolean).map((r,i,arr)=>{
+                const avisoDesgaste=r.isDesgaste?formatAvisoCamposAusentes(resolveCamposAusentesSalvo(readCustoVeiculoLocalCache())):"";
+                return(
                 <div key={i}>
-                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"11px 0",borderBottom:i<arr.length-1&&!r.isPedagio?`1px solid ${C.border}`:r.isPedagio?"none":`1px solid ${C.border}`}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"11px 0",borderBottom:i<arr.length-1&&!r.isPedagio&&!avisoDesgaste?`1px solid ${C.border}`:r.isPedagio||avisoDesgaste?"none":`1px solid ${C.border}`}}>
                     <div style={{display:"flex",alignItems:"center",gap:9}}>
                       <span style={{fontSize:18}}>{r.emoji}</span>
                       <div><div style={{color:C.text2,fontSize:14}}>{r.l}</div>{r.sub&&<div style={{color:C.muted,fontSize:12,marginTop:1}}>{r.sub}</div>}</div>
@@ -3588,8 +3594,9 @@ const TripCalcModal=({onClose,vehicles,onConcluido,onGoMeuVeiculo})=>{
                     <span style={{color:C.navy,fontWeight:700,fontSize:15}}>{r.v}</span>
                   </div>
                   {r.isPedagio&&(result.custoPed||0)>0&&<div style={{color:C.muted,fontSize:11,paddingBottom:11,borderBottom:i<arr.length-1?`1px solid ${C.border}`:"none"}}>{PEDAGIO_AVISO_RESULTADO}</div>}
+                  {avisoDesgaste&&<div style={{color:C.muted,fontSize:11,paddingBottom:11,borderBottom:i<arr.length-1?`1px solid ${C.border}`:"none"}}>{avisoDesgaste}</div>}
                 </div>
-              ))}
+              );})}
               {!(result.custoVeiculo>0)&&(
                 <button type="button" onClick={()=>onGoMeuVeiculo?.()} style={{background:"none",border:"none",padding:"10px 0 2px",cursor:"pointer",color:C.navy,fontSize:12,fontWeight:600,textDecoration:"underline",textAlign:"left"}}>
                   Calcular o custo do meu veículo
@@ -4078,11 +4085,13 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
                   {emoji:result.isElec?"⚡":"⛽",l:result.isElec?"Custo Energia":"Custo Combustível",v:`R$ ${(result.energyCost||0).toFixed(2)}`,c:"#1E40AF"},
                   result.isTruck&&result.arlaCost>0&&{emoji:"🟦",l:"ARLA 32",v:`R$ ${(result.arlaCost||0).toFixed(2)}`,c:"#6D28D9"},
                   {emoji:"🏁",l:"Pedágio",v:`R$ ${(result.tollCost||0).toFixed(2)}`,c:"#B45309",isPedagio:true},
-                  (result.custoVeiculo||0)>0&&{emoji:"🚗",l:"Desgaste do veículo",v:`R$ ${(result.custoVeiculo||0).toFixed(2)}`,c:"#1E3A8A"},
+                  (result.custoVeiculo||0)>0&&{emoji:"🚗",l:"Desgaste do veículo",v:`R$ ${(result.custoVeiculo||0).toFixed(2)}`,c:"#1E3A8A",isDesgaste:true},
                   {emoji:"📊",l:"Custo Total da Viagem",v:`R$ ${(result.total||0).toFixed(2)}`,c:"#DC2626",bold:true},
-                ].filter(Boolean).map((r,i,arr)=>(
+                ].filter(Boolean).map((r,i,arr)=>{
+                  const avisoDesgaste=r.isDesgaste?formatAvisoCamposAusentes(resolveCamposAusentesSalvo(readCustoVeiculoLocalCache())):"";
+                  return(
                   <div key={i}>
-                    <div style={{display:"flex",justifyContent:"space-between",alignItems:r.sub?"flex-start":"center",padding:"10px 0",borderBottom:r.isPedagio?"none":i<arr.length-1?`1px solid ${C.border}`:"none"}}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:r.sub?"flex-start":"center",padding:"10px 0",borderBottom:r.isPedagio||avisoDesgaste?"none":i<arr.length-1?`1px solid ${C.border}`:"none"}}>
                       <div style={{display:"flex",alignItems:"center",gap:8}}>
                         <span style={{fontSize:14}}>{r.emoji}</span>
                         <div>
@@ -4093,8 +4102,9 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
                       <span style={{color:r.c,fontWeight:r.bold?700:400,fontSize:14}}>{r.v}</span>
                     </div>
                     {r.isPedagio&&(result.tollCost||0)>0&&<div style={{color:C.muted,fontSize:11,paddingBottom:10,borderBottom:i<arr.length-1?`1px solid ${C.border}`:"none"}}>{PEDAGIO_AVISO_RESULTADO}</div>}
+                    {avisoDesgaste&&<div style={{color:C.muted,fontSize:11,paddingBottom:10,borderBottom:i<arr.length-1?`1px solid ${C.border}`:"none"}}>{avisoDesgaste}</div>}
                   </div>
-                ))}
+                );})}
                 {!(result.custoVeiculo>0)&&(
                   <button type="button" onClick={()=>onGoMeuVeiculo?.()} style={{background:"none",border:"none",padding:"8px 0 2px",cursor:"pointer",color:C.navy,fontSize:12,fontWeight:600,textDecoration:"underline",textAlign:"left"}}>
                     Calcular o custo do meu veículo
@@ -5786,6 +5796,8 @@ const Manutencao=({manutencoes:items,onAddManutencao,onUpdateManutencao,onDelete
   const[editandoOdo,setEditandoOdo]=useState(false);
   const[draftOdo,setDraftOdo]=useState("");
   const[salvandoOdo,setSalvandoOdo]=useState(false);
+  const custoSyncDoneRef=useRef(false);
+  const[custoHydrated,setCustoHydrated]=useState(()=>!uid);
   const hoje=new Date();
   const[mesSel,setMesSel]=useState(hoje.getMonth());
   const[anoSel,setAnoSel]=useState(hoje.getFullYear());
@@ -5867,7 +5879,10 @@ const Manutencao=({manutencoes:items,onAddManutencao,onUpdateManutencao,onDelete
   },[uid,isPago]);
 
   useEffect(()=>{
-    if(!uid)return;
+    if(!uid){
+      setCustoHydrated(true);
+      return;
+    }
     let cancelled=false;
     (async()=>{
       try{
@@ -5885,10 +5900,41 @@ const Manutencao=({manutencoes:items,onAddManutencao,onUpdateManutencao,onDelete
         }
       }catch{
         /* mantém form do localStorage */
+      }finally{
+        if(!cancelled)setCustoHydrated(true);
       }
     })();
     return()=>{cancelled=true;};
   },[uid]);
+
+  // Recalcula 1x com a regra nova e regrava se custoKm/camposAusentes mudaram
+  useEffect(()=>{
+    if(!custoHydrated||custoSyncDoneRef.current)return;
+    const saved=readCustoVeiculoLocalCache();
+    if(!hasCustoVeiculoPersistido(saved)){
+      custoSyncDoneRef.current=true;
+      return;
+    }
+    custoSyncDoneRef.current=true;
+    const form=formFromCustoVeiculoPersist(saved);
+    const kmAuto=mediaKmMesUltimos3Meses(historicoFretes,jornadas,new Date());
+    const resultado=calcularCustoVeiculo({
+      ...form,
+      kmMesAuto:kmAuto.kmMes,
+      kmMesAutoEstimado:kmAuto.estimado,
+      manutencoes:items,
+    });
+    if(!custoPersistDiffers(saved,resultado))return;
+    const payload=buildCustoVeiculoPersistPayload(form,resultado,{
+      odometro:Number(saved.odometro)>0?saved.odometro:odometroSalvo,
+      odometroAtualizadoEm:saved.odometroAtualizadoEm||odometroAtualizadoEm,
+    });
+    writeCustoVeiculoLocalCache(payload);
+    setCustoForm(form);
+    if(uid){
+      void saveUserCustoVeiculo(uid,payload).catch(()=>{/* offline: cache já atualizado */});
+    }
+  },[custoHydrated,uid,items,historicoFretes,jornadas,odometroSalvo,odometroAtualizadoEm]);
 
   const abrirRegistrar=async()=>{
     if(!isPago&&uid){
@@ -6151,15 +6197,15 @@ const Manutencao=({manutencoes:items,onAddManutencao,onUpdateManutencao,onDelete
                 <Field label="Pneus duram quantos km" value={custoForm.pneuVidaKm} onChange={v=>setCustoCampo("pneuVidaKm",v)} placeholder={String(CUSTO_VEICULO_PADROES.pneuVidaKm)} suffix="km"/>
                 <Field label="Troca de óleo (R$)" value={custoForm.oleoValor} onChange={v=>setCustoCampo("oleoValor",v)} placeholder={String(CUSTO_VEICULO_PADROES.oleoValor)} prefix="R$"/>
                 <Field label="Óleo a cada (km)" value={custoForm.oleoIntervaloKm} onChange={v=>setCustoCampo("oleoIntervaloKm",v)} placeholder={String(CUSTO_VEICULO_PADROES.oleoIntervaloKm)} suffix="km"/>
-                <Field label="Revisão (R$)" value={custoForm.revisaoValor} onChange={v=>setCustoCampo("revisaoValor",v)} placeholder={String(CUSTO_VEICULO_PADROES.revisaoValor)} prefix="R$"/>
+                <Field label="Revisão (R$)" value={custoForm.revisaoValor} onChange={v=>setCustoCampo("revisaoValor",v)} placeholder={String(CUSTO_VEICULO_PADROES.revisaoValor)} prefix="R$" hint="Se você já lança suas revisões na aba Manutenção, deixe este campo vazio para não contar duas vezes."/>
                 <Field label="Revisão a cada (km)" value={custoForm.revisaoIntervaloKm} onChange={v=>setCustoCampo("revisaoIntervaloKm",v)} placeholder={String(CUSTO_VEICULO_PADROES.revisaoIntervaloKm)} suffix="km"/>
               </div>
 
               <div style={{background:C.amberLight,border:`1px solid ${C.amber}44`,borderRadius:12,padding:"11px 14px",color:C.text2,fontSize:12,lineHeight:1.45}}>
                 <strong style={{color:"#B45309"}}>Manutenção</strong>
                 {" — "}
-                {custoCalc.itens.find(i=>i.chave==="manutencao")?.estimado
-                  ?`Sem registros nos últimos 12 meses · usando média ${formatMoedaKm(CUSTO_VEICULO_PADROES.manutencaoKmPadrao)}`
+                {custoCalc.itens.find(i=>i.chave==="manutencao")?.ausente
+                  ?`Sem registros nos últimos 12 meses · não incluído no cálculo`
                   :`${formatMoeda(custoCalc.manutencaoTotal12m)} em 12 meses · dos seus registros`}
               </div>
             </div>
@@ -6168,22 +6214,24 @@ const Manutencao=({manutencoes:items,onAddManutencao,onUpdateManutencao,onDelete
           <div style={{display:"flex",flexDirection:"column",gap:8}}>
             <div style={{color:C.navy,fontWeight:800,fontSize:13}}>Detalhamento</div>
             {itensOrdenados.map(it=>{
-              const pct=Math.min(100,((it.valorKm||0)/maxItemKm)*100);
+              const pct=it.ausente?0:Math.min(100,((it.valorKm||0)/maxItemKm)*100);
               return(
-                <div key={it.chave} style={{background:C.subtle,borderRadius:10,padding:"10px 12px",border:`1px solid ${C.border}`}}>
+                <div key={it.chave} style={{background:C.subtle,borderRadius:10,padding:"10px 12px",border:`1px solid ${C.border}`,opacity:it.ausente?0.75:1}}>
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6,gap:8}}>
                     <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
                       <span style={{color:C.text,fontWeight:700,fontSize:13}}>{it.label}</span>
-                      {it.estimado
-                        ?<span style={{background:C.orangeLight,color:C.orange,fontSize:10,fontWeight:700,borderRadius:8,padding:"2px 7px"}}>≈ média</span>
+                      {it.ausente
+                        ?<span style={{background:C.subtle,color:C.muted,fontSize:10,fontWeight:700,borderRadius:8,padding:"2px 7px",border:`1px solid ${C.border}`}}>Não incluído</span>
                         :it.chave==="manutencao"
                           ?<span style={{background:C.greenLight,color:C.green,fontSize:10,fontWeight:700,borderRadius:8,padding:"2px 7px"}}>dos registros</span>
                           :null}
                     </div>
-                    <span style={{color:C.navy,fontWeight:800,fontSize:13,whiteSpace:"nowrap"}}>{formatMoedaKm(it.valorKm)}</span>
+                    <span style={{color:it.ausente?C.muted:C.navy,fontWeight:800,fontSize:13,whiteSpace:"nowrap"}}>
+                      {it.ausente?"—":formatMoedaKm(it.valorKm)}
+                    </span>
                   </div>
                   <div style={{background:"#E2E8F0",borderRadius:99,height:6,overflow:"hidden"}}>
-                    <div style={{width:`${pct}%`,height:"100%",background:it.estimado?C.orange:C.navy,borderRadius:99}}/>
+                    <div style={{width:`${pct}%`,height:"100%",background:C.navy,borderRadius:99}}/>
                   </div>
                 </div>
               );

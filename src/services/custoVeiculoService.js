@@ -1,10 +1,11 @@
 /**
  * Custo de ter o veículo por km (sem combustível).
- * Função pura — usada pela UI Meu Veículo e, na etapa 4, por outras telas.
+ * Função pura — usada pela UI Meu Veículo e pelas calculadoras (via custoKm salvo).
+ * Campo de custo vazio = R$0 (sem estimativa silenciosa). kmMes mantém fallbacks.
  */
 import { parseNumeroBR, roundMoney } from "./formatUtils.js";
 
-/** Médias padrão quando o campo está vazio (nunca inventar zero). */
+/** Placeholders de UI + fallback só de rodagem (kmMes). Custos vazios não usam estes valores. */
 export const CUSTO_VEICULO_PADROES = {
   kmMes: 2000,
   ipvaAno: 1500,
@@ -15,7 +16,6 @@ export const CUSTO_VEICULO_PADROES = {
   oleoIntervaloKm: 10000,
   revisaoValor: 600,
   revisaoIntervaloKm: 10000,
-  manutencaoKmPadrao: 0.055,
 };
 
 /** Mínimo para aceitar a média automática (abaixo disso = amostra fraca → usa padrão). */
@@ -23,6 +23,16 @@ export const KM_MES_AUTO_MINIMO = 500;
 
 const LABELS = {
   ipva: "IPVA + licenciamento",
+  seguro: "Seguro",
+  pneu: "Pneus",
+  oleo: "Óleo",
+  revisao: "Revisão",
+  manutencao: "Manutenção",
+};
+
+/** Rótulos curtos para aviso nas calculadoras. */
+export const CUSTO_CAMPOS_AUSENTES_LABELS = {
+  ipva: "IPVA",
   seguro: "Seguro",
   pneu: "Pneus",
   oleo: "Óleo",
@@ -39,15 +49,16 @@ export function campoPreenchido(raw) {
   return Number.isFinite(parseNumeroBR(s));
 }
 
-function resolveValor(raw, padrao) {
+/** Custo: vazio → 0 ausente; preenchido (incl. 0) → valor do usuário. */
+function resolveValor(raw) {
   if (!campoPreenchido(raw)) {
-    return { valor: padrao, estimado: true };
+    return { valor: 0, ausente: true };
   }
   const n = typeof raw === "number" ? raw : parseNumeroBR(raw);
   if (!Number.isFinite(n)) {
-    return { valor: padrao, estimado: true };
+    return { valor: 0, ausente: true };
   }
-  return { valor: n, estimado: false };
+  return { valor: n, ausente: false };
 }
 
 function safeDiv(numerador, denominador) {
@@ -140,29 +151,19 @@ export function somaManutencaoUltimos12Meses(manutencoes, agora = new Date()) {
 
 /**
  * Calcula custo de posse do veículo por km.
- * @param {object} params — campos brutos do form + dados auxiliares
- * @returns {{
- *   custoKm: number,
- *   itens: Array<{chave:string,label:string,valorKm:number,estimado:boolean,extra?:object}>,
- *   qtdPreenchidos: number,
- *   qtdTotal: number,
- *   kmMes: number,
- *   kmMesEstimado: boolean,
- *   kmMesFonte: "manual"|"auto"|"padrao",
- *   manutencaoTotal12m: number,
- * }}
+ * Campo de custo vazio → R$0 e entra em camposAusentes (sem média silenciosa).
  */
 export function calcularCustoVeiculo(params = {}) {
   const P = CUSTO_VEICULO_PADROES;
 
-  // Rodagem
+  // Rodagem (exceção: mantém fallbacks)
   let kmMes;
   let kmMesEstimado;
   let kmMesFonte;
   if (campoPreenchido(params.kmMesManual)) {
-    const r = resolveValor(params.kmMesManual, P.kmMes);
+    const r = resolveValor(params.kmMesManual);
     kmMes = r.valor > 0 ? r.valor : P.kmMes;
-    kmMesEstimado = r.estimado || !(r.valor > 0);
+    kmMesEstimado = !(r.valor > 0);
     kmMesFonte = kmMesEstimado ? "padrao" : "manual";
   } else if (campoPreenchido(params.kmMesAuto) && Number(params.kmMesAuto) > 0) {
     kmMes = Number(params.kmMesAuto);
@@ -181,23 +182,26 @@ export function calcularCustoVeiculo(params = {}) {
 
   const kmAno = kmMes * 12;
 
-  const ipva = resolveValor(params.ipvaAno, P.ipvaAno);
-  const seguro = resolveValor(params.seguroAno, P.seguroAno);
-  const pneuV = resolveValor(params.pneuValor, P.pneuValor);
-  const pneuKmVida = resolveValor(params.pneuVidaKm, P.pneuVidaKm);
-  const oleoV = resolveValor(params.oleoValor, P.oleoValor);
-  const oleoInt = resolveValor(params.oleoIntervaloKm, P.oleoIntervaloKm);
-  const revisaoV = resolveValor(params.revisaoValor, P.revisaoValor);
-  const revisaoInt = resolveValor(params.revisaoIntervaloKm, P.revisaoIntervaloKm);
+  const ipva = resolveValor(params.ipvaAno);
+  const seguro = resolveValor(params.seguroAno);
+  const pneuV = resolveValor(params.pneuValor);
+  const pneuKmVida = resolveValor(params.pneuVidaKm);
+  const oleoV = resolveValor(params.oleoValor);
+  const oleoInt = resolveValor(params.oleoIntervaloKm);
+  const revisaoV = resolveValor(params.revisaoValor);
+  const revisaoInt = resolveValor(params.revisaoIntervaloKm);
 
-  const ipvaKm = safeDiv(ipva.valor, kmAno);
-  const seguroKm = safeDiv(seguro.valor, kmAno);
-  const pneuKm = safeDiv(pneuV.valor, pneuKmVida.valor > 0 ? pneuKmVida.valor : P.pneuVidaKm);
-  const oleoKm = safeDiv(oleoV.valor, oleoInt.valor > 0 ? oleoInt.valor : P.oleoIntervaloKm);
-  const revisaoKm = safeDiv(
-    revisaoV.valor,
-    revisaoInt.valor > 0 ? revisaoInt.valor : P.revisaoIntervaloKm
-  );
+  const ipvaAusente = ipva.ausente;
+  const seguroAusente = seguro.ausente;
+  const pneuAusente = pneuV.ausente || pneuKmVida.ausente;
+  const oleoAusente = oleoV.ausente || oleoInt.ausente;
+  const revisaoAusente = revisaoV.ausente || revisaoInt.ausente;
+
+  const ipvaKm = ipvaAusente ? 0 : safeDiv(ipva.valor, kmAno);
+  const seguroKm = seguroAusente ? 0 : safeDiv(seguro.valor, kmAno);
+  const pneuKm = pneuAusente ? 0 : safeDiv(pneuV.valor, pneuKmVida.valor);
+  const oleoKm = oleoAusente ? 0 : safeDiv(oleoV.valor, oleoInt.valor);
+  const revisaoKm = revisaoAusente ? 0 : safeDiv(revisaoV.valor, revisaoInt.valor);
 
   const manutAgg =
     params.manutencaoTotal12m != null
@@ -205,13 +209,13 @@ export function calcularCustoVeiculo(params = {}) {
       : somaManutencaoUltimos12Meses(params.manutencoes);
 
   let manutencaoKm;
-  let manutencaoEstimado;
+  let manutencaoAusente;
   if (manutAgg.qtd > 0 && manutAgg.total > 0) {
     manutencaoKm = safeDiv(manutAgg.total, kmAno);
-    manutencaoEstimado = false;
+    manutencaoAusente = false;
   } else {
-    manutencaoKm = P.manutencaoKmPadrao;
-    manutencaoEstimado = true;
+    manutencaoKm = 0;
+    manutencaoAusente = true;
   }
 
   const itens = [
@@ -219,37 +223,37 @@ export function calcularCustoVeiculo(params = {}) {
       chave: "ipva",
       label: LABELS.ipva,
       valorKm: roundMoney(ipvaKm),
-      estimado: ipva.estimado,
+      ausente: ipvaAusente,
     },
     {
       chave: "seguro",
       label: LABELS.seguro,
       valorKm: roundMoney(seguroKm),
-      estimado: seguro.estimado,
+      ausente: seguroAusente,
     },
     {
       chave: "pneu",
       label: LABELS.pneu,
       valorKm: roundMoney(pneuKm),
-      estimado: pneuV.estimado || pneuKmVida.estimado,
+      ausente: pneuAusente,
     },
     {
       chave: "oleo",
       label: LABELS.oleo,
       valorKm: roundMoney(oleoKm),
-      estimado: oleoV.estimado || oleoInt.estimado,
+      ausente: oleoAusente,
     },
     {
       chave: "revisao",
       label: LABELS.revisao,
       valorKm: roundMoney(revisaoKm),
-      estimado: revisaoV.estimado || revisaoInt.estimado,
+      ausente: revisaoAusente,
     },
     {
       chave: "manutencao",
       label: LABELS.manutencao,
       valorKm: roundMoney(manutencaoKm),
-      estimado: manutencaoEstimado,
+      ausente: manutencaoAusente,
       extra: { total12m: roundMoney(manutAgg.total), qtd: manutAgg.qtd },
     },
   ].map((it) => ({
@@ -257,10 +261,12 @@ export function calcularCustoVeiculo(params = {}) {
     valorKm: Number.isFinite(it.valorKm) ? it.valorKm : 0,
   }));
 
+  const camposAusentes = itens.filter((it) => it.ausente).map((it) => it.chave);
+
   const custoKm = roundMoney(itens.reduce((s, it) => s + (it.valorKm || 0), 0));
 
   // 7 = 6 itens de custo + rodagem
-  const preenchidosItens = itens.filter((it) => !it.estimado).length;
+  const preenchidosItens = itens.filter((it) => !it.ausente).length;
   const preenchidosRodagem = kmMesEstimado ? 0 : 1;
   const qtdPreenchidos = preenchidosItens + preenchidosRodagem;
   const qtdTotal = 7;
@@ -268,6 +274,7 @@ export function calcularCustoVeiculo(params = {}) {
   return {
     custoKm: Number.isFinite(custoKm) ? custoKm : 0,
     itens,
+    camposAusentes,
     qtdPreenchidos,
     qtdTotal,
     kmMes,
@@ -275,6 +282,68 @@ export function calcularCustoVeiculo(params = {}) {
     kmMesFonte,
     manutencaoTotal12m: roundMoney(manutAgg.total),
   };
+}
+
+/** Lê camposAusentes do payload salvo (docs antigos → []). */
+export function resolveCamposAusentesSalvo(...sources) {
+  for (const s of sources) {
+    if (s == null) continue;
+    const raw = Array.isArray(s)
+      ? s
+      : Array.isArray(s?.camposAusentes)
+        ? s.camposAusentes
+        : Array.isArray(s?.custoVeiculo?.camposAusentes)
+          ? s.custoVeiculo.camposAusentes
+          : null;
+    if (raw) {
+      return raw.filter((k) => typeof k === "string" && CUSTO_CAMPOS_AUSENTES_LABELS[k]);
+    }
+  }
+  return [];
+}
+
+/** Texto do aviso nas calculadoras. */
+export function formatAvisoCamposAusentes(camposAusentes) {
+  const list = (camposAusentes || [])
+    .map((k) => CUSTO_CAMPOS_AUSENTES_LABELS[k])
+    .filter(Boolean);
+  if (!list.length) return "";
+  return `Não inclui: ${list.join(", ")}. Complete no Perfil do veículo para um cálculo mais preciso.`;
+}
+
+function camposAusentesIguais(a, b) {
+  const aa = [...(a || [])].sort();
+  const bb = [...(b || [])].sort();
+  if (aa.length !== bb.length) return false;
+  return aa.every((v, i) => v === bb[i]);
+}
+
+/** Há dados de custo persistidos (vale migrar/recalcular)? */
+export function hasCustoVeiculoPersistido(saved) {
+  if (!saved || typeof saved !== "object") return false;
+  if (saved.atualizadoEm != null || saved.custoKm != null) return true;
+  return [
+    "ipvaAno",
+    "seguroAno",
+    "pneuValor",
+    "pneuVidaKm",
+    "oleoValor",
+    "oleoIntervaloKm",
+    "revisaoValor",
+    "revisaoIntervaloKm",
+    "kmMesManual",
+  ].some((k) => saved[k] != null && saved[k] !== "");
+}
+
+export function custoPersistDiffers(saved, resultado) {
+  if (!resultado) return true;
+  const prevKm = Number(saved?.custoKm);
+  const nextKm = Number(resultado.custoKm);
+  if (!(Number.isFinite(prevKm) && Number.isFinite(nextKm) && prevKm === nextKm)) {
+    return true;
+  }
+  const prevAus = resolveCamposAusentesSalvo(saved);
+  return !camposAusentesIguais(prevAus, resultado.camposAusentes || []);
 }
 
 /** Payload para Firestore users/{uid}.custoVeiculo (só campos preenchidos + resultado). */
@@ -295,6 +364,9 @@ export function buildCustoVeiculoPersistPayload(form, resultado, extras = {}) {
     revisaoIntervaloKm: numOrNull(form.revisaoIntervaloKm),
     kmMesManual: numOrNull(form.kmMesManual),
     custoKm: resultado?.custoKm ?? 0,
+    camposAusentes: Array.isArray(resultado?.camposAusentes)
+      ? [...resultado.camposAusentes]
+      : [],
     atualizadoEm: new Date().toISOString(),
   };
   const odo = Number(extras.odometro);
