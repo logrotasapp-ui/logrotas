@@ -179,7 +179,7 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="v357";
+const APP_VERSION="v358";
 const SUPORTE_EMAIL="suporte@logrotas.com.br";
 const PEDAGIO_AVISO_RESULTADO="Pedágio estimado pelo Google. Pode haver variação — confirme o valor da praça.";
 const PAGE_SWIPE_ORDER=["dashboard","financeiro","despesas","comparador","manutencao","documentos","perfil"];
@@ -5793,14 +5793,23 @@ const DespesaItem=({item,last,onEdit,onDelete})=>(
 
 // ── MANUTENÇÃO ────────────────────────────────────────────────────────────────
 const emptyMaintForm=(extra={})=>({types:[],typeDraft:"",vehicle:"",km:"",cost:"",nextKm:"",date:"",...extra});
-const maintTypesLabel=(item)=>{
-  if(Array.isArray(item?.types)&&item.types.length)return item.types.join(" + ");
-  return item?.type||"";
-};
 const maintTypesList=(item)=>{
   if(Array.isArray(item?.types)&&item.types.length)return item.types.map(t=>String(t).trim()).filter(Boolean);
   const t=String(item?.type||"").trim();
   return t?[t]:[];
+};
+const maintTypesLabel=(item)=>{
+  const list=maintTypesList(item);
+  if(!list.length)return item?.type||"";
+  if(list.length===1)return list[0];
+  return `${list[0]} +${list.length-1}`;
+};
+const maintGroupTitle=(types)=>{
+  if(!types?.length)return "";
+  if(types.length===1)return types[0];
+  const plus=`${types[0]} +${types.length-1}`;
+  const itens=`${types.length} itens`;
+  return plus.length<=itens.length?plus:itens;
 };
 /** nextKm por tipo p/ painel expandido: nextKmPorTipo (v355 raro) ou nextKm único p/ todos. */
 const maintNextKmMap=(item)=>{
@@ -5828,6 +5837,7 @@ const Manutencao=({manutencoes:items,onAddManutencao,onUpdateManutencao,onDelete
   const[stypes,setStypes]=useState(INIT_STYPE);const[showAdd,setShowAdd]=useState(false);const[showManage,setShowManage]=useState(false);const[del,setDel]=useState(null);const[erroForm,setErroForm]=useState("");const[erroDel,setErroDel]=useState("");const[editTIdx,setEditTIdx]=useState(null);const[editTVal,setEditTVal]=useState("");const[newType,setNewType]=useState("");  const[form,setForm]=useState(()=>emptyMaintForm());const[editingId,setEditingId]=useState(null);
   const[kmAutoPreenchido,setKmAutoPreenchido]=useState(false);
   const[expandedId,setExpandedId]=useState(null);
+  const[expandedGroupId,setExpandedGroupId]=useState(null);
   const[editVeh,setEditVeh]=useState(null);
   const[editVehVals,setEditVehVals]=useState({});
   const[custoForm,setCustoForm]=useState(()=>formFromCustoVeiculoPersist(readCustoVeiculoLocalCache()));
@@ -6067,6 +6077,31 @@ const Manutencao=({manutencoes:items,onAddManutencao,onUpdateManutencao,onDelete
     manutencoes:items,
   });
   const proximasManut=listarProximasManutencoes(items,odoInfo.km,hoje);
+  const proximasGrupos=(()=>{
+    const order=[];
+    const byId=new Map();
+    (proximasManut||[]).forEach(p=>{
+      const key=p.recordId!=null&&p.recordId!==""?String(p.recordId):`type:${p.type}`;
+      let g=byId.get(key);
+      if(!g){
+        g={
+          recordId:key,
+          types:[p.type],
+          nextKm:p.nextKm,
+          date:p.date,
+          faltam:p.faltam,
+          status:p.status,
+          modo:p.modo,
+          mesesDesdeUltima:p.mesesDesdeUltima,
+        };
+        byId.set(key,g);
+        order.push(g);
+      }else{
+        g.types.push(p.type);
+      }
+    });
+    return order;
+  })();
 
   const formatOdoData=(isoOrBr)=>{
     if(!isoOrBr)return "";
@@ -6104,6 +6139,11 @@ const Manutencao=({manutencoes:items,onAddManutencao,onUpdateManutencao,onDelete
     }
     const kmN=parseNumeroBR(form.km);
     const nextN=parseNumeroBR(form.nextKm);
+    const wasEditing=!!editingId;
+    if(!wasEditing&&odoInfo.km!=null&&Number.isFinite(kmN)&&kmN<odoInfo.km){
+      setErroForm(`KM Atual não pode ser menor que o odômetro atual (${formatKm(odoInfo.km)} km).`);
+      return;
+    }
     const payload={
       types,
       type:types.join(" + "),
@@ -6113,7 +6153,6 @@ const Manutencao=({manutencoes:items,onAddManutencao,onUpdateManutencao,onDelete
       cost:parseNumeroBR(form.cost)||0,
       km:Number.isFinite(kmN)&&kmN>0?kmN:0,
     };
-    const wasEditing=!!editingId;
     setErroForm("");
     try{
       if(editingId){
@@ -6129,6 +6168,18 @@ const Manutencao=({manutencoes:items,onAddManutencao,onUpdateManutencao,onDelete
         if(!isPago&&uid){
           void incrementarUso(uid,"manutencao");
           setLimiteManut(!(await podeUsar(uid,"manutencao",FREE_LIMITS.manutencao)));
+        }
+      }
+      const odoSalvoN=parseNumeroBR(odometroSalvo);
+      if(Number.isFinite(kmN)&&kmN>0&&(!(Number.isFinite(odoSalvoN)&&odoSalvoN>0)||kmN>odoSalvoN)){
+        const agoraIso=new Date().toISOString();
+        const prev=readCustoVeiculoLocalCache()||{};
+        const odoPayload=mergeCustoVeiculoOdometro(prev,kmN,agoraIso);
+        writeCustoVeiculoLocalCache(odoPayload);
+        setOdometroSalvo(kmN);
+        setOdometroAtualizadoEm(agoraIso);
+        if(uid){
+          void saveUserCustoVeiculo(uid,odoPayload).catch(()=>{/* offline: cache local já salvo */});
         }
       }
       resetForm();
@@ -6235,41 +6286,59 @@ const Manutencao=({manutencoes:items,onAddManutencao,onUpdateManutencao,onDelete
       </Card>
 
       {/* PRÓXIMAS MANUTENÇÕES */}
-      {proximasManut.length>0&&(
+      {proximasGrupos.length>0&&(
         <Card>
           <CardHeader title="🔧 Próximas manutenções"/>
           <div style={{padding:"8px 18px 16px",display:"flex",flexDirection:"column",gap:10}}>
-            {proximasManut.map((p)=>{
-              const alertaForte=p.status==="vencido"||p.status==="urgente";
-              const cor=alertaForte?C.red:p.status==="proximo"?C.amber:C.green;
-              const bg=alertaForte?C.redLight:p.status==="proximo"?C.amberLight:C.greenLight;
+            {proximasGrupos.map((g)=>{
+              const alertaForte=g.status==="vencido"||g.status==="urgente";
+              const cor=alertaForte?C.red:g.status==="proximo"?C.amber:C.green;
+              const bg=alertaForte?C.redLight:g.status==="proximo"?C.amberLight:C.greenLight;
               let sub="";
               let pctBar=100;
-              if(p.modo==="km"){
-                if(p.faltam<=0){
-                  sub=`vencido há ${formatKm(Math.abs(p.faltam))} km`;
+              if(g.modo==="km"){
+                if(g.faltam<=0){
+                  sub=`vencido há ${formatKm(Math.abs(g.faltam))} km`;
                   pctBar=100;
                 }else{
-                  sub=`faltam ${formatKm(p.faltam)} km · próxima em ${formatKm(p.nextKm)} km`;
-                  // barra: quanto mais perto de 0, mais cheia (alerta)
+                  sub=`faltam ${formatKm(g.faltam)} km · próxima em ${formatKm(g.nextKm)} km`;
                   const janela=2000;
-                  pctBar=p.faltam>=janela?Math.max(8,100-((p.faltam-janela)/Math.max(p.nextKm,1))*40):Math.min(100,((janela-p.faltam)/janela)*100);
-                  if(p.status==="ok")pctBar=Math.min(35,pctBar);
+                  pctBar=g.faltam>=janela?Math.max(8,100-((g.faltam-janela)/Math.max(g.nextKm,1))*40):Math.min(100,((janela-g.faltam)/janela)*100);
+                  if(g.status==="ok")pctBar=Math.min(35,pctBar);
                 }
               }else{
-                const m=p.mesesDesdeUltima;
+                const m=g.mesesDesdeUltima;
                 if(m==null)sub="sem data no último registro";
                 else if(m===0)sub="última este mês";
                 else if(m===1)sub="última há 1 mês";
                 else sub=`última há ${m} meses`;
                 pctBar=m==null?20:Math.min(100,Math.round((m/12)*100));
               }
+              const multi=g.types.length>1;
+              const aberto=expandedGroupId===g.recordId;
+              const titulo=maintGroupTitle(g.types);
               return(
-                <div key={p.type} style={{background:bg,border:`1px solid ${cor}33`,borderRadius:12,padding:"12px 14px"}}>
+                <div key={g.recordId} style={{background:bg,border:`1px solid ${cor}33`,borderRadius:12,padding:"12px 14px"}}>
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",gap:8,marginBottom:8}}>
-                    <div style={{color:cor,fontWeight:800,fontSize:14}}>{p.type}</div>
-                    <div style={{color:cor,fontWeight:700,fontSize:12,textAlign:"right"}}>{sub}</div>
+                    <div
+                      role={multi?"button":undefined}
+                      tabIndex={multi?0:undefined}
+                      onClick={multi?()=>setExpandedGroupId(id=>id===g.recordId?null:g.recordId):undefined}
+                      onKeyDown={multi?(e)=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();setExpandedGroupId(id=>id===g.recordId?null:g.recordId);}}:undefined}
+                      style={{color:cor,fontWeight:800,fontSize:14,display:"flex",alignItems:"center",gap:6,cursor:multi?"pointer":"default",minWidth:0}}
+                    >
+                      <span style={{overflow:"hidden",textOverflow:"ellipsis"}}>{titulo}</span>
+                      {multi&&<span style={{fontSize:11,flexShrink:0,fontWeight:700}}>{aberto?"▾":"▸"}</span>}
+                    </div>
+                    <div style={{color:cor,fontWeight:700,fontSize:12,textAlign:"right",flexShrink:0}}>{sub}</div>
                   </div>
+                  {multi&&aberto&&(
+                    <div style={{marginBottom:8,display:"flex",flexDirection:"column",gap:4,background:"#ffffff66",borderRadius:8,padding:"8px 10px"}}>
+                      {g.types.map(t=>(
+                        <div key={t} style={{color:cor,fontSize:12,fontWeight:600,lineHeight:1.35}}>{t}</div>
+                      ))}
+                    </div>
+                  )}
                   <div style={{background:"#ffffff88",borderRadius:20,height:8,overflow:"hidden"}}>
                     <div style={{width:`${Math.max(6,Math.min(100,pctBar))}%`,height:"100%",background:cor,borderRadius:20,transition:"width .3s"}}/>
                   </div>
@@ -6399,13 +6468,15 @@ const Manutencao=({manutencoes:items,onAddManutencao,onUpdateManutencao,onDelete
             🔧 Registrar primeira manutenção
           </button>
         </div>
-      ):itemsMes.map((item,i)=>{
+      ):(
+        <div style={{display:"flex",flexDirection:"column",gap:10,padding:"12px 14px"}}>
+          {itemsMes.map((item)=>{
         const label=maintTypesLabel(item);
         const typesList=maintTypesList(item);
         const nextMap=maintNextKmMap(item);
         const aberto=expandedId===item.id;
         return(
-        <div key={item.id} style={{padding:"14px 20px",borderBottom:i<itemsMes.length-1?`1px solid ${C.border}`:"none",display:"flex",alignItems:"flex-start",gap:11}}>
+        <div key={item.id} style={{padding:"14px 16px",display:"flex",alignItems:"flex-start",gap:11,background:C.subtle,border:`1px solid ${C.border}`,borderRadius:12}}>
           <div style={{width:38,height:38,borderRadius:10,background:C.amberLight,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,marginTop:2}}><WrenchIcon size={16} color={C.amber}/></div>
           <div
             role="button"
@@ -6415,19 +6486,19 @@ const Manutencao=({manutencoes:items,onAddManutencao,onUpdateManutencao,onDelete
             style={{flex:1,minWidth:0,cursor:"pointer"}}
           >
             <div style={{color:C.navy,fontWeight:700,fontSize:14,display:"flex",alignItems:"center",gap:6}}>
-              <span style={{overflow:"hidden",textOverflow:"ellipsis"}}>{label}</span>
+              <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{label}</span>
               <span style={{color:C.muted,fontSize:11,flexShrink:0}}>{aberto?"▾":"▸"}</span>
             </div>
             {maintMetaParts(item).length>0&&<div style={{color:C.muted,fontSize:12,marginTop:2}}>{maintMetaParts(item).join(" · ")}</div>}
             {aberto&&typesList.length>0&&(
-              <div style={{marginTop:8,display:"flex",flexDirection:"column",gap:6,background:C.subtle,borderRadius:10,padding:"8px 10px",border:`1px solid ${C.border}`}}>
+              <div style={{marginTop:8,display:"flex",flexDirection:"column",gap:8,background:C.surface||"#fff",borderRadius:10,padding:"10px 12px",border:`1px solid ${C.border}`}}>
                 {typesList.map(t=>{
                   const nk=nextMap[t];
                   const hasNk=nk!=null&&String(nk).trim()!=="";
                   return(
-                    <div key={t} style={{display:"flex",justifyContent:"space-between",gap:10,alignItems:"baseline"}}>
-                      <span style={{color:C.text,fontSize:12,fontWeight:600}}>{t}</span>
-                      <span style={{color:C.muted,fontSize:11,whiteSpace:"nowrap"}}>{hasNk?`Próxima: ${formatKm(nk)} km`:"Próxima: —"}</span>
+                    <div key={t} style={{display:"flex",flexDirection:"column",gap:2}}>
+                      <span style={{color:C.text,fontSize:13,fontWeight:600,lineHeight:1.35,wordBreak:"normal",overflowWrap:"break-word"}}>{t}</span>
+                      <span style={{color:C.muted,fontSize:11,lineHeight:1.3}}>{hasNk?`Próxima: ${formatKm(nk)} km`:"Próxima: —"}</span>
                     </div>
                   );
                 })}
@@ -6439,7 +6510,9 @@ const Manutencao=({manutencoes:items,onAddManutencao,onUpdateManutencao,onDelete
           <button onClick={()=>setDel(item)} style={{background:C.redLight,border:"none",borderRadius:8,padding:6,cursor:"pointer",color:C.red,display:"flex",flexShrink:0,marginTop:2}}><Trash2Icon size={13}/></button>
         </div>
         );
-      })}
+          })}
+        </div>
+      )}
       </Card>
       {showAdd&&(<ModalWrap><ModalHeader title={editingId?"Editar Manutenção":"Nova Manutenção"} icon={WrenchIcon} iconColor={C.amber} onClose={closeModal}/>
         <div style={{display:"flex",flexDirection:"column",gap:12}}>

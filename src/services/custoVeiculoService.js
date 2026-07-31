@@ -446,33 +446,32 @@ export function maiorKmManutencoes(manutencoes) {
 }
 
 /**
- * Odômetro exibido = max(manual salvo, maior km dos registros).
+ * Odômetro exibido: se houver valor manual salvo (>0), ele manda (sem max com registros).
+ * Sem manual: fallback no maior km das manutenções.
  * Não usa fretes/jornadas.
  * @returns {{ km: number|null, origem: "manual"|"registro"|null, atualizadoEm: string|null, dataOrigem: string|null }}
  */
 export function resolveOdometroAtual({ odometroSalvo, odometroAtualizadoEm, manutencoes } = {}) {
   const manual = parseNumeroBR(odometroSalvo);
   const hasManual = Number.isFinite(manual) && manual > 0;
-  const fromReg = maiorKmManutencoes(manutencoes);
-  const regKm = fromReg?.km || 0;
-  if (!hasManual && !(regKm > 0)) {
-    return { km: null, origem: null, atualizadoEm: null, dataOrigem: null };
-  }
-  const km = Math.max(hasManual ? manual : 0, regKm);
-  if (hasManual && manual >= regKm) {
+  if (hasManual) {
     return {
-      km,
+      km: manual,
       origem: "manual",
       atualizadoEm: odometroAtualizadoEm || null,
       dataOrigem: null,
     };
   }
-  return {
-    km,
-    origem: "registro",
-    atualizadoEm: null,
-    dataOrigem: fromReg?.date || null,
-  };
+  const fromReg = maiorKmManutencoes(manutencoes);
+  if (fromReg?.km > 0) {
+    return {
+      km: fromReg.km,
+      origem: "registro",
+      atualizadoEm: null,
+      dataOrigem: fromReg.date || null,
+    };
+  }
+  return { km: null, origem: null, atualizadoEm: null, dataOrigem: null };
 }
 
 function parseDataManutencao(dateStr) {
@@ -550,6 +549,7 @@ export function listarProximasManutencoes(manutencoes, odometroKm, agora = new D
         else if (faltam <= 2000) status = "proximo";
         return {
           type,
+          recordId: m.id || null,
           nextKm,
           date: m.date || "",
           faltam,
@@ -560,6 +560,7 @@ export function listarProximasManutencoes(manutencoes, odometroKm, agora = new D
       }
       return {
         type,
+        recordId: m.id || null,
         nextKm,
         date: m.date || "",
         faltam: null,
