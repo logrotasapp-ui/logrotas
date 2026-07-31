@@ -175,7 +175,7 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="v347";
+const APP_VERSION="v348";
 const SUPORTE_EMAIL="suporte@logrotas.com.br";
 const PEDAGIO_AVISO_RESULTADO="Pedágio estimado pelo Google. Pode haver variação — confirme o valor da praça.";
 const PAGE_SWIPE_ORDER=["dashboard","financeiro","despesas","comparador","manutencao","documentos","perfil"];
@@ -4082,11 +4082,11 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
               {/* Linhas de custo — suave */}
               <div style={{background:"#F8FAFC",borderRadius:14,padding:"14px 16px",display:"flex",flexDirection:"column",gap:0}}>
                 {[
-                  {emoji:result.isElec?"⚡":"⛽",l:result.isElec?"Custo Energia":"Custo Combustível",v:`R$ ${(result.energyCost||0).toFixed(2)}`,c:"#1E40AF"},
-                  result.isTruck&&result.arlaCost>0&&{emoji:"🟦",l:"ARLA 32",v:`R$ ${(result.arlaCost||0).toFixed(2)}`,c:"#6D28D9"},
-                  {emoji:"🏁",l:"Pedágio",v:`R$ ${(result.tollCost||0).toFixed(2)}`,c:"#B45309",isPedagio:true},
-                  (result.custoVeiculo||0)>0&&{emoji:"🚗",l:"Desgaste do veículo",v:`R$ ${(result.custoVeiculo||0).toFixed(2)}`,c:"#1E3A8A",isDesgaste:true},
-                  {emoji:"📊",l:"Custo Total da Viagem",v:`R$ ${(result.total||0).toFixed(2)}`,c:"#DC2626",bold:true},
+                  {emoji:result.isElec?"⚡":"⛽",l:result.isElec?"Custo Energia":"Custo Combustível",v:formatMoeda(result.energyCost||0),c:"#1E40AF"},
+                  result.isTruck&&result.arlaCost>0&&{emoji:"🟦",l:"ARLA 32",v:formatMoeda(result.arlaCost||0),c:"#6D28D9"},
+                  {emoji:"🏁",l:"Pedágio",v:formatMoeda(result.tollCost||0),c:"#B45309",isPedagio:true},
+                  (result.custoVeiculo||0)>0&&{emoji:"🚗",l:"Desgaste do veículo",v:formatMoeda(result.custoVeiculo||0),c:"#1E3A8A",isDesgaste:true},
+                  {emoji:"📊",l:"Custo Total da Viagem",v:formatMoeda(result.total||0),c:"#DC2626",bold:true},
                 ].filter(Boolean).map((r,i,arr)=>{
                   const avisoDesgaste=r.isDesgaste?formatAvisoCamposAusentes(resolveCamposAusentesSalvo(readCustoVeiculoLocalCache())):"";
                   return(
@@ -4117,15 +4117,15 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
                 <div style={{background:`linear-gradient(135deg,${C.navy}08,${C.navy}04)`,border:`2px solid ${C.navy}22`,borderRadius:14,padding:"18px 16px",display:"flex",flexDirection:"column",alignItems:"center",gap:6,textAlign:"center",maxWidth:"100%",overflowX:"hidden",boxSizing:"border-box"}}>
                   <span style={{color:C.navy,fontSize:14,fontWeight:700,letterSpacing:1,textTransform:"uppercase"}}>💰 VALOR A COBRAR DO CLIENTE</span>
                   <span style={{color:C.navy,fontWeight:900,fontSize:40,fontFamily:"'Sora',sans-serif",lineHeight:1,maxWidth:"100%",wordBreak:"break-word"}}>
-                    R$ {freteSug.toFixed(2)}
+                    {formatMoeda(freteSug)}
                   </span>
                   <span style={{color:C.muted,fontSize:12,wordBreak:"break-word",lineHeight:1.4}}>
                     {usedMinimum
                       ?(result.tot<=(parseNumeroBR(kmInclusosMin)||0)
-                        ?`Mínimo R$ ${(parseNumeroBR(valorMinSaida)||0).toFixed(2)} (${parseNumeroBR(kmInclusosMin)||0} km inclusos)`
-                        :`R$ ${(parseNumeroBR(valorMinSaida)||0).toFixed(2)} + ${kmExcedente} km × R$ ${(parseNumeroBR(metaLocal)||0).toFixed(2)}/km`)
-                      :`${result.tot} km × R$ ${(parseNumeroBR(metaLocal)||0).toFixed(2)}/km`}
-                    {parseNumeroBR(freight)>0?` + R$ ${(parseNumeroBR(freight)||0).toFixed(2)} adicional`:""}
+                        ?`Mínimo ${formatMoeda(parseNumeroBR(valorMinSaida)||0)} (${parseNumeroBR(kmInclusosMin)||0} km inclusos)`
+                        :`${formatMoeda(parseNumeroBR(valorMinSaida)||0)} + ${kmExcedente} km × ${formatMoedaKm(parseNumeroBR(metaLocal)||0)}`)
+                      :`${result.tot} km × ${formatMoedaKm(parseNumeroBR(metaLocal)||0)}`}
+                    {parseNumeroBR(freight)>0?` + ${formatMoeda(parseNumeroBR(freight)||0)} adicional`:""}
                   </span>
                   {/* Lucro — informação secundária */}
                   <div style={{marginTop:6,width:"100%",background:ok?"#F0FDF4":"#FFF5F5",border:`1px solid ${ok?"#BBF7D0":"#FCA5A5"}`,borderRadius:10,padding:"10px 14px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
@@ -4133,7 +4133,7 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
                       <span>{ok?"💵":"⚠️"}</span> Meu lucro estimado
                     </span>
                     <span style={{color:ok?"#15803D":"#DC2626",fontWeight:700,fontSize:15,fontFamily:"'Sora',sans-serif"}}>
-                      R$ {(lucroFinal||0).toFixed(2)}
+                      {formatMoeda(lucroFinal||0)}
                     </span>
                   </div>
                   {/* Barra de meta de lucro */}
@@ -4209,7 +4209,7 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
                 msg+=`📏 ${result.tot} km\n`;
                 msg+="━━━━━━━━━━━━━━━━━━━━━━\n";
                 msg+="VALOR DO SERVIÇO\n";
-                msg+=`R$ ${freteSug.toFixed(2)}\n`;
+                msg+=`${formatMoeda(freteSug)}\n`;
                 msg+="━━━━━━━━━━━━━━━━━━━━━━\n";
                 if(observacao){
                   msg+=`📝 Obs: ${observacao}\n`;
@@ -4845,12 +4845,12 @@ const Rotas=()=>{
           <div style={{display:"flex",flexDirection:"column",gap:7}}>
             {[
               {l:"Distância",v:`${r.distance} km`},
-              {l:"Pedágio",v:`R$ ${r.toll}`},
-              {l:"Combustível",v:`R$ ${r.fuel}`},
-              {l:"Frete",v:`R$ ${r.gain}`,c:C.green,bold:true},
-              {l:"Lucro",v:`R$ ${(lucro||0).toFixed(0)}`,c:lucro>=0?C.green:C.red,bold:true},
-              {l:"Receita por km (bruto)",v:`R$ ${(r.distance>0?(r.gain||0)/r.distance:0).toFixed(2)}/km`,c:C.navy},
-              {l:"Lucro por km (líquido)",v:`R$ ${(r.distance>0?((lucro||0)/r.distance):0).toFixed(2)}/km`,c:lucro>=0?C.green:C.red},
+              {l:"Pedágio",v:formatMoeda(r.toll)},
+              {l:"Combustível",v:formatMoeda(r.fuel)},
+              {l:"Frete",v:formatMoeda(r.gain),c:C.green,bold:true},
+              {l:"Lucro",v:formatMoeda(lucro||0),c:lucro>=0?C.green:C.red,bold:true},
+              {l:"Receita por km (bruto)",v:formatMoedaKm(r.distance>0?(r.gain||0)/r.distance:0),c:C.navy},
+              {l:"Lucro por km (líquido)",v:formatMoedaKm(r.distance>0?((lucro||0)/r.distance):0),c:lucro>=0?C.green:C.red},
             ].map((item,i)=>(
               <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"7px 0",borderBottom:i<6?`1px solid ${C.border}`:"none"}}>
                 <span style={{color:C.muted,fontSize:12}}>{item.l}</span><span style={{color:item.c||C.text,fontWeight:item.bold?800:600,fontSize:14}}>{item.v}</span>
@@ -4892,7 +4892,7 @@ const Agenda=()=>{
                 <div><div style={{color:C.muted,fontSize:10,marginBottom:3}}>{t.time}</div><div style={{color:C.navy,fontWeight:700}}>{t.origin}</div>{t.stops?.length>0&&<div style={{color:C.muted,fontSize:11}}>via {t.stops.join(", ")}</div>}<div style={{color:C.muted,fontSize:12}}>↓</div><div style={{color:C.navy,fontWeight:700}}>{t.dest}</div><div style={{color:C.muted,fontSize:12,marginTop:3}}>{t.cargo}</div></div>
               </div>
               <div style={{textAlign:"right",display:"flex",flexDirection:"column",alignItems:"flex-end",gap:6}}>
-                {t.frete>0&&<div style={{color:C.green,fontWeight:900,fontSize:18,fontFamily:"'Sora',sans-serif"}}>R$ {t.frete.toLocaleString("pt-BR")}</div>}
+                {t.frete>0&&<div style={{color:C.green,fontWeight:900,fontSize:18,fontFamily:"'Sora',sans-serif"}}>{formatMoeda(t.frete)}</div>}
                 <Tag label={s.label} color={s.color} bg={s.bg}/>
                 <button onClick={()=>setDel(t)} style={{background:C.redLight,border:"none",borderRadius:8,padding:"5px 9px",cursor:"pointer",color:C.red,display:"flex",alignItems:"center",gap:4,fontSize:14,fontWeight:700}}><Trash2Icon size={12}/> Excluir</button>
               </div>
@@ -5441,7 +5441,7 @@ const Comparador=({historicoFretes,jornadas=[],onAddFrete,onUpdateFrete,onDelete
               <div style={{background:C.navyLight,borderRadius:10,padding:"10px 14px",display:"flex",justifyContent:"space-between"}}>
                 <span style={{color:C.text2,fontSize:12}}>Lucro calculado</span>
                 <span style={{color:(parseNumeroBR(form.freteSugerido)-parseNumeroBR(form.custoTotal))>=0?C.green:C.red,fontWeight:800,fontSize:14}}>
-                  R$ {((parseNumeroBR(form.freteSugerido)||0)-(parseNumeroBR(form.custoTotal)||0)).toFixed(2)}
+                  {formatMoeda((parseNumeroBR(form.freteSugerido)||0)-(parseNumeroBR(form.custoTotal)||0))}
                 </span>
               </div>
             )}
@@ -5469,7 +5469,7 @@ const Comparador=({historicoFretes,jornadas=[],onAddFrete,onUpdateFrete,onDelete
             <div style={{background:C.navyLight,borderRadius:10,padding:"10px 14px",display:"flex",justifyContent:"space-between"}}>
               <span style={{color:C.text2,fontSize:12}}>Lucro calculado</span>
               <span style={{color:(parseNumeroBR(form.freteSugerido)-parseNumeroBR(form.custoTotal))>=0?C.green:C.red,fontWeight:800,fontSize:14}}>
-                R$ {((parseNumeroBR(form.freteSugerido)||0)-(parseNumeroBR(form.custoTotal)||0)).toFixed(2)}
+                {formatMoeda((parseNumeroBR(form.freteSugerido)||0)-(parseNumeroBR(form.custoTotal)||0))}
               </span>
             </div>
           )}

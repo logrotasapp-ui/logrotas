@@ -302,13 +302,13 @@ export function resolveCamposAusentesSalvo(...sources) {
   return [];
 }
 
-/** Texto do aviso nas calculadoras. */
+/** Texto do aviso nas calculadoras (lista de ausentes só decide se mostra). */
 export function formatAvisoCamposAusentes(camposAusentes) {
   const list = (camposAusentes || [])
     .map((k) => CUSTO_CAMPOS_AUSENTES_LABELS[k])
     .filter(Boolean);
   if (!list.length) return "";
-  return `Não inclui: ${list.join(", ")}. Complete no Perfil do veículo para um cálculo mais preciso.`;
+  return "Para melhor precisão nos seus cálculos, preencha os campos faltantes no Perfil do veículo.";
 }
 
 function camposAusentesIguais(a, b) {
