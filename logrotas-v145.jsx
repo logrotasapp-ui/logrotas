@@ -50,6 +50,7 @@ import {
   formatKwhPrice,
   formatConsumoKmL,
   formatEnquantoDigitaMoeda,
+  formatMoedaParaCampo,
   parseNumeroBR,
   plural,
   pluralWord,
@@ -176,7 +177,7 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="v349";
+const APP_VERSION="v350";
 const SUPORTE_EMAIL="suporte@logrotas.com.br";
 const PEDAGIO_AVISO_RESULTADO="Pedágio estimado pelo Google. Pode haver variação — confirme o valor da praça.";
 const PAGE_SWIPE_ORDER=["dashboard","financeiro","despesas","comparador","manutencao","documentos","perfil"];
@@ -536,6 +537,7 @@ const Field=({label,value,onChange,placeholder,prefix,suffix,type="text",hint,re
   const isNumeric=!!(prefix||suffix)&&type==="text";
   const idleBorder=calc?CALC_INPUT_BORDER:C.border;
   const idleBg=calc?"#fff":C.subtle;
+  const displayValue=isMoney?formatMoedaParaCampo(value):value;
   useLayoutEffect(()=>{
     if(!isMoney||!focused)return;
     const el=inputRef.current;
@@ -543,7 +545,7 @@ const Field=({label,value,onChange,placeholder,prefix,suffix,type="text",hint,re
       const len=String(el.value||"").length;
       el.setSelectionRange(len,len);
     }
-  },[value,isMoney,focused]);
+  },[displayValue,isMoney,focused]);
   const handleChange=(e)=>{
     if(readOnly)return;
     const raw=e.target.value;
@@ -554,7 +556,7 @@ const Field=({label,value,onChange,placeholder,prefix,suffix,type="text",hint,re
       {label&&<label style={{color:C.text2,fontSize:14,fontWeight:700,letterSpacing:0.4}}>{label}</label>}
       <div style={{display:"flex",alignItems:"center",background:readOnly?C.subtle:focused?C.surface:idleBg,border:`1.5px solid ${readOnly?C.border:focused?C.orange:idleBorder}`,borderRadius:10,overflow:"hidden",transition:"border .15s",boxShadow:calc&&!focused&&!readOnly?"0 1px 2px #1E3A8A0A":"none",...(calc?{minHeight:CALC_INPUT_ROW_H}:{})}}>
         {prefix&&<span style={{padding:"0 10px",color:C.muted,fontSize:12,flexShrink:0,borderRight:`1px solid ${C.border}`,background:"#fff",alignSelf:"stretch",display:"flex",alignItems:"center"}}>{prefix}</span>}
-        <input ref={inputRef} type={type} inputMode={isNumeric||type==="number"?"decimal":undefined} value={value} onChange={handleChange} onFocus={()=>!readOnly&&setFocused(true)} onBlur={()=>setFocused(false)} placeholder={placeholder}
+        <input ref={inputRef} type={type} inputMode={isNumeric||type==="number"?"decimal":undefined} value={displayValue} onChange={handleChange} onFocus={()=>!readOnly&&setFocused(true)} onBlur={()=>setFocused(false)} placeholder={placeholder}
           readOnly={readOnly}
           style={{flex:1,background:"transparent",border:"none",outline:"none",color:readOnly?C.muted:C.text,...calcFieldInputStyle,cursor:readOnly?"default":"text"}}/>
         {suffix&&<span style={{padding:"0 10px",color:C.muted,fontSize:12,flexShrink:0,borderLeft:`1px solid ${C.border}`,background:"#fff",alignSelf:"stretch",display:"flex",alignItems:"center"}}>{suffix}</span>}
@@ -6545,7 +6547,7 @@ const Financeiro=({historicoFretes,manutencoes,despesas=[],jornadas=[],uid,metaM
   const[dataIni,setDataIni]=useState("");
   const[dataFim,setDataFim]=useState("");
   const[editandoMeta,setEditandoMeta]=useState(false);
-  const[draftMeta,setDraftMeta]=useState(String(metaMes));
+  const[draftMeta,setDraftMeta]=useState(()=>formatMoedaParaCampo(metaMes));
   const[salvandoMeta,setSalvandoMeta]=useState(false);
 
   const prevMes=()=>{if(mesSel===0){setMesSel(11);setAnoSel(a=>a-1);}else setMesSel(m=>m-1);};
@@ -6804,7 +6806,7 @@ const Financeiro=({historicoFretes,manutencoes,despesas=[],jornadas=[],uid,metaM
           <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12}}>
             <div style={{display:"flex",alignItems:"center",background:"#ffffff22",border:"1.5px solid #ffffff55",borderRadius:11,overflow:"hidden",flex:1}}>
               <span style={{padding:"0 10px",color:"#BFDBFE",fontSize:14,borderRight:"1px solid #ffffff33"}}>R$</span>
-              <input value={draftMeta} onChange={e=>setDraftMeta(formatEnquantoDigitaMoeda(e.target.value))} autoFocus
+              <input value={formatMoedaParaCampo(draftMeta)} onChange={e=>setDraftMeta(formatEnquantoDigitaMoeda(e.target.value))} autoFocus
                 style={{flex:1,background:"transparent",border:"none",outline:"none",color:"#fff",padding:"10px 12px",fontSize:20,fontWeight:900,fontFamily:"'Sora',sans-serif"}}/>
             </div>
             <button onClick={()=>void salvarMeta()} disabled={salvandoMeta} style={{background:C.orange,border:"none",borderRadius:11,padding:"10px 16px",cursor:salvandoMeta?"wait":"pointer",color:"#fff",fontWeight:800,fontSize:14,opacity:salvandoMeta?0.7:1}}>{salvandoMeta?"…":"✓ Salvar"}</button>
@@ -6815,7 +6817,7 @@ const Financeiro=({historicoFretes,manutencoes,despesas=[],jornadas=[],uid,metaM
               <div style={{color:"#93C5FD",fontSize:12,marginBottom:2}}>Meta definida</div>
               <div style={{color:C.orange,fontWeight:900,fontSize:34,fontFamily:"'Sora',sans-serif",lineHeight:1}}>{formatMoeda(metaMes)}</div>
             </div>
-            <button onClick={()=>{setDraftMeta(String(metaMes));setEditandoMeta(true);}}
+            <button onClick={()=>{setDraftMeta(formatMoedaParaCampo(metaMes));setEditandoMeta(true);}}
               style={{background:"#ffffff22",border:"1px solid #ffffff44",borderRadius:11,padding:"9px 15px",cursor:"pointer",color:"#fff",fontWeight:700,fontSize:12,display:"flex",alignItems:"center",gap:6}}>
               <EditIcon size={13}/> Alterar
             </button>

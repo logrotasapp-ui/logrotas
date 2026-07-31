@@ -1,34 +1,18 @@
 /**
- * Máscara de dinheiro enquanto digita (pt-BR): milhar com ponto, decimal opcional com vírgula.
- * Não força centavos. Ex: "5500" → "5.500"; "5500,5" → "5.500,5"; "5500,50" → "5.500,50".
+ * Máscara de dinheiro estilo caixa eletrônico (cents-first, pt-BR).
+ * Só dígitos contam; vírgula/ponto digitados são ignorados. Sempre 2 casas decimais.
+ * Ex: "5" → "0,05"; "5500" → "55,00"; "550000" → "5.500,00".
+ * String vazia (sem dígitos) → "" (campo não preenchido).
  */
 export function formatEnquantoDigitaMoeda(texto) {
-  let cleaned = "";
-  let sawComma = false;
-  for (const ch of String(texto ?? "")) {
-    if (ch >= "0" && ch <= "9") cleaned += ch;
-    else if (ch === "," && !sawComma) {
-      cleaned += ",";
-      sawComma = true;
-    }
-  }
-  if (!cleaned) return "";
-
-  const commaIdx = cleaned.indexOf(",");
-  const hasComma = commaIdx !== -1;
-  let intDigits = hasComma ? cleaned.slice(0, commaIdx) : cleaned;
-  let decDigits = hasComma ? cleaned.slice(commaIdx + 1) : "";
-  if (decDigits.length > 2) decDigits = decDigits.slice(0, 2);
-
-  if (intDigits === "") {
-    intDigits = hasComma ? "0" : "";
-  } else {
-    intDigits = intDigits.replace(/^0+/, "");
-    if (intDigits === "") intDigits = "0";
-  }
-
-  const intFormatted = intDigits.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
-  return hasComma ? `${intFormatted},${decDigits}` : intFormatted;
+  const digits = String(texto ?? "").replace(/\D/g, "");
+  if (!digits) return "";
+  const padded = digits.length < 3 ? digits.padStart(3, "0") : digits;
+  const dec = padded.slice(-2);
+  let intPart = padded.slice(0, -2).replace(/^0+/, "");
+  if (!intPart) intPart = "0";
+  const intFormatted = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+  return `${intFormatted},${dec}`;
 }
 
 /**
@@ -80,6 +64,18 @@ export function roundMoney(n) {
   const v = Number(n);
   if (!Number.isFinite(v)) return 0;
   return Math.round(v * 100) / 100;
+}
+
+/**
+ * Normaliza valor já salvo/carregado (reais) para o formato do campo mascarado.
+ * Evita "1600" → "16,00" (cents-first cru): interpreta o número em reais e formata.
+ * Vazio permanece "" (compatível com campo não preenchido).
+ */
+export function formatMoedaParaCampo(raw) {
+  if (raw == null || String(raw).trim() === "") return "";
+  const n = typeof raw === "number" ? raw : parseNumeroBR(raw);
+  if (!Number.isFinite(n)) return formatEnquantoDigitaMoeda(String(raw));
+  return formatEnquantoDigitaMoeda(String(Math.round(roundMoney(n) * 100)));
 }
 
 /** R$ 1.234,56 */
