@@ -179,7 +179,7 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="v359";
+const APP_VERSION="v361";
 const SUPORTE_EMAIL="suporte@logrotas.com.br";
 const PEDAGIO_AVISO_RESULTADO="Pedágio estimado pelo Google. Pode haver variação — confirme o valor da praça.";
 const PAGE_SWIPE_ORDER=["dashboard","financeiro","despesas","comparador","manutencao","documentos","perfil"];
@@ -5948,7 +5948,6 @@ const Manutencao=({manutencoes:items,onAddManutencao,onUpdateManutencao,onDelete
   });
   const itensOrdenados=[...(custoCalc.itens||[])].sort((a,b)=>(b.valorKm||0)-(a.valorKm||0));
   const maxItemKm=Math.max(...itensOrdenados.map(i=>i.valorKm||0),0.001);
-  const exemplo100=roundMoney((custoCalc.custoKm||0)*100);
 
   const setCustoCampo=(k,v)=>setCustoForm(f=>({...f,[k]:v}));
 
@@ -6360,9 +6359,6 @@ const Manutencao=({manutencoes:items,onAddManutencao,onUpdateManutencao,onDelete
           <div style={{background:`linear-gradient(135deg,${C.navy},${C.navyMid})`,borderRadius:14,padding:"18px 16px",boxShadow:`0 4px 16px ${C.navy}33`}}>
             <div style={{color:"#BFDBFE",fontSize:12,fontWeight:700,letterSpacing:0.4,textTransform:"uppercase",marginBottom:6}}>Custo de ter o veículo</div>
             <div style={{color:"#fff",fontWeight:900,fontSize:32,fontFamily:"'Sora',sans-serif",lineHeight:1}}>{formatMoedaKm(custoCalc.custoKm)}</div>
-            <div style={{color:"#E0F2FE",fontSize:12,marginTop:10,lineHeight:1.45}}>
-              Num frete de 100 km, são <strong style={{fontWeight:800}}>{formatMoeda(exemplo100)}</strong> que hoje não aparecem na conta.
-            </div>
             <div style={{marginTop:10,display:"inline-flex",background:"#ffffff22",borderRadius:20,padding:"4px 10px",color:"#fff",fontSize:11,fontWeight:700}}>
               {custoCalc.qtdPreenchidos} de {custoCalc.qtdTotal} preenchidos
             </div>
@@ -6483,18 +6479,16 @@ const Manutencao=({manutencoes:items,onAddManutencao,onUpdateManutencao,onDelete
         return(
         <div key={item.id} style={{padding:"14px 16px",display:"flex",alignItems:"flex-start",gap:11,background:C.subtle,border:`1px solid ${C.border}`,borderRadius:12}}>
           <div style={{width:38,height:38,borderRadius:10,background:C.amberLight,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,marginTop:2}}><WrenchIcon size={16} color={C.amber}/></div>
-          <div style={{flex:1,minWidth:0,display:"flex",flexDirection:"column",gap:6}}>
-            <div
-              role="button"
-              tabIndex={0}
-              onClick={()=>setExpandedId(id=>id===item.id?null:item.id)}
-              onKeyDown={e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();setExpandedId(id=>id===item.id?null:item.id);}}}
-              style={{cursor:"pointer",width:"100%"}}
-            >
-              <div style={{color:C.navy,fontWeight:700,fontSize:14,display:"flex",alignItems:"center",gap:6,width:"100%"}}>
-                <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1,minWidth:0}}>{label}</span>
-                <span style={{color:C.muted,fontSize:11,flexShrink:0}}>{aberto?"▾":"▸"}</span>
-              </div>
+          <div
+            role="button"
+            tabIndex={0}
+            onClick={()=>setExpandedId(id=>id===item.id?null:item.id)}
+            onKeyDown={e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();setExpandedId(id=>id===item.id?null:item.id);}}}
+            style={{flex:1,minWidth:0,display:"flex",flexDirection:"column",gap:6,cursor:"pointer"}}
+          >
+            <div style={{color:C.navy,fontWeight:700,fontSize:14,display:"flex",alignItems:"center",gap:6,width:"100%"}}>
+              <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1,minWidth:0}}>{label}</span>
+              <span style={{color:C.muted,fontSize:11,flexShrink:0}}>{aberto?"▾":"▸"}</span>
             </div>
             <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,width:"100%"}}>
               <div style={{color:C.muted,fontSize:12,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
