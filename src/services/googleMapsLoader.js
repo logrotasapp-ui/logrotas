@@ -1,6 +1,44 @@
 /**
- * Aguarda o bootstrap do Google Maps JavaScript API (index.html, loading=async).
+ * Bootstrap sob demanda do Google Maps JavaScript API.
+ * O script só é injetado na 1ª chamada a waitForGoogleMaps / importGoogleMapsLibrary.
  */
+
+import { API_KEYS } from "./apiConfig.js";
+
+let scriptInjected = false;
+
+function mapsScriptAlreadyInDom() {
+  if (typeof document === "undefined") return false;
+  return Array.from(document.getElementsByTagName("script")).some((el) =>
+    String(el.src || "").includes("maps.googleapis.com/maps/api/js")
+  );
+}
+
+/**
+ * Injeta o script do Maps uma vez (idempotente sob chamadas concorrentes).
+ */
+function ensureGoogleMapsScript() {
+  if (typeof document === "undefined") return;
+
+  if (scriptInjected || mapsScriptAlreadyInDom()) {
+    scriptInjected = true;
+    return;
+  }
+
+  scriptInjected = true;
+
+  const key = API_KEYS.googleMaps;
+  if (!key) {
+    // Sem chave o poll vai falhar com a mensagem padrão de timeout —
+    // mantém o mesmo comportamento de “Maps não carregou”.
+    return;
+  }
+
+  const script = document.createElement("script");
+  script.async = true;
+  script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(key)}&libraries=places&language=pt-BR&loading=async`;
+  document.head.appendChild(script);
+}
 
 /**
  * @param {number} timeoutMs
@@ -12,6 +50,8 @@ export function waitForGoogleMaps(timeoutMs = 15000) {
       reject(new Error("Google Maps indisponível"));
       return;
     }
+
+    ensureGoogleMapsScript();
 
     const ready = () =>
       typeof window.google?.maps?.importLibrary === "function" ||
