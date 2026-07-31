@@ -179,7 +179,7 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="v358";
+const APP_VERSION="v359";
 const SUPORTE_EMAIL="suporte@logrotas.com.br";
 const PEDAGIO_AVISO_RESULTADO="Pedágio estimado pelo Google. Pode haver variação — confirme o valor da praça.";
 const PAGE_SWIPE_ORDER=["dashboard","financeiro","despesas","comparador","manutencao","documentos","perfil"];
@@ -6318,20 +6318,19 @@ const Manutencao=({manutencoes:items,onAddManutencao,onUpdateManutencao,onDelete
               const aberto=expandedGroupId===g.recordId;
               const titulo=maintGroupTitle(g.types);
               return(
-                <div key={g.recordId} style={{background:bg,border:`1px solid ${cor}33`,borderRadius:12,padding:"12px 14px"}}>
-                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",gap:8,marginBottom:8}}>
-                    <div
-                      role={multi?"button":undefined}
-                      tabIndex={multi?0:undefined}
-                      onClick={multi?()=>setExpandedGroupId(id=>id===g.recordId?null:g.recordId):undefined}
-                      onKeyDown={multi?(e)=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();setExpandedGroupId(id=>id===g.recordId?null:g.recordId);}}:undefined}
-                      style={{color:cor,fontWeight:800,fontSize:14,display:"flex",alignItems:"center",gap:6,cursor:multi?"pointer":"default",minWidth:0}}
-                    >
-                      <span style={{overflow:"hidden",textOverflow:"ellipsis"}}>{titulo}</span>
-                      {multi&&<span style={{fontSize:11,flexShrink:0,fontWeight:700}}>{aberto?"▾":"▸"}</span>}
-                    </div>
-                    <div style={{color:cor,fontWeight:700,fontSize:12,textAlign:"right",flexShrink:0}}>{sub}</div>
+                <div
+                  key={g.recordId}
+                  role={multi?"button":undefined}
+                  tabIndex={multi?0:undefined}
+                  onClick={multi?()=>setExpandedGroupId(id=>id===g.recordId?null:g.recordId):undefined}
+                  onKeyDown={multi?(e)=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();setExpandedGroupId(id=>id===g.recordId?null:g.recordId);}}:undefined}
+                  style={{background:bg,border:`1px solid ${cor}33`,borderRadius:12,padding:"12px 14px",cursor:multi?"pointer":"default"}}
+                >
+                  <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:4,width:"100%"}}>
+                    <span style={{color:cor,fontWeight:800,fontSize:14,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1,minWidth:0}}>{titulo}</span>
+                    {multi&&<span style={{color:cor,fontSize:11,flexShrink:0,fontWeight:700}}>{aberto?"▾":"▸"}</span>}
                   </div>
+                  <div style={{color:cor,fontWeight:700,fontSize:12,marginBottom:8}}>{sub}</div>
                   {multi&&aberto&&(
                     <div style={{marginBottom:8,display:"flex",flexDirection:"column",gap:4,background:"#ffffff66",borderRadius:8,padding:"8px 10px"}}>
                       {g.types.map(t=>(
@@ -6475,39 +6474,49 @@ const Manutencao=({manutencoes:items,onAddManutencao,onUpdateManutencao,onDelete
         const typesList=maintTypesList(item);
         const nextMap=maintNextKmMap(item);
         const aberto=expandedId===item.id;
+        const metaParts=maintMetaParts(item);
+        const nextUnico=(()=>{
+          if(item.nextKm!=null&&String(item.nextKm).trim()!=="")return item.nextKm;
+          const vals=Object.values(nextMap||{}).filter(v=>v!=null&&String(v).trim()!=="");
+          return vals.length?vals[0]:null;
+        })();
         return(
         <div key={item.id} style={{padding:"14px 16px",display:"flex",alignItems:"flex-start",gap:11,background:C.subtle,border:`1px solid ${C.border}`,borderRadius:12}}>
           <div style={{width:38,height:38,borderRadius:10,background:C.amberLight,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,marginTop:2}}><WrenchIcon size={16} color={C.amber}/></div>
-          <div
-            role="button"
-            tabIndex={0}
-            onClick={()=>setExpandedId(id=>id===item.id?null:item.id)}
-            onKeyDown={e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();setExpandedId(id=>id===item.id?null:item.id);}}}
-            style={{flex:1,minWidth:0,cursor:"pointer"}}
-          >
-            <div style={{color:C.navy,fontWeight:700,fontSize:14,display:"flex",alignItems:"center",gap:6}}>
-              <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{label}</span>
-              <span style={{color:C.muted,fontSize:11,flexShrink:0}}>{aberto?"▾":"▸"}</span>
+          <div style={{flex:1,minWidth:0,display:"flex",flexDirection:"column",gap:6}}>
+            <div
+              role="button"
+              tabIndex={0}
+              onClick={()=>setExpandedId(id=>id===item.id?null:item.id)}
+              onKeyDown={e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();setExpandedId(id=>id===item.id?null:item.id);}}}
+              style={{cursor:"pointer",width:"100%"}}
+            >
+              <div style={{color:C.navy,fontWeight:700,fontSize:14,display:"flex",alignItems:"center",gap:6,width:"100%"}}>
+                <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1,minWidth:0}}>{label}</span>
+                <span style={{color:C.muted,fontSize:11,flexShrink:0}}>{aberto?"▾":"▸"}</span>
+              </div>
             </div>
-            {maintMetaParts(item).length>0&&<div style={{color:C.muted,fontSize:12,marginTop:2}}>{maintMetaParts(item).join(" · ")}</div>}
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,width:"100%"}}>
+              <div style={{color:C.muted,fontSize:12,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                {metaParts.length>0?metaParts.join(" · "):"—"}
+              </div>
+              <div style={{display:"flex",alignItems:"center",gap:8,flexShrink:0}}>
+                <div style={{color:C.red,fontWeight:700,fontSize:14,whiteSpace:"nowrap"}}>- {formatMoeda(item.cost||0)}</div>
+                <button type="button" onClick={(e)=>{e.stopPropagation();openEdit(item);}} style={{background:C.orangeLight,border:"none",borderRadius:8,padding:6,cursor:"pointer",color:C.orange,display:"flex"}}><EditIcon size={13}/></button>
+                <button type="button" onClick={(e)=>{e.stopPropagation();setDel(item);}} style={{background:C.redLight,border:"none",borderRadius:8,padding:6,cursor:"pointer",color:C.red,display:"flex"}}><Trash2Icon size={13}/></button>
+              </div>
+            </div>
             {aberto&&typesList.length>0&&(
-              <div style={{marginTop:8,display:"flex",flexDirection:"column",gap:8,background:C.surface||"#fff",borderRadius:10,padding:"10px 12px",border:`1px solid ${C.border}`}}>
-                {typesList.map(t=>{
-                  const nk=nextMap[t];
-                  const hasNk=nk!=null&&String(nk).trim()!=="";
-                  return(
-                    <div key={t} style={{display:"flex",flexDirection:"column",gap:2}}>
-                      <span style={{color:C.text,fontSize:13,fontWeight:600,lineHeight:1.35,wordBreak:"normal",overflowWrap:"break-word"}}>{t}</span>
-                      <span style={{color:C.muted,fontSize:11,lineHeight:1.3}}>{hasNk?`Próxima: ${formatKm(nk)} km`:"Próxima: —"}</span>
-                    </div>
-                  );
-                })}
+              <div style={{marginTop:2,display:"flex",flexDirection:"column",gap:4,background:C.surface||"#fff",borderRadius:10,padding:"10px 12px",border:`1px solid ${C.border}`}}>
+                {nextUnico!=null&&String(nextUnico).trim()!==""&&(
+                  <div style={{color:C.muted,fontSize:11,marginBottom:2}}>Próxima em {formatKm(nextUnico)} km</div>
+                )}
+                {typesList.map(t=>(
+                  <div key={t} style={{color:C.text,fontSize:13,fontWeight:600,lineHeight:1.35}}>{t}</div>
+                ))}
               </div>
             )}
           </div>
-          <div style={{color:C.red,fontWeight:700,fontSize:14,flexShrink:0,whiteSpace:"nowrap",marginTop:2}}>- {formatMoeda(item.cost||0)}</div>
-          <button onClick={()=>openEdit(item)} style={{background:C.orangeLight,border:"none",borderRadius:8,padding:6,cursor:"pointer",color:C.orange,display:"flex",flexShrink:0,marginTop:2}}><EditIcon size={13}/></button>
-          <button onClick={()=>setDel(item)} style={{background:C.redLight,border:"none",borderRadius:8,padding:6,cursor:"pointer",color:C.red,display:"flex",flexShrink:0,marginTop:2}}><Trash2Icon size={13}/></button>
         </div>
         );
           })}
