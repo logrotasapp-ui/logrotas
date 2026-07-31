@@ -55,7 +55,6 @@ export const SAO_PAULO_BOUNDS = {
 export async function fetchGooglePlacePredictions(query, options = {}) {
   if (!API_KEYS.googleMaps) return [];
 
-  const proximityLngLat = options.proximityLngLat ?? null;
   const bounds = options.bounds ?? null;
 
   await waitForGoogleMaps();
@@ -76,15 +75,6 @@ export async function fetchGooglePlacePredictions(query, options = {}) {
       new window.google.maps.LatLng(bounds.south, bounds.west),
       new window.google.maps.LatLng(bounds.north, bounds.east)
     );
-  }
-
-  const biasLngLat =
-    proximityLngLat || (bounds ? [-46.6333, -23.5505] : null);
-
-  if (biasLngLat) {
-    const [lng, lat] = biasLngLat;
-    request.location = new window.google.maps.LatLng(lat, lng);
-    request.radius = bounds ? 80000 : 50000;
   }
 
   return new Promise((resolve) => {
