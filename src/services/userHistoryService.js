@@ -235,7 +235,7 @@ function financeiroPayload(tipo, sourceCollection, sourceId, data) {
   return {
     ...base,
     valor: data.cost || 0,
-    descricao: data.type || "Manutenção",
+    descricao: data.types?.join(" + ") || data.type || "Manutenção",
     veiculo: data.vehicle || "",
   };
 }

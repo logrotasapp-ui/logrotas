@@ -179,7 +179,7 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="v354";
+const APP_VERSION="v355";
 const SUPORTE_EMAIL="suporte@logrotas.com.br";
 const PEDAGIO_AVISO_RESULTADO="Pedágio estimado pelo Google. Pode haver variação — confirme o valor da praça.";
 const PAGE_SWIPE_ORDER=["dashboard","financeiro","despesas","comparador","manutencao","documentos","perfil"];
@@ -5792,6 +5792,22 @@ const DespesaItem=({item,last,onEdit,onDelete})=>(
 );
 
 // ── MANUTENÇÃO ────────────────────────────────────────────────────────────────
+const emptyMaintForm=(extra={})=>({types:[],typeDraft:"",vehicle:"",km:"",cost:"",date:"",nextKmPorTipo:{},...extra});
+const maintTypesLabel=(item)=>{
+  if(Array.isArray(item?.types)&&item.types.length)return item.types.join(" + ");
+  return item?.type||"";
+};
+const maintTypesList=(item)=>{
+  if(Array.isArray(item?.types)&&item.types.length)return item.types.map(t=>String(t).trim()).filter(Boolean);
+  const t=String(item?.type||"").trim();
+  return t?[t]:[];
+};
+const maintNextKmMap=(item)=>{
+  if(item?.nextKmPorTipo&&typeof item.nextKmPorTipo==="object")return item.nextKmPorTipo;
+  const t=String(item?.type||"").trim();
+  if(t&&item?.nextKm!=null&&String(item.nextKm).trim()!=="")return{[t]:item.nextKm};
+  return{};
+};
 const maintMetaParts=(item)=>{
   const parts=[];
   if(item.vehicle?.trim())parts.push(item.vehicle.trim());
@@ -5802,8 +5818,9 @@ const maintMetaParts=(item)=>{
 const Manutencao=({manutencoes:items,onAddManutencao,onUpdateManutencao,onDeleteManutencao,uid,perfil,vehicles,setVehicles,historicoFretes=[],jornadas=[]})=>{
   const isPago=getPlanoAtual(perfil).isPago;
   const[limiteManut,setLimiteManut]=useState(false);
-  const[stypes,setStypes]=useState(INIT_STYPE);const[showAdd,setShowAdd]=useState(false);const[showManage,setShowManage]=useState(false);const[del,setDel]=useState(null);const[erroForm,setErroForm]=useState("");const[erroDel,setErroDel]=useState("");const[editTIdx,setEditTIdx]=useState(null);const[editTVal,setEditTVal]=useState("");const[newType,setNewType]=useState("");  const[form,setForm]=useState({type:"",vehicle:"",km:"",cost:"",nextKm:"",date:""});const[editingId,setEditingId]=useState(null);
+  const[stypes,setStypes]=useState(INIT_STYPE);const[showAdd,setShowAdd]=useState(false);const[showManage,setShowManage]=useState(false);const[del,setDel]=useState(null);const[erroForm,setErroForm]=useState("");const[erroDel,setErroDel]=useState("");const[editTIdx,setEditTIdx]=useState(null);const[editTVal,setEditTVal]=useState("");const[newType,setNewType]=useState("");  const[form,setForm]=useState(()=>emptyMaintForm());const[editingId,setEditingId]=useState(null);
   const[kmAutoPreenchido,setKmAutoPreenchido]=useState(false);
+  const[expandedId,setExpandedId]=useState(null);
   const[editVeh,setEditVeh]=useState(null);
   const[editVehVals,setEditVehVals]=useState({});
   const[custoForm,setCustoForm]=useState(()=>formFromCustoVeiculoPersist(readCustoVeiculoLocalCache()));
@@ -5829,13 +5846,57 @@ const Manutencao=({manutencoes:items,onAddManutencao,onUpdateManutencao,onDelete
   const itemsMes=filtrarPorMesData(items,mesSel,anoSel);
   const alerts=items.filter(i=>i.status!=="ok").length;
   const totalManut=itemsMes.reduce((a,i)=>a+(i.cost||0),0);
-  const resetForm=()=>{setForm({type:"",vehicle:"",km:"",cost:"",nextKm:"",date:""});setKmAutoPreenchido(false);};
+  const resetForm=()=>{setForm(emptyMaintForm());setKmAutoPreenchido(false);};
   const closeModal=()=>{setShowAdd(false);setEditingId(null);setErroForm("");resetForm();};
   const openEdit=(item)=>{
-    setForm({type:item.type||"",vehicle:item.vehicle||"",km:item.km!=null?String(item.km):"",cost:item.cost!=null?String(item.cost):"",nextKm:item.nextKm!=null?String(item.nextKm):"",date:item.date||""});
+    const types=Array.isArray(item.types)&&item.types.length
+      ?item.types.map(t=>String(t).trim()).filter(Boolean)
+      :(item.type?[String(item.type).trim()].filter(Boolean):[]);
+    let nextKmPorTipo={};
+    if(item.nextKmPorTipo&&typeof item.nextKmPorTipo==="object"){
+      Object.entries(item.nextKmPorTipo).forEach(([k,v])=>{
+        if(v!=null&&String(v).trim()!=="")nextKmPorTipo[k]=String(v);
+      });
+    }else if(item.type&&item.nextKm!=null&&String(item.nextKm).trim()!==""){
+      nextKmPorTipo={[item.type]:String(item.nextKm)};
+    }
+    setForm(emptyMaintForm({
+      types,
+      vehicle:item.vehicle||"",
+      km:item.km!=null?String(item.km):"",
+      cost:item.cost!=null?String(item.cost):"",
+      date:item.date||"",
+      nextKmPorTipo,
+    }));
     setKmAutoPreenchido(false);
     setEditingId(item.id);
     setShowAdd(true);
+  };
+  const toggleMaintType=(t)=>{
+    setForm(f=>{
+      const has=(f.types||[]).includes(t);
+      if(has){
+        const nextMap={...(f.nextKmPorTipo||{})};
+        delete nextMap[t];
+        return{...f,types:(f.types||[]).filter(x=>x!==t),nextKmPorTipo:nextMap};
+      }
+      return{...f,types:[...(f.types||[]),t]};
+    });
+  };
+  const addMaintTypeDraft=()=>{
+    const t=String(form.typeDraft||"").trim();
+    if(!t)return;
+    setForm(f=>{
+      if((f.types||[]).includes(t))return{...f,typeDraft:""};
+      return{...f,types:[...(f.types||[]),t],typeDraft:""};
+    });
+  };
+  const removeMaintType=(t)=>{
+    setForm(f=>{
+      const nextMap={...(f.nextKmPorTipo||{})};
+      delete nextMap[t];
+      return{...f,types:(f.types||[]).filter(x=>x!==t),nextKmPorTipo:nextMap};
+    });
   };
   const startEditVeh=v=>{setEditVeh(v.id);setEditVehVals({consumption:String(v.consumption),axles:String(v.axles),kwh:String(v.kwh||"")});};
   const saveVeh=id=>{setVehicles(vs=>{
@@ -5982,7 +6043,7 @@ const Manutencao=({manutencoes:items,onAddManutencao,onUpdateManutencao,onDelete
     const kmInit=odo.km!=null&&odo.km>0?String(Math.round(odo.km)):"";
     setEditingId(null);
     setErroForm("");
-    setForm({type:"",vehicle:"",km:kmInit,cost:"",nextKm:"",date:""});
+    setForm(emptyMaintForm({km:kmInit}));
     setKmAutoPreenchido(kmInit!=="");
     setShowAdd(true);
   };
@@ -6023,13 +6084,30 @@ const Manutencao=({manutencoes:items,onAddManutencao,onUpdateManutencao,onDelete
   };
 
   const save=async()=>{
+    const types=(form.types||[]).map(t=>String(t).trim()).filter(Boolean);
+    if(!types.length){
+      setErroForm("Selecione pelo menos um tipo de serviço.");
+      return;
+    }
+    const nextKmPorTipo={};
+    let maxNext=null;
+    types.forEach(t=>{
+      const n=parseNumeroBR(form.nextKmPorTipo?.[t]);
+      if(Number.isFinite(n)&&n>0){
+        nextKmPorTipo[t]=n;
+        if(maxNext==null||n>maxNext)maxNext=n;
+      }
+    });
     const kmN=parseNumeroBR(form.km);
-    const nextN=parseNumeroBR(form.nextKm);
     const payload={
-      ...form,
+      types,
+      type:types.join(" + "),
+      nextKmPorTipo,
+      nextKm:maxNext!=null?maxNext:"",
+      vehicle:form.vehicle||"",
+      date:form.date||"",
       cost:parseNumeroBR(form.cost)||0,
       km:Number.isFinite(kmN)&&kmN>0?kmN:0,
-      nextKm:Number.isFinite(nextN)&&nextN>0?nextN:"",
     };
     const wasEditing=!!editingId;
     setErroForm("");
@@ -6316,43 +6394,93 @@ const Manutencao=({manutencoes:items,onAddManutencao,onUpdateManutencao,onDelete
             🔧 Registrar primeira manutenção
           </button>
         </div>
-      ):itemsMes.map((item,i)=>(
-        <div key={item.id} style={{padding:"14px 20px",borderBottom:i<itemsMes.length-1?`1px solid ${C.border}`:"none",display:"flex",alignItems:"center",gap:11}}>
-          <div style={{width:38,height:38,borderRadius:10,background:C.amberLight,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><WrenchIcon size={16} color={C.amber}/></div>
-          <div style={{flex:1,minWidth:0}}>
-            <div style={{color:C.navy,fontWeight:700,fontSize:14}}>{item.type}</div>
+      ):itemsMes.map((item,i)=>{
+        const label=maintTypesLabel(item);
+        const typesList=maintTypesList(item);
+        const nextMap=maintNextKmMap(item);
+        const aberto=expandedId===item.id;
+        return(
+        <div key={item.id} style={{padding:"14px 20px",borderBottom:i<itemsMes.length-1?`1px solid ${C.border}`:"none",display:"flex",alignItems:"flex-start",gap:11}}>
+          <div style={{width:38,height:38,borderRadius:10,background:C.amberLight,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,marginTop:2}}><WrenchIcon size={16} color={C.amber}/></div>
+          <div
+            role="button"
+            tabIndex={0}
+            onClick={()=>setExpandedId(id=>id===item.id?null:item.id)}
+            onKeyDown={e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();setExpandedId(id=>id===item.id?null:item.id);}}}
+            style={{flex:1,minWidth:0,cursor:"pointer"}}
+          >
+            <div style={{color:C.navy,fontWeight:700,fontSize:14,display:"flex",alignItems:"center",gap:6}}>
+              <span style={{overflow:"hidden",textOverflow:"ellipsis"}}>{label}</span>
+              <span style={{color:C.muted,fontSize:11,flexShrink:0}}>{aberto?"▾":"▸"}</span>
+            </div>
             {maintMetaParts(item).length>0&&<div style={{color:C.muted,fontSize:12,marginTop:2}}>{maintMetaParts(item).join(" · ")}</div>}
-            {item.nextKm!=null&&String(item.nextKm).trim()!==""&&<div style={{color:C.muted,fontSize:11}}>Próxima em {formatKm(item.nextKm)} km</div>}
+            {aberto&&typesList.length>0&&(
+              <div style={{marginTop:8,display:"flex",flexDirection:"column",gap:6,background:C.subtle,borderRadius:10,padding:"8px 10px",border:`1px solid ${C.border}`}}>
+                {typesList.map(t=>{
+                  const nk=nextMap[t];
+                  const hasNk=nk!=null&&String(nk).trim()!=="";
+                  return(
+                    <div key={t} style={{display:"flex",justifyContent:"space-between",gap:10,alignItems:"baseline"}}>
+                      <span style={{color:C.text,fontSize:12,fontWeight:600}}>{t}</span>
+                      <span style={{color:C.muted,fontSize:11,whiteSpace:"nowrap"}}>{hasNk?`Próxima: ${formatKm(nk)} km`:"Próxima: —"}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
-          <div style={{color:C.red,fontWeight:700,fontSize:14,flexShrink:0,whiteSpace:"nowrap"}}>- {formatMoeda(item.cost||0)}</div>
-          <button onClick={()=>openEdit(item)} style={{background:C.orangeLight,border:"none",borderRadius:8,padding:6,cursor:"pointer",color:C.orange,display:"flex",flexShrink:0}}><EditIcon size={13}/></button>
-          <button onClick={()=>setDel(item)} style={{background:C.redLight,border:"none",borderRadius:8,padding:6,cursor:"pointer",color:C.red,display:"flex",flexShrink:0}}><Trash2Icon size={13}/></button>
+          <div style={{color:C.red,fontWeight:700,fontSize:14,flexShrink:0,whiteSpace:"nowrap",marginTop:2}}>- {formatMoeda(item.cost||0)}</div>
+          <button onClick={()=>openEdit(item)} style={{background:C.orangeLight,border:"none",borderRadius:8,padding:6,cursor:"pointer",color:C.orange,display:"flex",flexShrink:0,marginTop:2}}><EditIcon size={13}/></button>
+          <button onClick={()=>setDel(item)} style={{background:C.redLight,border:"none",borderRadius:8,padding:6,cursor:"pointer",color:C.red,display:"flex",flexShrink:0,marginTop:2}}><Trash2Icon size={13}/></button>
         </div>
-      ))}
+        );
+      })}
       </Card>
       {showAdd&&(<ModalWrap><ModalHeader title={editingId?"Editar Manutenção":"Nova Manutenção"} icon={WrenchIcon} iconColor={C.amber} onClose={closeModal}/>
         <div style={{display:"flex",flexDirection:"column",gap:12}}>
           <div style={{display:"flex",flexDirection:"column",gap:5}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}><label style={{color:C.text2,fontSize:14,fontWeight:700,letterSpacing:0.4}}>Tipo de Serviço</label><button onClick={()=>setShowManage(true)} style={{background:"none",border:"none",cursor:"pointer",color:C.orange,fontSize:14,fontWeight:700,display:"flex",alignItems:"center",gap:3}}><EditIcon size={11}/> Gerenciar tipos</button></div>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}><label style={{color:C.text2,fontSize:14,fontWeight:700,letterSpacing:0.4}}>Tipos de Serviço</label><button onClick={()=>setShowManage(true)} style={{background:"none",border:"none",cursor:"pointer",color:C.orange,fontSize:14,fontWeight:700,display:"flex",alignItems:"center",gap:3}}><EditIcon size={11}/> Gerenciar tipos</button></div>
             <div style={{display:"flex",alignItems:"center",background:C.subtle,border:`1.5px solid ${C.border}`,borderRadius:10,overflow:"hidden"}}>
-              <input value={form.type} onChange={e=>setForm(f=>({...f,type:e.target.value}))} placeholder="Digite ou selecione abaixo"
+              <input value={form.typeDraft||""} onChange={e=>setForm(f=>({...f,typeDraft:e.target.value}))} placeholder="Digite e pressione Enter ou +"
                 style={{flex:1,background:"transparent",border:"none",outline:"none",color:C.text,padding:"10px 12px",fontSize:14}}
+                onKeyDown={e=>{if(e.key==="Enter"){e.preventDefault();addMaintTypeDraft();}}}
                 onFocus={e=>e.target.parentElement.style.borderColor=C.orange} onBlur={e=>e.target.parentElement.style.borderColor=C.border}/>
-              {form.type&&<button onClick={()=>setForm(f=>({...f,type:""}))} style={{background:"none",border:"none",cursor:"pointer",color:C.muted,padding:"0 10px",display:"flex"}}><XIcon size={14}/></button>}
+              <button type="button" onClick={addMaintTypeDraft} style={{background:"none",border:"none",cursor:"pointer",color:C.orange,padding:"0 10px",display:"flex",fontWeight:800,fontSize:18}} aria-label="Adicionar tipo"><PlusIcon size={16}/></button>
             </div>
+            {(form.types||[]).length>0&&(
+              <div style={{display:"flex",flexWrap:"wrap",gap:6,marginTop:2}}>
+                {form.types.map(t=>(
+                  <span key={t} style={{display:"inline-flex",alignItems:"center",gap:4,background:C.orangeLight,border:`1.5px solid ${C.orange}`,borderRadius:20,padding:"4px 8px 4px 12px",color:C.orange,fontSize:12,fontWeight:700}}>
+                    {t}
+                    <button type="button" onClick={()=>removeMaintType(t)} style={{background:"none",border:"none",cursor:"pointer",color:C.orange,padding:0,display:"flex"}} aria-label={`Remover ${t}`}><XIcon size={12}/></button>
+                  </span>
+                ))}
+              </div>
+            )}
             <div style={{display:"flex",flexWrap:"wrap",gap:6,marginTop:4}}>
-              {stypes.map((t,i)=>(
-                <button key={i} onClick={()=>setForm(f=>({...f,type:t}))}
-                  style={{background:form.type===t?C.orangeLight:C.subtle,border:`1.5px solid ${form.type===t?C.orange:C.border}`,borderRadius:20,padding:"5px 12px",cursor:"pointer",color:form.type===t?C.orange:C.text2,fontSize:12,fontWeight:form.type===t?700:500}}>
+              {stypes.map((t,i)=>{
+                const ativo=(form.types||[]).includes(t);
+                return(
+                <button key={i} type="button" onClick={()=>toggleMaintType(t)}
+                  style={{background:ativo?C.orangeLight:C.subtle,border:`1.5px solid ${ativo?C.orange:C.border}`,borderRadius:20,padding:"5px 12px",cursor:"pointer",color:ativo?C.orange:C.text2,fontSize:12,fontWeight:ativo?700:500}}>
                   {t}
                 </button>
-              ))}
+                );
+              })}
             </div>
           </div>
           <Field label="Veículo" value={form.vehicle} onChange={v=>setForm(f=>({...f,vehicle:v}))} placeholder="Caminhão MB 1620"/>
           <DatePicker label="Data do Serviço" value={form.date} onChange={v=>setForm(f=>({...f,date:v}))}/>
           <Field label="KM Atual" value={form.km} onChange={v=>{setForm(f=>({...f,km:v}));if(!String(v||"").trim())setKmAutoPreenchido(false);}} suffix="km" hint={kmAutoPreenchido?"Preenchido com o odômetro atual — ajuste se for diferente":undefined}/>
-          <Field label="Próxima Revisão (KM)" value={form.nextKm} onChange={v=>setForm(f=>({...f,nextKm:v}))} suffix="km"/>
+          {(form.types||[]).map(t=>(
+            <Field
+              key={t}
+              label={`Próxima Revisão — ${t} (KM)`}
+              value={form.nextKmPorTipo?.[t]||""}
+              onChange={v=>setForm(f=>({...f,nextKmPorTipo:{...(f.nextKmPorTipo||{}),[t]:v}}))}
+              suffix="km"
+            />
+          ))}
           <Field label="Custo (R$)" value={form.cost} onChange={v=>setForm(f=>({...f,cost:v}))} prefix="R$"/>
         </div>
         {erroForm&&<div style={{background:"#FFF5F5",border:"1.5px solid #FCA5A5",borderRadius:10,padding:"10px 13px",color:"#DC2626",fontSize:13,fontWeight:600,marginTop:12}}>⚠️ {erroForm}</div>}
@@ -6381,7 +6509,7 @@ const Manutencao=({manutencoes:items,onAddManutencao,onUpdateManutencao,onDelete
           <PrimaryBtn onClick={()=>{if(!newType.trim())return;setStypes(t=>[...t,newType.trim()]);setNewType("");}} small><PlusIcon size={13}/> Adicionar</PrimaryBtn>
         </div>
       </ModalWrap>)}
-      {del&&<DeleteConfirm message={`Excluir "${del.type}" do ${del.vehicle}?`} error={erroDel} onConfirm={async()=>{setErroDel("");try{await onDeleteManutencao?.(del.id);setDel(null);}catch{setErroDel("Não foi possível excluir. Verifique sua conexão e tente novamente.");}}} onCancel={()=>{setDel(null);setErroDel("");}}/>}
+      {del&&<DeleteConfirm message={`Excluir "${maintTypesLabel(del)}" do ${del.vehicle||"—"}?`} error={erroDel} onConfirm={async()=>{setErroDel("");try{await onDeleteManutencao?.(del.id);setDel(null);}catch{setErroDel("Não foi possível excluir. Verifique sua conexão e tente novamente.");}}} onCancel={()=>{setDel(null);setErroDel("");}}/>}
     </div>
   );
 };

@@ -490,26 +490,40 @@ function mesesDesde(dateStr, agora = new Date()) {
 /**
  * Alertas de próxima manutenção por tipo (registro mais recente com nextKm).
  * Com odômetro: faltam = nextKm - km. Sem odômetro: alerta por tempo (meses desde a data).
+ * Formato novo: types[] + nextKmPorTipo → N entradas (uma por tipo com nextKm).
+ * Formato antigo: type + nextKm (comportamento inalterado).
  */
 export function listarProximasManutencoes(manutencoes, odometroKm, agora = new Date()) {
-  const byType = new Map();
-  (manutencoes || []).forEach((m) => {
-    const type = String(m?.type || "").trim();
+  const byType = new Map(); // type -> { m, nextKm }
+
+  const consider = (typeRaw, nextKmRaw, m) => {
+    const type = String(typeRaw || "").trim();
     if (!type) return;
-    const nextKm = parseNumeroBR(m?.nextKm);
-    const hasNext = Number.isFinite(nextKm) && nextKm > 0;
-    if (!hasNext) return;
+    const nextKm = parseNumeroBR(nextKmRaw);
+    if (!(Number.isFinite(nextKm) && nextKm > 0)) return;
     const prev = byType.get(type);
     const d = parseDataManutencao(m.date);
-    const prevD = prev ? parseDataManutencao(prev.date) : null;
+    const prevD = prev ? parseDataManutencao(prev.m.date) : null;
     const km = parseNumeroBR(m?.km) || 0;
-    const prevKm = prev ? parseNumeroBR(prev.km) || 0 : 0;
+    const prevKm = prev ? parseNumeroBR(prev.m.km) || 0 : 0;
     let newer = false;
     if (!prev) newer = true;
     else if (d && prevD) newer = d > prevD;
     else if (d && !prevD) newer = true;
     else if (!d && !prevD) newer = km >= prevKm;
-    if (newer) byType.set(type, m);
+    if (newer) byType.set(type, { m, nextKm });
+  };
+
+  (manutencoes || []).forEach((m) => {
+    if (Array.isArray(m?.types) && m.types.length > 0) {
+      const map =
+        m.nextKmPorTipo && typeof m.nextKmPorTipo === "object"
+          ? m.nextKmPorTipo
+          : {};
+      m.types.forEach((t) => consider(t, map[t], m));
+    } else {
+      consider(m?.type, m?.nextKm, m);
+    }
   });
 
   const odoParsed = parseNumeroBR(odometroKm);
@@ -517,8 +531,7 @@ export function listarProximasManutencoes(manutencoes, odometroKm, agora = new D
   const odo = hasOdo ? odoParsed : null;
 
   return Array.from(byType.entries())
-    .map(([type, m]) => {
-      const nextKm = parseNumeroBR(m.nextKm);
+    .map(([type, { m, nextKm }]) => {
       const meses = mesesDesde(m.date, agora);
       if (hasOdo) {
         const faltam = nextKm - odo;
@@ -540,7 +553,12 @@ export function listarProximasManutencoes(manutencoes, odometroKm, agora = new D
         nextKm,
         date: m.date || "",
         faltam: null,
-        status: meses != null && meses >= 12 ? "vencido" : meses != null && meses >= 10 ? "proximo" : "ok",
+        status:
+          meses != null && meses >= 12
+            ? "vencido"
+            : meses != null && meses >= 10
+              ? "proximo"
+              : "ok",
         modo: "tempo",
         mesesDesdeUltima: meses,
       };
