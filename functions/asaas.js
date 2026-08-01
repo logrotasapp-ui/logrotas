@@ -13,6 +13,8 @@ function getDb() {
 const USERS_COLLECTION = "users";
 /** Histórico de eventos de pagamento Asaas (top-level; escrito só pelo webhook). */
 const PAGAMENTOS_COLLECTION = "pagamentos";
+/** Motivos de cancelamento de assinatura (top-level; escrito só por Cloud Function). */
+const CANCELAMENTOS_COLLECTION = "cancelamentos";
 const FUNCTION_REGION = "southamerica-east1";
 const ASAAS_API_BASE = "https://api.asaas.com/v3";
 
@@ -699,6 +701,11 @@ const cancelAsaasSubscription = onCall(
     }
 
     const uid = request.auth.uid;
+    const motivoRaw = request.data?.motivo;
+    const motivo =
+      typeof motivoRaw === "string" && motivoRaw.trim() !== ""
+        ? motivoRaw.trim()
+        : null;
     const userRef = db.collection(USERS_COLLECTION).doc(uid);
     const userSnap = await userRef.get();
 
@@ -732,6 +739,13 @@ const cancelAsaasSubscription = onCall(
         },
         { merge: true }
       );
+
+      await db.collection(CANCELAMENTOS_COLLECTION).add({
+        uid,
+        motivo,
+        dataCancelamento: admin.firestore.FieldValue.serverTimestamp(),
+        asaasSubscriptionId,
+      });
 
       logger.info("Assinatura Asaas cancelada", { uid, asaasSubscriptionId });
 

@@ -110,6 +110,12 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // ── Cancelamentos de assinatura (gravação só via Cloud Function / Admin SDK)
+    match /cancelamentos/{cancelamentoId} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
     // ── Configuração global (painel admin) ────────────────────────────────
     match /config/{docId} {
       allow read, write: if isAdmin();
