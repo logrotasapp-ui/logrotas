@@ -142,7 +142,6 @@ import {
   resolveOdometroAtual,
   listarProximasManutencoes,
   mergeCustoVeiculoOdometro,
-  parseDataManutencao,
 } from "./src/services/custoVeiculoService.js";
 import { compressImageToJpegBlob, uploadEmpresaLogo } from "./src/services/storageService.js";
 import { saveJornada } from "./src/services/jornadaService.js";
@@ -180,7 +179,7 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="v364";
+const APP_VERSION="v365";
 const SUPORTE_EMAIL="suporte@logrotas.com.br";
 const PEDAGIO_AVISO_RESULTADO="Pedágio estimado pelo Google. Pode haver variação — confirme o valor da praça.";
 const PAGE_SWIPE_ORDER=["dashboard","financeiro","despesas","comparador","manutencao","documentos","perfil"];
@@ -3293,7 +3292,7 @@ const OtimizarEntregasModal=({onClose,perfil,plan,uid,resumeNavigation=false,onN
 };
 
 // ── CALCULADORA DE VIAGEM (V171 — Google Directions + pedágio em R$ + voz) ─
-const TripCalcModal=({onClose,vehicles,onConcluido,onGoMeuVeiculo})=>{
+const TripCalcModal=({onClose,vehicles,onConcluido})=>{
   const TRIP_VEHICLES=[
     {id:"moto",   emoji:"🏍️", label:"Moto",         consumption:25, axles:2, electric:false},
     {id:"carro",  emoji:"🚗",  label:"Carro",         consumption:12, axles:2, electric:false},
@@ -3619,11 +3618,6 @@ const TripCalcModal=({onClose,vehicles,onConcluido,onGoMeuVeiculo})=>{
                   {avisoDesgaste&&<div style={{color:C.muted,fontSize:11,paddingBottom:11,borderBottom:i<arr.length-1?`1px solid ${C.border}`:"none"}}>{avisoDesgaste}</div>}
                 </div>
               );})}
-              {!(result.custoVeiculo>0)&&(
-                <button type="button" onClick={()=>onGoMeuVeiculo?.()} style={{background:"none",border:"none",padding:"10px 0 2px",cursor:"pointer",color:C.navy,fontSize:12,fontWeight:600,textDecoration:"underline",textAlign:"left"}}>
-                  Calcular o custo do meu veículo
-                </button>
-              )}
             </div>
             {stops.some(s=>s.v)&&(
               <div style={{background:"#EFF6FF",border:"1px solid #BFDBFE",borderRadius:11,padding:"12px 14px"}}>
@@ -3646,7 +3640,7 @@ const TripCalcModal=({onClose,vehicles,onConcluido,onGoMeuVeiculo})=>{
   );
 };
 
-const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHistorico,onConcluido,perfil,uid,onGoMeuVeiculo})=>{
+const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHistorico,onConcluido,perfil,uid})=>{
   const isPago=getPlanoAtual(perfil).isPago;
   const[limiteFrete,setLimiteFrete]=useState(false);
   const[stops,setStops]=useState([{id:1,v:"",coords:null},{id:2,v:"",coords:null}]);
@@ -4127,11 +4121,6 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
                     {avisoDesgaste&&<div style={{color:C.muted,fontSize:11,paddingBottom:10,borderBottom:i<arr.length-1?`1px solid ${C.border}`:"none"}}>{avisoDesgaste}</div>}
                   </div>
                 );})}
-                {!(result.custoVeiculo>0)&&(
-                  <button type="button" onClick={()=>onGoMeuVeiculo?.()} style={{background:"none",border:"none",padding:"8px 0 2px",cursor:"pointer",color:C.navy,fontSize:12,fontWeight:600,textDecoration:"underline",textAlign:"left"}}>
-                    Calcular o custo do meu veículo
-                  </button>
-                )}
               </div>
 
               {/* Valor do frete em destaque — o que cobrar do cliente */}
@@ -4337,7 +4326,7 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
 
 // ── FECHAMENTO DO DIA (v291) ──────────────────────────────────────────────────
 const SERVICOS_BASE=["Uber","99","iFood"];
-const FechamentoDia=({uid,perfil,setPerfil,vehicles=[],onSalvar,onClose,onGoMeuVeiculo})=>{
+const FechamentoDia=({uid,perfil,setPerfil,vehicles=[],onSalvar,onClose})=>{
   const servicosCustom=Array.isArray(perfil?.servicosFechamento)?perfil.servicosFechamento:[];
   const servicos=[...SERVICOS_BASE,...servicosCustom.filter(s=>!SERVICOS_BASE.includes(s))];
 
@@ -4538,11 +4527,6 @@ const FechamentoDia=({uid,perfil,setPerfil,vehicles=[],onSalvar,onClose,onGoMeuV
                     </div>
                   )}
                 </div>
-              )}
-              {!(custoKmSalvo>0)&&(
-                <button type="button" onClick={()=>onGoMeuVeiculo?.()} style={{background:"none",border:"none",padding:"4px 0",cursor:"pointer",color:C.navy,fontSize:12,fontWeight:600,textDecoration:"underline",textAlign:"left"}}>
-                  Calcular o custo do meu veículo
-                </button>
               )}
               <div style={{background:lucro>=0?C.greenLight:C.redLight,border:`1px solid ${lucro>=0?C.green:C.red}22`,borderRadius:12,padding:"13px 15px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                 <span style={{color:C.text2,fontSize:13,fontWeight:700}}>Ficou no seu bolso (lucro)</span>
@@ -5839,7 +5823,6 @@ const Manutencao=({manutencoes:items,onAddManutencao,onUpdateManutencao,onDelete
   const[kmAutoPreenchido,setKmAutoPreenchido]=useState(false);
   const[expandedId,setExpandedId]=useState(null);
   const[expandedGroupId,setExpandedGroupId]=useState(null);
-  const[debugCorreiaMsg,setDebugCorreiaMsg]=useState("");
   const[editVeh,setEditVeh]=useState(null);
   const[editVehVals,setEditVehVals]=useState({});
   const[custoForm,setCustoForm]=useState(()=>formFromCustoVeiculoPersist(readCustoVeiculoLocalCache()));
@@ -5863,11 +5846,6 @@ const Manutencao=({manutencoes:items,onAddManutencao,onUpdateManutencao,onDelete
   const prevMes=()=>{if(mesSel===0){setMesSel(11);setAnoSel(a=>a-1);}else setMesSel(m=>m-1);};
   const nextMes=()=>{if(mesSel===11){setMesSel(0);setAnoSel(a=>a+1);}else setMesSel(m=>m+1);};
   const itemsMes=filtrarPorMesData(items,mesSel,anoSel);
-  const registrosSemData=(items||[]).filter(item=>!parseDataManutencao(item?.date));
-  const debugCorreia=(items||[]).filter(item=>{
-    const types=Array.isArray(item.types)?item.types:[item.type];
-    return types.some(t=>String(t||"").toLowerCase().includes("correia"));
-  });
   const alerts=items.filter(i=>i.status!=="ok").length;
   const totalManut=itemsMes.reduce((a,i)=>a+(i.cost||0),0);
   const resetForm=()=>{setForm(emptyMaintForm());setKmAutoPreenchido(false);};
@@ -6198,41 +6176,6 @@ const Manutencao=({manutencoes:items,onAddManutencao,onUpdateManutencao,onDelete
   };
   return(
     <div style={{display:"flex",flexDirection:"column",gap:18}}>
-      {debugCorreia.length>0&&(
-        <div style={{background:"#1e1033",border:"2px solid #c084fc",borderRadius:12,padding:"14px 16px",color:"#fff"}}>
-          <div style={{fontWeight:900,fontSize:15,marginBottom:12,fontFamily:"'Sora',sans-serif"}}>
-            🔍 DEBUG - Registros com Correia ({debugCorreia.length})
-          </div>
-          {debugCorreiaMsg&&(
-            <div style={{background:"#166534",borderRadius:8,padding:"8px 10px",marginBottom:12,fontWeight:700,fontSize:13}}>{debugCorreiaMsg}</div>
-          )}
-          <div style={{display:"flex",flexDirection:"column",gap:12}}>
-            {debugCorreia.map((item,i)=>(
-              <div key={item.id||`correia-${i}`}>
-                <pre
-                  style={{margin:0,padding:"10px 12px",background:"#0f0a1a",borderRadius:8,border:"1px solid #7c3aed",color:"#e9d5ff",fontSize:11,lineHeight:1.45,fontFamily:"ui-monospace,SFMono-Regular,Menlo,Consolas,monospace",overflow:"auto",maxHeight:280,whiteSpace:"pre-wrap",wordBreak:"break-word"}}
-                >{JSON.stringify(item,null,2)}</pre>
-                <button
-                  type="button"
-                  onClick={async()=>{
-                    if(!item?.id){setDebugCorreiaMsg("Sem id — não foi possível excluir.");return;}
-                    setDebugCorreiaMsg("");
-                    try{
-                      await onDeleteManutencao?.(item.id);
-                      setDebugCorreiaMsg("Excluído!");
-                    }catch{
-                      setDebugCorreiaMsg("Erro ao excluir. Tente de novo.");
-                    }
-                  }}
-                  style={{marginTop:8,width:"100%",background:"#7f1d1d",border:"1px solid #fca5a5",borderRadius:8,padding:"10px 12px",cursor:"pointer",color:"#fecaca",fontWeight:800,fontSize:13}}
-                >
-                  🗑️ Excluir este registro
-                </button>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}><h1 style={{color:C.navy,fontSize:22,fontWeight:900,fontFamily:"'Sora',sans-serif",margin:0}}>Meu Veículo</h1><PrimaryBtn onClick={abrirRegistrar} small disabled={limiteManut&&!isPago}><PlusIcon size={12}/> Registrar</PrimaryBtn></div>
 
       {/* CONSUMO POR VEÍCULO */}
@@ -6486,35 +6429,6 @@ const Manutencao=({manutencoes:items,onAddManutencao,onUpdateManutencao,onDelete
 
       {limiteManut&&!isPago&&(
         <LimiteAtingido mensagem={MSG_LIMITE.manutencao}/>
-      )}
-      {registrosSemData.length>0&&(
-        <div style={{background:"#FFFBEB",border:"1.5px solid #F59E0B",borderRadius:12,padding:"12px 14px"}}>
-          <div style={{color:"#B45309",fontWeight:800,fontSize:14,marginBottom:10}}>
-            ⚠️ Registros sem data ({registrosSemData.length})
-          </div>
-          <div style={{color:"#92400E",fontSize:12,marginBottom:10,lineHeight:1.4}}>
-            Invisíveis na lista mensal, mas podem aparecer no card de alertas. Exclua ou edite para corrigir.
-          </div>
-          <div style={{display:"flex",flexDirection:"column",gap:8}}>
-            {registrosSemData.map(item=>(
-              <div key={item.id||`${item.type}-${item.km}`} style={{background:"#fff",border:"1px solid #FCD34D",borderRadius:8,padding:"10px 12px",display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:10}}>
-                <div style={{minWidth:0,flex:1}}>
-                  <div style={{color:C.navy,fontWeight:700,fontSize:13}}>{maintTypesLabel(item)||"—"}</div>
-                  <div style={{color:C.muted,fontSize:12,marginTop:3,lineHeight:1.4}}>
-                    date: {item.date!=null&&String(item.date).trim()!==""?String(item.date):"(vazio)"}
-                    {item.km!=null&&String(item.km).trim()!==""?` · ${formatKm(item.km)} km`:""}
-                    {item.cost!=null?` · ${formatMoeda(item.cost||0)}`:""}
-                    {item.nextKm!=null&&String(item.nextKm).trim()!==""?` · próxima ${formatKm(item.nextKm)} km`:""}
-                    {item.vehicle?.trim()?` · ${item.vehicle.trim()}`:""}
-                  </div>
-                </div>
-                <button type="button" onClick={()=>setDel(item)} style={{background:C.redLight,border:"none",borderRadius:8,padding:"6px 10px",cursor:"pointer",color:C.red,fontWeight:700,fontSize:12,flexShrink:0,display:"flex",alignItems:"center",gap:4}}>
-                  <Trash2Icon size={13}/> Excluir
-                </button>
-              </div>
-            ))}
-          </div>
-        </div>
       )}
       <MonthNav mes={mesSel} ano={anoSel} onPrev={prevMes} onNext={nextMes}/>
       {itemsMes.length>0&&(
@@ -8538,10 +8452,10 @@ export default function App(){
         onViagem={()=>setCalcMode("viagem")}
         onOtimizar={()=>setCalcMode("otimizar")}
         onClose={()=>handleCalcModalClose()}/>}
-      {showCalc&&calcMode==="viagem"&&<TripCalcModal onClose={()=>handleCalcModalClose()} onConcluido={handleCalcConcluida} vehicles={vehicles} onGoMeuVeiculo={()=>{handleCalcModalClose();setPage("manutencao");}}/>}
-      {showCalc&&calcMode==="frete"&&<RouteCalcModal onClose={()=>handleCalcModalClose()} onConcluido={handleCalcConcluida} vehicles={vehicles} valorKmPadrao={valorKm} adicionalPadrao={adicionalFixo} onSalvarHistorico={handleAddFrete} perfil={perfil} uid={firebaseUser?.uid} onGoMeuVeiculo={()=>{handleCalcModalClose();setPage("manutencao");}}/>}
+      {showCalc&&calcMode==="viagem"&&<TripCalcModal onClose={()=>handleCalcModalClose()} onConcluido={handleCalcConcluida} vehicles={vehicles}/>}
+      {showCalc&&calcMode==="frete"&&<RouteCalcModal onClose={()=>handleCalcModalClose()} onConcluido={handleCalcConcluida} vehicles={vehicles} valorKmPadrao={valorKm} adicionalPadrao={adicionalFixo} onSalvarHistorico={handleAddFrete} perfil={perfil} uid={firebaseUser?.uid}/>}
       {showCalc&&calcMode==="otimizar"&&<OtimizarEntregasModal uid={firebaseUser?.uid} resumeNavigation={resumeNav} onNavigationResumed={()=>setResumeNav(false)} onClose={()=>handleCalcModalClose(()=>setResumeNav(false))} onConcluido={handleCalcConcluida} perfil={perfil} plan={plan}/>}
-      {showFechamento&&<FechamentoDia uid={firebaseUser?.uid} perfil={perfil} setPerfil={setPerfil} vehicles={vehicles} onSalvar={handleSaveJornada} onClose={()=>setShowFechamento(false)} onGoMeuVeiculo={()=>{setShowFechamento(false);setPage("manutencao");}}/>}
+      {showFechamento&&<FechamentoDia uid={firebaseUser?.uid} perfil={perfil} setPerfil={setPerfil} vehicles={vehicles} onSalvar={handleSaveJornada} onClose={()=>setShowFechamento(false)}/>}
       <AvaliacaoAppModal
         open={!!showAvaliacaoModal}
         origem={showAvaliacaoModal?.origem}
