@@ -5,10 +5,56 @@
 import { API_KEYS } from "./apiConfig.js";
 import { waitForGoogleMaps } from "./googleMapsLoader.js";
 
+/** Mensagem exibida quando o Geocoder/Places devolve só país/UF/cidade. */
+export const GEOCODE_TOO_GENERIC_MSG =
+  "Endereço muito genérico. Adicione rua e número (ex.: Rua das Flores, 100 - Centro).";
+
+/** Tipos com precisão suficiente para entrega. */
+const SPECIFIC_GEOCODE_TYPES = new Set([
+  "street_address",
+  "street_number",
+  "route",
+  "premise",
+  "subpremise",
+  "intersection",
+  "plus_code",
+  "establishment",
+  "point_of_interest",
+]);
+
+/** Tipos genéricos demais sozinhos (sem rua/número). */
+const GENERIC_GEOCODE_TYPES = new Set([
+  "country",
+  "continent",
+  "administrative_area_level_1",
+  "administrative_area_level_2",
+  "administrative_area_level_3",
+  "locality",
+  "postal_town",
+  "sublocality",
+  "sublocality_level_1",
+  "neighborhood",
+  "colloquial_area",
+  "political",
+]);
+
+/**
+ * True se o resultado do Google é só país/UF/cidade (sem rua/número/prédio).
+ * @param {string[]|undefined|null} types
+ */
+export function isGeocodeTypesTooGeneric(types) {
+  const list = Array.isArray(types)
+    ? types.map((t) => String(t || "").trim()).filter(Boolean)
+    : [];
+  if (!list.length) return false;
+  if (list.some((t) => SPECIFIC_GEOCODE_TYPES.has(t))) return false;
+  return list.some((t) => GENERIC_GEOCODE_TYPES.has(t));
+}
+
 /**
  * @param {string} address
  * @param {{ biasLngLat?: [number, number] | null }} [options]
- * @returns {Promise<{ lat: number, lng: number, formattedAddress: string } | null>}
+ * @returns {Promise<{ lat: number, lng: number, formattedAddress: string, types: string[], tooGeneric: boolean } | null>}
  */
 export async function geocodeAddressGoogle(address, options = {}) {
   const text = String(address || "").trim();
@@ -44,11 +90,15 @@ export async function geocodeAddressGoogle(address, options = {}) {
           resolve(null);
           return;
         }
-        const loc = results[0].geometry.location;
+        const top = results[0];
+        const loc = top.geometry.location;
+        const types = Array.isArray(top.types) ? top.types : [];
         resolve({
           lat: loc.lat(),
           lng: loc.lng(),
-          formattedAddress: results[0].formatted_address || text,
+          formattedAddress: top.formatted_address || text,
+          types,
+          tooGeneric: isGeocodeTypesTooGeneric(types),
         });
       });
     });

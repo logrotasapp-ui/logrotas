@@ -2095,17 +2095,21 @@ const OtimizarEntregasModal=({onClose,perfil,plan,uid,resumeNavigation=false,onN
     setAdicionandoNav(true);
     try{
       const geocoded=await geocodeRomaneioExtractedAddresses(novas);
-      if(geocoded[0]){
+      const validos=geocoded.filter(g=>Array.isArray(g?.coords)&&g.coords.length>=2&&!g.geocodeRejected);
+      const genericos=geocoded.filter(g=>g.tooGeneric||g.geocodeRejected);
+      if(validos[0]){
         // V233 — duplicado de parada PENDENTE: oferece adicionar pacote em vez de criar parada
-        const dupIdx=findDuplicateStopIndex(paradas,geocoded[0]);
+        const dupIdx=findDuplicateStopIndex(paradas,validos[0]);
         if(dupIdx>=0&&getParadaStatus(paradas[dupIdx])==="pendente"){
-          setDupQueue(q=>[...q,{parada:geocoded[0],idx:dupIdx}]);
+          setDupQueue(q=>[...q,{parada:validos[0],idx:dupIdx}]);
           setShowAddNavMenu(false);
           return;
         }
-        setParadaPendenteInsert(geocoded[0]);
+        setParadaPendenteInsert(validos[0]);
         setShowInsertOpcoes(true);
         setShowAddNavMenu(false);
+      }else if(genericos.length){
+        setErroNavAdd(genericos[0].geocodeError||"Endereço muito genérico. Adicione rua e número.");
       }else setErroNavAdd("Não foi possível localizar o endereço.");
     }catch{setErroNavAdd("Erro ao localizar endereço.");}
     finally{setAdicionandoNav(false);}
@@ -2194,12 +2198,15 @@ const OtimizarEntregasModal=({onClose,perfil,plan,uid,resumeNavigation=false,onN
       const geocoded=await geocodeRomaneioExtractedAddresses(novas,(feitos,total)=>{
         setOverlayMsg(`📍 Localizando endereços... ${feitos} de ${total}`);
       });
+      const rejeitados=geocoded.filter(g=>g.geocodeRejected||!Array.isArray(g?.coords)||g.coords.length<2);
+      const validos=geocoded.filter(g=>Array.isArray(g?.coords)&&g.coords.length>=2&&!g.geocodeRejected);
+      const nGenericos=rejeitados.filter(g=>g.tooGeneric).length;
       // V233 — duplicados (romaneio repete endereço = mais pacotes na mesma porta):
       // agrupa em uma única parada e soma os pacotes
       const unicos=[];
       const addsExistentes=new Map();
       const enderecosAgrupados=new Set();
-      for(const g of geocoded){
+      for(const g of validos){
         const mig=migrateParada(g);
         const nome=mig.pacotes?.[0]?.nome||"";
         const idxExist=findDuplicateStopIndex(paradas,g);
@@ -2227,7 +2234,14 @@ const OtimizarEntregasModal=({onClose,perfil,plan,uid,resumeNavigation=false,onN
         });
         return[...atualizadas,...unicos];
       });
-      logPacotes("importar",{novos:geocoded.length,agrupados:enderecosAgrupados.size});
+      logPacotes("importar",{novos:validos.length,rejeitados:rejeitados.length,agrupados:enderecosAgrupados.size});
+      if(rejeitados.length){
+        const n=rejeitados.length;
+        const base=nGenericos>0
+          ?`${n===1?"Endereço muito genérico":`${n} endereços muito genéricos`} — adicione rua e número`
+          :`${n===1?"Endereço não localizado":`${n} endereços não localizados`} — adicione manualmente`;
+        setAvisoScanFalha(`❌ ${base}`);
+      }
       if(enderecosAgrupados.size===1){
         const end=[...enderecosAgrupados][0];
         const idxAlvo=paradas.findIndex(p=>p.endereco===end);
@@ -2235,6 +2249,11 @@ const OtimizarEntregasModal=({onClose,perfil,plan,uid,resumeNavigation=false,onN
         setAvisoAgrupado(`📦 ${total} pacotes agrupados em ${end}`);
       }else if(enderecosAgrupados.size>1){
         setAvisoAgrupado(`📦 Pacotes agrupados em ${enderecosAgrupados.size} endereços repetidos`);
+      }
+      if(validos.length===0&&rejeitados.length>0&&!meta?.failedCount){
+        setErroFoto(nGenericos>0
+          ?"Nenhum endereço completo encontrado. Inclua rua e número e tente de novo."
+          :"Nenhum endereço pôde ser localizado no mapa. Tente o input manual.");
       }
       setAposConclusao(false);
     }catch{

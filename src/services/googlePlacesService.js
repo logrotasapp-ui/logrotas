@@ -109,7 +109,7 @@ export async function fetchGooglePlaceDetails(placeId) {
 
   return new Promise((resolve) => {
     placesDetailsService.getDetails(
-      { placeId, fields: ["geometry", "formatted_address"] },
+      { placeId, fields: ["geometry", "formatted_address", "types"] },
       (place, status) => {
         if (
           status !== PlacesServiceStatus.OK ||
@@ -122,6 +122,7 @@ export async function fetchGooglePlaceDetails(placeId) {
         resolve({
           label: place.formatted_address || "",
           coords: [loc.lng(), loc.lat()],
+          types: Array.isArray(place.types) ? place.types : [],
         });
       }
     );
@@ -130,7 +131,7 @@ export async function fetchGooglePlaceDetails(placeId) {
 
 /**
  * Resolve coordenadas de uma sugestão (Google place_id → lat/lng).
- * @param {{ label?: string, placeId?: string, coords?: number[] }} suggestion
+ * @param {{ label?: string, placeId?: string, coords?: number[], types?: string[] }} suggestion
  */
 export async function resolvePlaceSuggestion(suggestion) {
   if (!suggestion) return suggestion;
@@ -144,5 +145,6 @@ export async function resolvePlaceSuggestion(suggestion) {
     ...suggestion,
     label: details.label || suggestion.label,
     coords: details.coords,
+    types: details.types || suggestion.types || [],
   };
 }

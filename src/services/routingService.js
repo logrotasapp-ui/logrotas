@@ -23,9 +23,14 @@ import {
 } from "./routeOptimizer.js";
 
 export { findDuplicateStopIndex } from "./routeOptimizer.js";
-import { geocodeAddressGoogle } from "./googleGeocodingService.js";
+import {
+  geocodeAddressGoogle,
+  isGeocodeTypesTooGeneric,
+  GEOCODE_TOO_GENERIC_MSG,
+} from "./googleGeocodingService.js";
 
 export { resolvePlaceSuggestion } from "./googlePlacesService.js";
+export { GEOCODE_TOO_GENERIC_MSG, isGeocodeTypesTooGeneric } from "./googleGeocodingService.js";
 import { fileToImageBlob } from "./fileToImage.js";
 import {
   parseRomaneioTextToDestinations,
@@ -280,6 +285,8 @@ export async function resolveManualAddress(rawText, opts = {}) {
     ? { proximityLngLat: opts.proximityLngLat }
     : {};
 
+  let sawGenericOnly = false;
+
   for (const query of queries) {
     const res = await searchAddresses(query, { skipNormalize: true, ...searchBias });
     if (!res.ok) {
@@ -293,6 +300,10 @@ export async function resolveManualAddress(rawText, opts = {}) {
       const best = pickBestAddressSuggestion(normalized, res.suggestions);
       const resolved = await resolvePlaceSuggestion(best);
       if (!resolved?.coords) continue;
+      if (isGeocodeTypesTooGeneric(resolved.types)) {
+        sawGenericOnly = true;
+        continue;
+      }
       return {
         ok: true,
         endereco: resolved.label,
@@ -300,6 +311,14 @@ export async function resolveManualAddress(rawText, opts = {}) {
         normalized,
       };
     }
+  }
+
+  if (sawGenericOnly) {
+    return {
+      ok: false,
+      error: GEOCODE_TOO_GENERIC_MSG,
+      normalized,
+    };
   }
 
   return {
@@ -470,6 +489,7 @@ async function resolveStopLatLng(stop) {
   const g = await geocodeAddressGoogle(addr, {
     biasLngLat: cachedGeocodeProximity,
   });
+  if (g?.tooGeneric) return null;
   if (g?.lat != null && g?.lng != null) {
     return { lat: g.lat, lng: g.lng };
   }
@@ -592,7 +612,7 @@ export async function resolveCalculatorStopsCoords(stops) {
       continue;
     }
     const g = await geocodeAddressGoogle(addr, { biasLngLat: bias });
-    if (g) {
+    if (g && !g.tooGeneric) {
       out.push({ ...stop, coords: [g.lng, g.lat] });
     } else {
       out.push({ ...stop, coords: null });
@@ -676,7 +696,7 @@ export async function geocodeAddressForDisplay(endereco) {
   const g = await geocodeAddressGoogle(endereco, {
     biasLngLat: cachedGeocodeProximity,
   });
-  if (!g) return null;
+  if (!g || g.tooGeneric) return null;
   return { lng: g.lng, lat: g.lat };
 }
 
@@ -686,7 +706,7 @@ export async function geocodeAddressForDisplay(endereco) {
  */
 export async function geocodeRomaneioExtractedAddress(endereco, biasLngLat = null) {
   if (!API_KEYS.googleMaps || !endereco?.trim()) {
-    return { ok: false, endereco: null, coords: null };
+    return { ok: false, endereco: null, coords: null, error: "Endereço vazio." };
   }
 
   warmGeocodeProximity();
@@ -694,7 +714,22 @@ export async function geocodeRomaneioExtractedAddress(endereco, biasLngLat = nul
   const g = await geocodeAddressGoogle(endereco, { biasLngLat: proximity });
 
   if (!g) {
-    return { ok: false, endereco: null, coords: null };
+    return {
+      ok: false,
+      endereco: null,
+      coords: null,
+      error: "Não foi possível localizar o endereço.",
+    };
+  }
+
+  if (g.tooGeneric) {
+    return {
+      ok: false,
+      endereco: null,
+      coords: null,
+      error: GEOCODE_TOO_GENERIC_MSG,
+      tooGeneric: true,
+    };
   }
 
   const coords = [g.lng, g.lat];
@@ -710,6 +745,7 @@ export async function geocodeRomaneioExtractedAddress(endereco, biasLngLat = nul
 /**
  * V159 — Geocodifica lista de endereços do romaneio em sequência.
  * V232 — viés por chamada: GPS do motorista → média das já geocodificadas.
+ * Endereços genéricos demais (país/UF/cidade) são marcados e não entram com coords.
  */
 export async function geocodeRomaneioExtractedAddresses(paradas, onProgress) {
   warmGeocodeProximity();
@@ -726,7 +762,13 @@ export async function geocodeRomaneioExtractedAddresses(paradas, onProgress) {
       resolvedCoords.push(g.coords);
       out.push({ ...p, endereco: g.endereco, coords: g.coords });
     } else {
-      out.push(p);
+      out.push({
+        ...p,
+        coords: null,
+        geocodeRejected: true,
+        geocodeError: g.error || GEOCODE_TOO_GENERIC_MSG,
+        tooGeneric: !!g.tooGeneric,
+      });
     }
     // V235 — progresso real ("X de Y") para o overlay de importação
     try { onProgress?.(out.length, total); } catch { /* ignore */ }
@@ -748,7 +790,9 @@ async function resolveParadaCoordForOptimization(parada, biasLngLat = null) {
   }
   warmGeocodeProximity();
   const proximity = biasLngLat?.length >= 2 ? biasLngLat : resolveProximityForRomaneio();
-  return geocodeAddressGoogle(parada.endereco, { biasLngLat: proximity });
+  const g = await geocodeAddressGoogle(parada.endereco, { biasLngLat: proximity });
+  if (!g || g.tooGeneric) return null;
+  return { lng: g.lng, lat: g.lat };
 }
 
 // ── Romaneio: Google Cloud Vision (TEXT_DETECTION) ───────────────────────────
