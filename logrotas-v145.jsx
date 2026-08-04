@@ -1848,7 +1848,7 @@ const OtimizarEntregasModal=({onClose,perfil,plan,uid,resumeNavigation=false,onN
         motorista:perfil?.nome||"",
         paradas:lista.map(p=>sanitizeParadaForFirestore(p)),
         resultado:resultadoSnapshot,
-      });
+      },isPago);
       setRotaSalvaId(saved.id);
       await carregarHistorico();
       if(saved.synced===false){
@@ -1859,7 +1859,7 @@ const OtimizarEntregasModal=({onClose,perfil,plan,uid,resumeNavigation=false,onN
     }finally{
       setSalvandoRota(false);
     }
-  },[uid,paradas,resultado,perfil?.nome,carregarHistorico]);
+  },[uid,paradas,resultado,perfil?.nome,carregarHistorico,isPago]);
 
   useEffect(()=>{
     if(!modoNavegacao||!paradas.length||showResumo)return;

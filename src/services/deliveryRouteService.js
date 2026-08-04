@@ -5,6 +5,8 @@ import {
   addDoc,
   getDoc,
   deleteDoc,
+  query,
+  orderBy,
   serverTimestamp,
 } from "firebase/firestore";
 import { db } from "../firebase.js";
@@ -15,6 +17,11 @@ import {
 } from "./pacotesService.js";
 
 export const ENTREGAS_COLLECTION = "entregas";
+
+/** FREE: 1 rota; PAGO (trial/vitalício/assinatura): 5 rotas. */
+export function maxSavedDeliveryRoutes(isPago) {
+  return isPago ? 5 : 1;
+}
 
 function localRoutesKey(uid) {
   return `logrotas_entregas_${uid}`;
@@ -108,6 +115,28 @@ function colRef(uid) {
   return collection(db, "users", uid, ENTREGAS_COLLECTION);
 }
 
+function createdAtMs(value) {
+  if (value == null) return 0;
+  if (typeof value.toMillis === "function") return value.toMillis();
+  if (typeof value.toDate === "function") return value.toDate().getTime();
+  if (value instanceof Date) return value.getTime();
+  if (typeof value.seconds === "number") return value.seconds * 1000;
+  if (typeof value === "number") return value;
+  if (typeof value === "string") {
+    const t = Date.parse(value);
+    return Number.isNaN(t) ? 0 : t;
+  }
+  return 0;
+}
+
+function sortRoutesByCreatedAtDesc(items) {
+  return [...items].sort((a, b) => {
+    const diff = createdAtMs(b?.createdAt) - createdAtMs(a?.createdAt);
+    if (diff !== 0) return diff;
+    return String(b?.id || "").localeCompare(String(a?.id || ""));
+  });
+}
+
 function sortRoutesDesc(items) {
   return [...items].sort((a, b) => {
     const da = a?.date || "";
@@ -122,6 +151,37 @@ function sortRoutesDesc(items) {
     if (ha && hb && ha !== hb) return hb.localeCompare(ha);
     return String(b?.id || "").localeCompare(String(a?.id || ""));
   });
+}
+
+/**
+ * Mantém no máximo `maxRoutes` no cache local (mais recentes por createdAt).
+ * A rota `preferId` (recém-salva) tem prioridade e sempre permanece se existir.
+ */
+function enforceLocalRouteLimit(uid, maxRoutes, preferId) {
+  if (!uid || maxRoutes < 1) return;
+  let routes = readLocalRoutes(uid);
+  if (routes.length <= maxRoutes) return;
+
+  routes = sortRoutesByCreatedAtDesc(routes);
+  if (preferId) {
+    const preferred = routes.find((r) => r.id === preferId);
+    if (preferred) {
+      routes = [preferred, ...routes.filter((r) => r.id !== preferId)];
+    }
+  }
+  writeLocalRoutes(uid, routes.slice(0, maxRoutes));
+}
+
+/**
+ * Após salvar: remove do Firestore (e do cache via deleteDeliveryRoute)
+ * as rotas mais antigas que excederem o limite do plano.
+ */
+async function pruneExcessDeliveryRoutes(uid, maxRoutes) {
+  const snap = await getDocs(query(colRef(uid), orderBy("createdAt", "desc")));
+  const excess = snap.docs.slice(maxRoutes);
+  for (const d of excess) {
+    await deleteDeliveryRoute(uid, d.id);
+  }
 }
 
 function mergeRoutes(remote, local) {
@@ -142,7 +202,7 @@ export async function loadDeliveryRoutes(uid, max = 50) {
   const local = readLocalRoutes(uid);
 
   try {
-    const snap = await getDocs(colRef(uid));
+    const snap = await getDocs(query(colRef(uid), orderBy("createdAt", "desc")));
     const remote = snap.docs.map((d) => normalizeRouteDoc(d.id, d.data()));
     const merged = mergeRoutes(remote, local);
     writeLocalRoutes(uid, merged.slice(0, 100));
@@ -174,12 +234,17 @@ export async function loadDeliveryRouteDetail(uid, routeId) {
 
 /**
  * Salva rota finalizada no Firestore (+ cache local sempre).
+ * Aplica limite por plano: FREE=1, PAGO=5 (apaga as mais antigas por createdAt).
+ * @param {string} uid
+ * @param {object} routeData
+ * @param {boolean} [isPago=false]
  * @returns {Promise<object & { synced?: boolean, saveWarning?: string }>}
  */
-export async function saveDeliveryRoute(uid, routeData) {
+export async function saveDeliveryRoute(uid, routeData, isPago = false) {
   if (!uid) throw new Error("Usuário não autenticado.");
 
   const payload = buildPayload(routeData);
+  const maxRoutes = maxSavedDeliveryRoutes(!!isPago);
 
   try {
     const ref = await addDoc(colRef(uid), {
@@ -189,16 +254,20 @@ export async function saveDeliveryRoute(uid, routeData) {
     });
     const saved = { id: ref.id, ...payload, synced: true };
     appendLocalDeliveryRoute(uid, saved);
+    await pruneExcessDeliveryRoutes(uid, maxRoutes);
+    enforceLocalRouteLimit(uid, maxRoutes, saved.id);
     return saved;
   } catch (err) {
     const localId = `local_${Date.now()}`;
     const saved = {
       id: localId,
       ...payload,
+      createdAt: Date.now(),
       synced: false,
       saveWarning: err?.message || "Erro ao sincronizar com a nuvem.",
     };
     appendLocalDeliveryRoute(uid, saved);
+    enforceLocalRouteLimit(uid, maxRoutes, saved.id);
     return saved;
   }
 }

@@ -15,6 +15,7 @@ const {
   getPixQrCode,
   payWithCard,
 } = require("./asaas");
+const { deleteUserCompleteData } = require("./userCleanup");
 
 admin.initializeApp();
 
@@ -547,6 +548,87 @@ exports.generateBetaCodes = onCall(
       throw new HttpsError(
         "internal",
         "Não foi possível gerar os códigos beta. Tente novamente.",
+        { reason: "erro-interno" }
+      );
+    }
+  }
+);
+
+/**
+ * Exclusão completa de usuário (admin).
+ * Entrada: { targetUid }
+ * Ordem: limpa Firestore/Storage → apaga Auth por último.
+ * Sucesso: { success: true }
+ */
+exports.deleteUserComplete = onCall(
+  {
+    region: FUNCTION_REGION,
+    maxInstances: 10,
+  },
+  async (request) => {
+    if (!request.auth?.uid) {
+      throw new HttpsError(
+        "unauthenticated",
+        "Faça login para excluir um usuário.",
+        { reason: "nao-autenticado" }
+      );
+    }
+
+    const adminUid = request.auth.uid;
+
+    try {
+      await assertAdmin(adminUid);
+
+      const targetUid = String(request.data?.targetUid || "").trim();
+      if (!targetUid) {
+        throw new HttpsError(
+          "invalid-argument",
+          "Informe o targetUid do usuário a excluir.",
+          { reason: "target-uid-invalido" }
+        );
+      }
+
+      if (targetUid === adminUid) {
+        throw new HttpsError(
+          "failed-precondition",
+          "Não é permitido excluir a própria conta admin por esta função.",
+          { reason: "auto-exclusao-bloqueada" }
+        );
+      }
+
+      logger.info("deleteUserComplete: iniciando limpeza", {
+        adminUid,
+        targetUid,
+      });
+
+      await deleteUserCompleteData(targetUid);
+
+      logger.info("deleteUserComplete: apagando Auth", { targetUid });
+      try {
+        await auth.deleteUser(targetUid);
+      } catch (err) {
+        // Já removido no Console / outra rota — limpeza de dados já feita
+        if (err?.code === "auth/user-not-found") {
+          logger.info("deleteUserComplete: Auth já ausente (ok)", { targetUid });
+        } else {
+          throw err;
+        }
+      }
+
+      logger.info("deleteUserComplete: concluído", { adminUid, targetUid });
+      return { success: true };
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+
+      logger.error("deleteUserComplete falhou", {
+        adminUid,
+        err: err?.message,
+        code: err?.code,
+      });
+
+      throw new HttpsError(
+        "internal",
+        "Não foi possível excluir o usuário. Tente novamente.",
         { reason: "erro-interno" }
       );
     }
