@@ -876,6 +876,7 @@ ${String(rawText).trim()}`;
     const data = await res.json();
     const textBlock = (data.content || []).find((c) => c.type === "text");
     const responseText = textBlock?.text || "";
+    console.log("[DEBUG PDF] resposta bruta do Claude:", responseText); // REMOVER APÓS DEBUG
     const entries = parseClaudeDeliveryEntriesResponse(responseText);
     if (!entries.length) return null;
 
@@ -907,6 +908,7 @@ async function maybeClaudeOcrFallback(rawText, visionEntries, options = {}) {
   const { isPro, signal, onProgress } = options;
   const visionSnapshot = Array.isArray(visionEntries) ? [...visionEntries] : [];
   const confidence = assessVisionOcrConfidence(rawText, visionSnapshot);
+  console.log("[DEBUG PDF] confidence:", { score: confidence.score, low: confidence.low, reasons: confidence.reasons }); // REMOVER APÓS DEBUG
   const missingNome = entriesMissingDestinatarioNome(visionSnapshot);
   const shouldFallback = confidence.low || (isPro && missingNome);
 
@@ -914,6 +916,7 @@ async function maybeClaudeOcrFallback(rawText, visionEntries, options = {}) {
     return { entries: visionSnapshot, method: "vision", confidence };
   }
 
+  console.log("[DEBUG PDF] Claude foi chamado"); // REMOVER APÓS DEBUG
   logOcr(
     confidence.low
       ? "Vision confianca baixa -> fallback Claude"
@@ -1025,6 +1028,7 @@ export async function extractRomaneioAddressesFromImageVision(file, options = {}
 
     report(75, "Interpretando endereços…");
     const texto = extractVisionOcrText(res.data);
+    console.log("[DEBUG PDF] texto bruto da Vision:", texto); // REMOVER APÓS DEBUG
     const visionEntries = parseDeliveryEntriesFromLabelText(texto);
     const fallback = await maybeClaudeOcrFallback(texto, visionEntries, {
       isPro,
@@ -1032,6 +1036,7 @@ export async function extractRomaneioAddressesFromImageVision(file, options = {}
       onProgress: report,
     });
     const entries = fallback.entries;
+    console.log("[DEBUG PDF] entradas finais:", JSON.stringify(entries, null, 2)); // REMOVER APÓS DEBUG
     const ocrMethod = fallback.method;
     const addresses = entries.map((e) => e.endereco);
     const paradas = buildParadasFromEntries(entries);
