@@ -41,6 +41,7 @@ import {
   cleanAddressLine,
   assessVisionOcrConfidence,
   parseClaudeDeliveryEntriesResponse,
+  entriesMissingDestinatarioNome,
 } from "./romaneioRouting.js";
 
 export {
@@ -882,21 +883,29 @@ ${String(rawText).trim()}`;
 }
 
 /**
- * V260 — tenta Claude quando Vision tem baixa confiança (somente Pro).
+ * V260/V368 — Claude quando Vision tem baixa confiança OU (Pro) faltam nomes.
  */
 async function maybeClaudeOcrFallback(rawText, visionEntries, options = {}) {
   const { isPro, signal, onProgress } = options;
   const visionSnapshot = Array.isArray(visionEntries) ? [...visionEntries] : [];
   const confidence = assessVisionOcrConfidence(rawText, visionSnapshot);
+  const missingNome = entriesMissingDestinatarioNome(visionSnapshot);
+  const shouldFallback = confidence.low || (isPro && missingNome);
 
-  if (!isPro || !API_KEYS.anthropic || !confidence.low) {
+  if (!isPro || !API_KEYS.anthropic || !shouldFallback) {
     return { entries: visionSnapshot, method: "vision", confidence };
   }
 
-  logOcr("Vision confianca baixa -> fallback Claude", {
-    score: confidence.score,
-    reasons: confidence.reasons,
-  });
+  logOcr(
+    confidence.low
+      ? "Vision confianca baixa -> fallback Claude"
+      : "Nomes ausentes (Pro) -> fallback Claude",
+    {
+      score: confidence.score,
+      reasons: confidence.reasons,
+      missingNome,
+    }
+  );
 
   onProgress?.(82, "Interpretando com IA…");
 
@@ -907,7 +916,16 @@ async function maybeClaudeOcrFallback(rawText, visionEntries, options = {}) {
 
   if (claudeEntries?.length) {
     logOcr("Claude extraiu:", claudeEntries);
-    return { entries: claudeEntries, method: "vision+claude", confidence };
+    if (confidence.low) {
+      return { entries: claudeEntries, method: "vision+claude", confidence };
+    }
+    // Só faltava nome: preserva endereços do Vision e preenche nomes do Claude
+    const merged = visionSnapshot.map((v, i) => {
+      if (String(v?.nome || "").trim()) return v;
+      const nome = String(claudeEntries[i]?.nome || "").trim();
+      return nome ? { ...v, nome } : v;
+    });
+    return { entries: merged, method: "vision+claude-nome", confidence };
   }
 
   return { entries: visionSnapshot, method: "vision", confidence };

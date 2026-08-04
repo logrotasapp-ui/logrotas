@@ -81,10 +81,37 @@ function normalizeLine(line) {
 }
 
 function looksLikePersonNameOnly(line) {
-  if (STREET_HINT.test(line) || /\d/.test(line)) return false;
+  if (!line || STREET_HINT.test(line) || /\d/.test(line)) return false;
+  if (ONLY_CEP.test(line)) return false;
+  if (UF_TOKEN.test(line) && line.length < 40 && !/[a-zà-ú]{3,}/i.test(line.replace(UF_TOKEN, ""))) {
+    return false;
+  }
   const words = line.split(/\s+/).filter(Boolean);
   if (words.length < 2 || words.length > 5) return false;
-  return words.every((w) => /^[A-ZÀ-Ú][a-zà-ú]{1,}$/.test(w) || /^[A-ZÀ-Ú]{2,}$/.test(w));
+  // Title Case, ALL CAPS ou misto — sem dígitos / pontuação de endereço
+  return words.every(
+    (w) =>
+      /^[A-ZÀ-Ú][a-zà-ú]{1,}$/.test(w) ||
+      /^[A-ZÀ-Ú]{2,}$/.test(w) ||
+      /^[A-Za-zÀ-ú]{2,}$/.test(w)
+  );
+}
+
+/**
+ * Candidato a nome por posição (linha vizinha ao endereço), sem rótulo.
+ * Mais permissivo que looksLikePersonNameOnly: 2–4 palavras, só letras.
+ */
+function looksLikeNameCandidateNearAddress(line) {
+  if (!line || line.length < 3 || line.length > 80) return false;
+  if (STREET_HINT.test(line) || /\d/.test(line)) return false;
+  if (looksLikeAddress(line)) return false;
+  if (SKIP_LINE.test(line) || SKIP_LABEL_LINE.test(line) || TRACKING_CODE.test(line)) {
+    return false;
+  }
+  if (ONLY_CEP.test(line) || isCityOrCepContinuation(line)) return false;
+  const words = line.split(/\s+/).filter(Boolean);
+  if (words.length < 2 || words.length > 4) return false;
+  return words.every((w) => /^[A-Za-zÀ-ú]{2,}$/.test(w));
 }
 
 function looksLikeAddress(line) {
@@ -145,7 +172,7 @@ function joinAddressFragment(buffer, line) {
 export function normalizeAddressesForRouting(addresses) {
   // V235 — NUNCA deduplicar linhas: cada linha = 1 pacote. O agrupamento de
   // duplicados (texto igual ou geocodificação < 30 m) acontece DEPOIS, na
-  // montagem das paradas, somando os pacotes da parada existente (V233).
+  // montagem das paradas, somando os pacotes da parada existente (V233/V368 ~70 m).
   const result = [];
 
   for (const raw of addresses || []) {
@@ -225,7 +252,8 @@ function extractNomeFromLine(line) {
 }
 
 /**
- * V256 — extrai pares { nome, endereco } do OCR (cada etiqueta/linha = 1 pacote).
+ * V256/V368 — extrai pares { nome, endereco } do OCR (cada etiqueta/linha = 1 pacote).
+ * Prioridade de nome: rótulo explícito → Title/ALL CAPS → linha vizinha ao endereço.
  * @param {string} rawText
  * @returns {Array<{ nome: string, endereco: string }>}
  */
@@ -241,19 +269,30 @@ export function parseDeliveryEntriesFromLabelText(rawText) {
   let pendingNome = "";
   let buffer = "";
 
-  const flushAddress = () => {
+  const peekNeighborNome = (idx) => {
+    const prev = idx > 0 ? lines[idx - 1] : "";
+    const next = idx < lines.length - 1 ? lines[idx + 1] : "";
+    if (looksLikeNameCandidateNearAddress(prev)) return prev;
+    if (looksLikeNameCandidateNearAddress(next)) return next;
+    return "";
+  };
+
+  const flushAddress = (atLineIdx = -1) => {
     if (!buffer) return;
     const addrs = normalizeAddressesForRouting([buffer]);
     if (addrs.length) {
-      entries.push({ nome: pendingNome || "", endereco: addrs[0] });
+      let nome = pendingNome || "";
+      if (!nome && atLineIdx >= 0) nome = peekNeighborNome(atLineIdx);
+      entries.push({ nome: nome || "", endereco: addrs[0] });
       pendingNome = "";
     }
     buffer = "";
   };
 
-  for (const line of lines) {
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
     if (TRACKING_CODE.test(line)) {
-      flushAddress();
+      flushAddress(i);
       pendingNome = "";
       continue;
     }
@@ -261,13 +300,13 @@ export function parseDeliveryEntriesFromLabelText(rawText) {
 
     const nomeLabel = extractNomeFromLine(line);
     if (nomeLabel) {
-      flushAddress();
+      flushAddress(i);
       pendingNome = nomeLabel;
       continue;
     }
 
     if (looksLikePersonNameOnly(line) && !STREET_HINT.test(line)) {
-      flushAddress();
+      flushAddress(i);
       pendingNome = line;
       continue;
     }
@@ -279,21 +318,35 @@ export function parseDeliveryEntriesFromLabelText(rawText) {
 
     if (!looksLikeAddress(line)) {
       if (buffer && line.length > 2 && line.length < 80 && !SKIP_LINE.test(line)) {
+        // Linha após endereço: se parece nome, guarda como destinatário (não junta no endereço)
+        if (!pendingNome && looksLikeNameCandidateNearAddress(line)) {
+          pendingNome = line;
+          continue;
+        }
         buffer = joinAddressFragment(buffer, cleanAddressLine(line));
       }
       continue;
     }
 
     if (startsNewAddress(line)) {
-      flushAddress();
+      flushAddress(i);
       buffer = line;
+      // Linha imediatamente anterior ao endereço = candidato a nome (sem rótulo)
+      if (!pendingNome) {
+        const prev = i > 0 ? lines[i - 1] : "";
+        if (looksLikeNameCandidateNearAddress(prev)) pendingNome = prev;
+      }
     } else if (buffer) {
       buffer = joinAddressFragment(buffer, line);
     } else {
       buffer = line;
+      if (!pendingNome) {
+        const prev = i > 0 ? lines[i - 1] : "";
+        if (looksLikeNameCandidateNearAddress(prev)) pendingNome = prev;
+      }
     }
   }
-  flushAddress();
+  flushAddress(lines.length - 1);
 
   if (entries.length === 0) {
     const addresses = parseDeliveryAddressesFromLabelText(rawText);
@@ -301,6 +354,16 @@ export function parseDeliveryEntriesFromLabelText(rawText) {
   }
 
   return entries.slice(0, 50);
+}
+
+/** Entradas com endereço ok mas nome vazio — gatilho Pro para fallback Claude (V368). */
+export function entriesMissingDestinatarioNome(entries) {
+  const list = Array.isArray(entries) ? entries : [];
+  return list.some((e) => {
+    const addr = cleanAddressLine(e?.endereco || "");
+    const nome = String(e?.nome || "").trim();
+    return addr.length >= 12 && !nome;
+  });
 }
 
 /** V260 — avalia confiança do OCR Vision para decidir fallback Claude. */

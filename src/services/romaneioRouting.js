@@ -10,6 +10,7 @@ import {
   cleanAddressLine,
   assessVisionOcrConfidence,
   parseClaudeDeliveryEntriesResponse,
+  entriesMissingDestinatarioNome,
 } from "./romaneioParser.js";
 import { createPacote, deriveParadaFromPacotes } from "./pacotesService.js";
 
@@ -20,6 +21,7 @@ export {
   parseDeliveryEntriesFromLabelText,
   assessVisionOcrConfidence,
   parseClaudeDeliveryEntriesResponse,
+  entriesMissingDestinatarioNome,
 };
 
 export function parseRomaneioTextToDestinations(rawText) {

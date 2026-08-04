@@ -151,33 +151,59 @@ export function medianCenter(points) {
   };
 }
 
-/** V232 — raio para considerar duas paradas o mesmo ponto (30 metros). */
-const DUPLICATE_RADIUS_KM = 0.03;
+/** V368 — raio para considerar duas paradas o mesmo ponto (~70 m; geocode urbano varia). */
+const DUPLICATE_RADIUS_KM = 0.07;
 
 /**
- * V232 — Detector de duplicados: mesmo endereço formatado (case-insensitive)
- * ou coordenadas a menos de 30 m.
+ * Normaliza endereço para dedupe: minúsculas, sem acento, sem pontuação, espaços colapsados.
+ */
+export function normalizeAddressForDedupe(s) {
+  return String(s || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function addressesTextMatchForDedupe(a, b) {
+  if (!a || !b) return false;
+  if (a === b) return true;
+  const shorter = a.length <= b.length ? a : b;
+  const longer = a.length <= b.length ? b : a;
+  // Mesma rua/número com cidade/UF formatada diferente no Geocoder
+  if (shorter.length >= 12 && longer.includes(shorter)) return true;
+  return false;
+}
+
+/**
+ * V232/V368 — Detector de duplicados: texto normalizado (acentos/pontuação) ou coords ~70 m.
  * @param {Array<{ endereco?: string, coords?: number[] }>} paradas
  * @param {{ endereco?: string, coords?: number[] }} nova
  * @returns {number} índice da parada duplicada, ou -1
  */
 export function findDuplicateStopIndex(paradas, nova) {
-  const norm = (s) => String(s || "").trim().toLowerCase();
-  const novaEnd = norm(nova?.endereco);
+  const novaEnd = normalizeAddressForDedupe(nova?.endereco);
   const novaCoords =
     Array.isArray(nova?.coords) && nova.coords.length >= 2 ? nova.coords : null;
 
   for (let i = 0; i < (paradas || []).length; i++) {
     const p = paradas[i];
-    if (novaEnd && norm(p?.endereco) === novaEnd) return i;
+    const pEnd = normalizeAddressForDedupe(p?.endereco);
+    const textMatch = addressesTextMatchForDedupe(novaEnd, pEnd);
     const c = Array.isArray(p?.coords) && p.coords.length >= 2 ? p.coords : null;
+    let withinRadius = false;
     if (novaCoords && c) {
       const d = haversine(
         { lat: c[1], lng: c[0] },
         { lat: novaCoords[1], lng: novaCoords[0] }
       );
-      if (d < DUPLICATE_RADIUS_KM) return i;
+      withinRadius = d < DUPLICATE_RADIUS_KM;
     }
+
+    // Texto igual/contido, ou proximidade geográfica, ou ambos (mesmo local)
+    if (textMatch || withinRadius) return i;
   }
   return -1;
 }
