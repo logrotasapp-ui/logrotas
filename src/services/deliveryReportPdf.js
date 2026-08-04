@@ -30,7 +30,8 @@ export function buildDeliveryReportText(data) {
     "LogRotas — Relatório de Entregas",
     "",
     `Motorista: ${data.motorista || "—"}`,
-    `Data: ${data.date || "—"}  Hora: ${data.hora || "—"}`,
+    `Data: ${data.date || "—"}`,
+    `Início: ${data.horaInicio || "—"}  Término: ${data.hora || "—"}`,
     "",
     "Resumo",
     `Total de paradas: ${data.total ?? data.paradas?.length ?? 0}`,
@@ -87,7 +88,13 @@ function buildPdfDocument(data, jsPDF) {
   doc.setFontSize(11);
   doc.text(`Motorista: ${data.motorista || "—"}`, margin, y);
   y += 6;
-  doc.text(`Data: ${data.date || "—"}    Hora: ${data.hora || "—"}`, margin, y);
+  doc.text(`Data: ${data.date || "—"}`, margin, y);
+  y += 6;
+  doc.text(
+    `Início: ${data.horaInicio || "—"}    Término: ${data.hora || "—"}`,
+    margin,
+    y
+  );
   y += 10;
 
   doc.setFont("helvetica", "bold");

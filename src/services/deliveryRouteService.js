@@ -101,6 +101,7 @@ function buildPayload(routeData) {
   return {
     date: routeData.date || paradas[0]?.data || "",
     hora: routeData.hora || paradas[0]?.horario || "",
+    horaInicio: routeData.horaInicio || "",
     motorista: routeData.motorista || "",
     totalParadas: paradas.length,
     entregues,

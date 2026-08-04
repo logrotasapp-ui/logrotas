@@ -30,6 +30,8 @@ export function normalizePacote(p) {
       p.status === "entregue" || p.status === "nao_entregue" ? p.status : "pendente",
     motivoNaoEntrega: p.motivoNaoEntrega || "",
     horario: p.horario || "",
+    // Flag só em memória/UI — não vai ao Firestore (sanitizePacoteForFirestore)
+    ...(p.numeroTocado === true ? { numeroTocado: true } : {}),
   };
 }
 
@@ -146,6 +148,20 @@ export function pacotesNumerosLabel(parada) {
   const nums = list.map((pk) => String(pk.numero || "").trim()).filter(Boolean);
   if (!nums.length) return "";
   return nums.length === 1 ? `Pacote ${nums[0]}` : `Pacotes ${nums.join(", ")}`;
+}
+
+/** Nomes de destinatários preenchidos (únicos, na ordem dos pacotes). */
+export function pacotesDestinatariosLabel(parada) {
+  const list = migrateParada(parada).pacotes || [];
+  const seen = new Set();
+  const nomes = [];
+  for (const pk of list) {
+    const nome = (pk.nome || "").trim();
+    if (!nome || seen.has(nome)) continue;
+    seen.add(nome);
+    nomes.push(nome);
+  }
+  return nomes.join(", ");
 }
 
 export function resumoPacotesLabel(parada) {

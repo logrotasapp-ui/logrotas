@@ -112,6 +112,7 @@ import {
   pacoteDisplayName,
   resumoPacotesLabel,
   pacotesNumerosLabel,
+  pacotesDestinatariosLabel,
   totalPacotesEmParadas,
   countPacotesStats,
   adicionarPacoteNaParada,
@@ -1346,6 +1347,14 @@ function formatNowBR(){
   };
 }
 
+function formatMsToHorarioBR(ms){
+  if(!Number.isFinite(ms)||ms<=0)return "";
+  const d=new Date(ms);
+  if(Number.isNaN(d.getTime()))return "";
+  const pad=n=>String(n).padStart(2,"0");
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 const HistoricoEntregasScreen=({
   onBack,
   uid,
@@ -1413,7 +1422,10 @@ const HistoricoEntregasScreen=({
                   <button type="button" onClick={()=>setAbertoId(aberto?null:r.id)}
                     style={{width:"100%",textAlign:"left",background:"transparent",border:"none",padding:"12px 14px",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"space-between",gap:10}}>
                     <div style={{flex:1,minWidth:0}}>
-                      <div style={{color:C.text,fontWeight:800,fontSize:15,fontFamily:"'Sora',sans-serif",lineHeight:1.35}}>{r.date||"—"}{r.hora?` · ${r.hora}`:""} · {r.totalParadas||0} paradas</div>
+                      <div style={{color:C.text,fontWeight:800,fontSize:15,fontFamily:"'Sora',sans-serif",lineHeight:1.35}}>{r.date||"—"} · {r.totalParadas||0} paradas</div>
+                      <div style={{color:C.muted,fontSize:12,marginTop:3}}>
+                        Início: {r.horaInicio||"—"} · Término: {r.hora||"—"}
+                      </div>
                       <div style={{color:C.muted,fontSize:12,marginTop:3}}>
                         ✅ {r.entregues||0} entregues · ❌ {r.naoEntregues||0} não entregues
                         {r.synced===false&&<span style={{color:C.amber,marginLeft:6}}>· só no dispositivo</span>}
@@ -1664,8 +1676,8 @@ const OtimizarEntregasModal=({onClose,perfil,plan,uid,resumeNavigation=false,onN
     onNavigationResumed?.();
   },[resumeNavigation,onNavigationResumed]);
 
-  // V290 — numeração automática, sequencial e FIXA: todo pacote sem número recebe o
-  // próximo da sequência (na ordem de entrada). Números já atribuídos nunca mudam.
+  // V290 — numeração automática, sequencial e FIXA: pacotes novos sem número recebem o
+  // próximo da sequência. Pacotes tocados manualmente (numeroTocado) nunca são sobrescritos.
   useEffect(()=>{
     if(!offlineHydrated)return;
     let counter=seqRef.current;
@@ -1674,6 +1686,7 @@ const OtimizarEntregasModal=({onClose,perfil,plan,uid,resumeNavigation=false,onN
       const m=migrateParada(p);
       let pacChanged=false;
       const pacotes=m.pacotes.map(pk=>{
+        if(pk.numeroTocado===true)return pk;
         if(String(pk.numero??"").trim()===""){
           counter+=1;
           pacChanged=true;
@@ -1800,6 +1813,7 @@ const OtimizarEntregasModal=({onClose,perfil,plan,uid,resumeNavigation=false,onN
   const finalizarRota=useCallback(async(listaParadas)=>{
     const lista=migrateParadas(listaParadas||paradas);
     const ts=formatNowBR();
+    const horaInicio=formatMsToHorarioBR(horarioBaseMs);
     const resultadoSnapshot=resultado?{...resultado}:null;
     const statsPkg=countPacotesStats(lista);
     const stats={
@@ -1818,6 +1832,7 @@ const OtimizarEntregasModal=({onClose,perfil,plan,uid,resumeNavigation=false,onN
       ),
       data:ts.data,
       hora:ts.horario,
+      horaInicio,
       motorista:perfil?.nome||"",
       paradas:lista.map(p=>sanitizeParadaForFirestore(p)),
     };
@@ -1845,6 +1860,7 @@ const OtimizarEntregasModal=({onClose,perfil,plan,uid,resumeNavigation=false,onN
       const saved=await saveDeliveryRoute(uid,{
         date:ts.data,
         hora:ts.horario,
+        horaInicio,
         motorista:perfil?.nome||"",
         paradas:lista.map(p=>sanitizeParadaForFirestore(p)),
         resultado:resultadoSnapshot,
@@ -1859,7 +1875,7 @@ const OtimizarEntregasModal=({onClose,perfil,plan,uid,resumeNavigation=false,onN
     }finally{
       setSalvandoRota(false);
     }
-  },[uid,paradas,resultado,perfil?.nome,carregarHistorico,isPago]);
+  },[uid,paradas,resultado,perfil?.nome,carregarHistorico,isPago,horarioBaseMs]);
 
   useEffect(()=>{
     if(!modoNavegacao||!paradas.length||showResumo)return;
@@ -2064,6 +2080,7 @@ const OtimizarEntregasModal=({onClose,perfil,plan,uid,resumeNavigation=false,onN
       motorista:r.motorista||perfil?.nome||"",
       date:r.date||"",
       hora:r.hora||"",
+      horaInicio:r.horaInicio||"",
       total:r.totalParadas||r.paradas?.length||0,
       entregues:r.entregues??0,
       naoEntregues:r.naoEntregues??0,
@@ -2284,7 +2301,7 @@ const OtimizarEntregasModal=({onClose,perfil,plan,uid,resumeNavigation=false,onN
     setParadas(prev=>prev.map(p=>{
       if(String(p.id)!==String(paradaId))return p;
       const m=migrateParada(p);
-      return{...m,pacotes:m.pacotes.map(pk=>pk.id===pacoteId?{...pk,numero}:pk)};
+      return{...m,pacotes:m.pacotes.map(pk=>pk.id===pacoteId?{...pk,numero,numeroTocado:true}:pk)};
     }));
   };
 
@@ -2647,6 +2664,11 @@ const OtimizarEntregasModal=({onClose,perfil,plan,uid,resumeNavigation=false,onN
                   <div style={{color:getParadaStatus(p)!=="pendente"?"#64748B":C.text,fontSize:13,textDecoration:getParadaStatus(p)!=="pendente"?"line-through":"none",lineHeight:1.4}}>
                     {p.endereco}
                   </div>
+                  {pacotesDestinatariosLabel(p)&&(
+                    <div style={{color:C.navy,fontSize:12,fontWeight:700,marginTop:4,lineHeight:1.35}}>
+                      👤 {pacotesDestinatariosLabel(p)}
+                    </div>
+                  )}
                   <div style={{display:"flex",flexWrap:"wrap",gap:12,rowGap:6,marginTop:6,alignItems:"center"}}>
                     {pacotesNumerosLabel(p)?(
                       <div style={{display:"inline-block",background:"#fff",border:`1px solid ${OTIMIZAR_LARANJA}`,borderRadius:10,padding:"2px 8px",color:OTIMIZAR_LARANJA,fontSize:12,fontWeight:500}}>
@@ -2815,7 +2837,7 @@ const OtimizarEntregasModal=({onClose,perfil,plan,uid,resumeNavigation=false,onN
           {/* Iniciar navegação embutida */}
           <button onClick={iniciarNavegacao}
             style={{width:"100%",padding:"16px",background:`linear-gradient(135deg,${OTIMIZAR_AZUL},${OTIMIZAR_AZUL_MID})`,border:"none",borderRadius:14,cursor:"pointer",color:"#fff",fontWeight:800,fontSize:16,fontFamily:"'Sora',sans-serif",display:"flex",alignItems:"center",justifyContent:"center",gap:9,boxShadow:`0 4px 20px ${OTIMIZAR_AZUL}44`}}>
-            <NavigationIcon size={20}/> {pendentesCount<paradas.length?"Continuar Navegação":"Iniciar Navegação"}
+            <NavigationIcon size={20}/> {pendentesCount<paradas.length?"Voltar à Rota":"Ver Rota no Mapa"}
           </button>
 
           {/* V287 — ordem de carregamento (carregar o veículo) */}
@@ -8475,7 +8497,7 @@ export default function App(){
           <div style={{maxWidth:820,margin:"0 auto",display:"flex",alignItems:"center",justifyContent:"space-between",gap:12}}>
             <div style={{flex:1,minWidth:0}}>
               <div style={{color:"#fff",fontWeight:800,fontSize:14,fontFamily:"'Sora',sans-serif"}}>
-                🧭 Navegação em andamento — Parada {(navBanner.paradaAtualIdx??0)+1} de {navBanner.totalParadas}
+                🧭 Rota em andamento — Parada {(navBanner.paradaAtualIdx??0)+1} de {navBanner.totalParadas}
               </div>
               <div style={{color:"rgba(255,255,255,0.7)",fontSize:11,marginTop:2}}>
                 Arraste pra baixo para fechar
