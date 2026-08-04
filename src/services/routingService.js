@@ -823,7 +823,6 @@ function visionErrorMessage(res) {
  */
 function extractVisionOcrText(data) {
   const response = data?.responses?.[0];
-  console.log("[DEBUG PDF] erro no response da Vision:", response?.error); // REMOVER APÓS DEBUG
   if (!response) return "";
   if (response.error) {
     const msg =
@@ -891,7 +890,6 @@ ${String(rawText).trim()}`;
     const data = await res.json();
     const textBlock = (data.content || []).find((c) => c.type === "text");
     const responseText = textBlock?.text || "";
-    console.log("[DEBUG PDF] resposta bruta do Claude:", responseText); // REMOVER APÓS DEBUG
     const entries = parseClaudeDeliveryEntriesResponse(responseText);
     if (!entries.length) return null;
 
@@ -923,7 +921,6 @@ async function maybeClaudeOcrFallback(rawText, visionEntries, options = {}) {
   const { isPro, signal, onProgress } = options;
   const visionSnapshot = Array.isArray(visionEntries) ? [...visionEntries] : [];
   const confidence = assessVisionOcrConfidence(rawText, visionSnapshot);
-  console.log("[DEBUG PDF] confidence:", { score: confidence.score, low: confidence.low, reasons: confidence.reasons }); // REMOVER APÓS DEBUG
   const missingNome = entriesMissingDestinatarioNome(visionSnapshot);
   const shouldFallback = confidence.low || (isPro && missingNome);
 
@@ -931,7 +928,6 @@ async function maybeClaudeOcrFallback(rawText, visionEntries, options = {}) {
     return { entries: visionSnapshot, method: "vision", confidence };
   }
 
-  console.log("[DEBUG PDF] Claude foi chamado"); // REMOVER APÓS DEBUG
   logOcr(
     confidence.low
       ? "Vision confianca baixa -> fallback Claude"
@@ -1060,7 +1056,6 @@ async function ocrSingleImageToEntries(file, options = {}) {
   }
 
   const texto = vision.texto || "";
-  console.log("[DEBUG PDF] texto bruto da Vision:", texto); // REMOVER APÓS DEBUG
 
   onProgress?.(75, "Interpretando endereços…");
   const visionEntries = parseDeliveryEntriesFromLabelText(texto);
@@ -1070,7 +1065,6 @@ async function ocrSingleImageToEntries(file, options = {}) {
     onProgress,
   });
   const entries = fallback.entries;
-  console.log("[DEBUG PDF] entradas finais:", JSON.stringify(entries, null, 2)); // REMOVER APÓS DEBUG
 
   return {
     ok: true,
@@ -1233,13 +1227,11 @@ export async function extractRomaneioAddressesFromImage(file, options = {}) {
       if (!page.ok) {
         lastError = page.error || lastError;
         logOcr(`PDF página ${pageNum}/${total} falhou`, page.error);
-        console.log(`[DEBUG PDF] página ${pageNum} erro:`, page.error); // REMOVER APÓS DEBUG
         continue;
       }
 
       pagesOk += 1;
       const textoPagina = String(page.texto || "").trim();
-      console.log(`[DEBUG PDF] texto bruto página ${pageNum}:`, page.texto); // REMOVER APÓS DEBUG
       if (textoPagina) pageTexts.push(textoPagina);
     }
 
@@ -1261,7 +1253,6 @@ export async function extractRomaneioAddressesFromImage(file, options = {}) {
 
     // Fronteira entre páginas: \n\n evita colar última linha com a primeira da próxima
     const textoCombinado = pageTexts.join("\n\n");
-    console.log("[DEBUG PDF] texto combinado (todas as páginas):", textoCombinado); // REMOVER APÓS DEBUG
 
     onProgress?.(88, "Interpretando endereços…");
     const visionEntries = parseDeliveryEntriesFromLabelText(textoCombinado);
@@ -1271,7 +1262,6 @@ export async function extractRomaneioAddressesFromImage(file, options = {}) {
       onProgress,
     });
     const entries = fallback.entries;
-    console.log("[DEBUG PDF] entradas finais:", JSON.stringify(entries, null, 2)); // REMOVER APÓS DEBUG
 
     onProgress?.(100, "Concluído");
     const result = finalizeRomaneioEntriesResult(
