@@ -298,8 +298,8 @@ function extractNomeFromLine(line) {
 }
 
 /**
- * V256/V370 — extrai { nome, endereco, complemento } do OCR (cada etiqueta = 1 pacote).
- * Prioridade de nome: rótulo explícito → Title/ALL CAPS → linha vizinha ao endereço.
+ * V256/V371 — extrai { nome, endereco, complemento } do OCR (cada etiqueta = 1 pacote).
+ * Suporta NOME→ENDEREÇO e ENDEREÇO→NOME (sem rótulo), entrada a entrada.
  * @param {string} rawText
  * @returns {Array<{ nome: string, endereco: string, complemento: string }>}
  */
@@ -343,6 +343,43 @@ export function parseDeliveryEntriesFromLabelText(rawText) {
     buffer = "";
   };
 
+  /**
+   * Nome sem rótulo: decide entre NOME→ENDEREÇO e ENDEREÇO→NOME pelo estado atual.
+   * - buffer com endereço e sem pendingNome → nome fecha o endereço atual (addr→nome)
+   * - buffer com pendingNome já setado → fecha com o pendente e banca este nome (nome→addr→nome)
+   * - buffer vazio e última entrada sem nome → aplica retroativo
+   * - senão → pendingNome para o próximo endereço (nome→endereço)
+   */
+  const assignUnlabeledName = (nameLine) => {
+    if (buffer) {
+      if (pendingNome) {
+        flushAddress(-1);
+        pendingNome = nameLine;
+      } else {
+        pendingNome = nameLine;
+        flushAddress(-1);
+      }
+      return;
+    }
+    const last = entries[entries.length - 1];
+    if (last && !(last.nome || "").trim()) {
+      last.nome = nameLine;
+      return;
+    }
+    flushAddress(-1);
+    pendingNome = nameLine;
+  };
+
+  /** Evita reaplicar o nome da entrada que acabou de ser fechada (formato addr→nome). */
+  const maybeSeedPendingFromPrevLine = (i) => {
+    if (pendingNome) return;
+    const prev = i > 0 ? lines[i - 1] : "";
+    if (!looksLikeNameCandidateNearAddress(prev)) return;
+    const last = entries[entries.length - 1];
+    if (last && (last.nome || "").trim() === prev) return;
+    pendingNome = prev;
+  };
+
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     if (TRACKING_CODE.test(line)) {
@@ -360,14 +397,12 @@ export function parseDeliveryEntriesFromLabelText(rawText) {
 
     const nomeLabel = extractNomeFromLine(line);
     if (nomeLabel) {
-      flushAddress(i);
-      pendingNome = nomeLabel;
+      assignUnlabeledName(nomeLabel);
       continue;
     }
 
     if (looksLikePersonNameOnly(line) && !STREET_HINT.test(line)) {
-      flushAddress(i);
-      pendingNome = line;
+      assignUnlabeledName(line);
       continue;
     }
 
@@ -390,6 +425,11 @@ export function parseDeliveryEntriesFromLabelText(rawText) {
           continue;
         }
         buffer = joinAddressFragment(buffer, cleanAddressLine(line));
+      } else if (
+        !buffer &&
+        looksLikeNameCandidateNearAddress(line)
+      ) {
+        assignUnlabeledName(line);
       }
       continue;
     }
@@ -401,21 +441,23 @@ export function parseDeliveryEntriesFromLabelText(rawText) {
         pendingComplemento = peeledStart.complemento;
       }
       buffer = peeledStart.text || line;
-      if (!pendingNome) {
-        const prev = i > 0 ? lines[i - 1] : "";
-        if (looksLikeNameCandidateNearAddress(prev)) pendingNome = prev;
-      }
+      maybeSeedPendingFromPrevLine(i);
     } else if (buffer) {
       buffer = joinAddressFragment(buffer, line);
     } else {
       buffer = line;
-      if (!pendingNome) {
-        const prev = i > 0 ? lines[i - 1] : "";
-        if (looksLikeNameCandidateNearAddress(prev)) pendingNome = prev;
-      }
+      maybeSeedPendingFromPrevLine(i);
     }
   }
   flushAddress(lines.length - 1);
+
+  // Último nome órfão (formato endereço→nome no fim da lista)
+  if (pendingNome && entries.length) {
+    const last = entries[entries.length - 1];
+    if (!(last.nome || "").trim()) {
+      last.nome = pendingNome;
+    }
+  }
 
   if (entries.length === 0) {
     const addresses = parseDeliveryAddressesFromLabelText(rawText);
