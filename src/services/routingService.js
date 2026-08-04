@@ -796,7 +796,7 @@ async function resolveParadaCoordForOptimization(parada, biasLngLat = null) {
   return { lng: g.lng, lat: g.lat };
 }
 
-// ── Romaneio: Google Cloud Vision (TEXT_DETECTION) ───────────────────────────
+// ── Romaneio: Google Cloud Vision (DOCUMENT_TEXT_DETECTION) ──────────────────
 // Instrução de extração (Vision não aceita prompt nativo — aplicada no pós-processamento OCR):
 // VISION_ADDRESS_EXTRACTION_INSTRUCTION em romaneioParser.js
 
@@ -815,9 +815,24 @@ function visionErrorMessage(res) {
   return "Erro ao processar a imagem. Verifique sua conexão e tente novamente.";
 }
 
+/**
+ * Extrai texto OCR da resposta Vision (DOCUMENT_TEXT_DETECTION / TEXT_DETECTION).
+ * Ambos preenchem fullTextAnnotation.text; falha por item (HTTP 200 + error) lança.
+ * @param {object} data — corpo JSON da Vision (images:annotate)
+ * @returns {string}
+ */
 function extractVisionOcrText(data) {
   const response = data?.responses?.[0];
+  console.log("[DEBUG PDF] erro no response da Vision:", response?.error); // REMOVER APÓS DEBUG
   if (!response) return "";
+  if (response.error) {
+    const msg =
+      response.error.message ||
+      response.error.status ||
+      "Falha na leitura OCR da imagem.";
+    throw new Error(String(msg));
+  }
+  // DOCUMENT_TEXT_DETECTION e TEXT_DETECTION usam o mesmo campo de texto completo
   if (response.fullTextAnnotation?.text) return response.fullTextAnnotation.text;
   if (response.textAnnotations?.[0]?.description) {
     return response.textAnnotations[0].description;
@@ -995,7 +1010,7 @@ export async function extractRomaneioAddressesFromImageVision(file, options = {}
         requests: [
           {
             image: { content: imgBase64 },
-            features: [{ type: "TEXT_DETECTION" }],
+            features: [{ type: "DOCUMENT_TEXT_DETECTION" }],
             imageContext: {
               languageHints: ["pt", "pt-BR"],
             },
