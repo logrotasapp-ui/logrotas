@@ -826,7 +826,7 @@ function extractVisionOcrText(data) {
 }
 
 /**
- * V260 — fallback Pro: Claude Haiku interpreta texto OCR bruto do Vision.
+ * V260/V372 — fallback Pro: Claude Haiku interpreta texto OCR bruto do Vision.
  * @param {string} rawText
  * @param {{ signal?: { aborted?: boolean } }} [options]
  * @returns {Promise<Array<{ nome: string, endereco: string, complemento?: string }>|null>}
@@ -842,6 +842,7 @@ Extraia cada etiqueta/destinatário como um objeto JSON com exatamente as chaves
 - "nome": nome do destinatário (string vazia se não houver)
 - "endereco": endereço de entrega SEM complemento de unidade (rua, número, bairro, cidade, estado, CEP quando possível)
 - "complemento": apto, bloco, casa, fundos, sala etc. quando aparecer na etiqueta (ex.: "Apto 22", "Bloco B"); string vazia se não houver
+Extraia TODAS as entradas presentes no texto, sem omitir nenhuma, mesmo que a lista seja longa. Mantenha a correspondência exata entre cada nome e seu endereço conforme aparecem no texto original. Nunca invente, reordene ou pule entradas.
 Ignore códigos de rastreio, remetente, peso, dimensões e outros dados que não sejam destinatário/endereço/complemento.
 Responda APENAS com um array JSON válido, sem markdown, sem texto extra, sem comentários.
 Exemplo: [{"nome":"João Silva","endereco":"Rua das Flores, 120, Centro, São Paulo - SP, 01310-100","complemento":"Apto 22"}]
@@ -860,7 +861,7 @@ ${String(rawText).trim()}`;
       },
       body: JSON.stringify({
         model: CLAUDE_OCR_MODEL,
-        max_tokens: 2048,
+        max_tokens: 4096,
         messages: [{ role: "user", content: prompt }],
       }),
     });
@@ -876,7 +877,23 @@ ${String(rawText).trim()}`;
     const textBlock = (data.content || []).find((c) => c.type === "text");
     const responseText = textBlock?.text || "";
     const entries = parseClaudeDeliveryEntriesResponse(responseText);
-    return entries.length ? entries : null;
+    if (!entries.length) return null;
+
+    // Heurística de linhas: se Claude trouxe menos endereços, possível truncamento
+    try {
+      const heuristicAddrs = parseDeliveryAddressesFromLabelText(rawText);
+      const heuristicCount = heuristicAddrs.length;
+      if (heuristicCount > 0 && entries.length < heuristicCount) {
+        logOcr("Claude pode ter truncado entradas", {
+          claude: entries.length,
+          heuristic: heuristicCount,
+        });
+      }
+    } catch {
+      /* aviso apenas — não bloqueia */
+    }
+
+    return entries;
   } catch (err) {
     logOcr("Claude fallback falhou", err?.message || "erro desconhecido");
     return null;

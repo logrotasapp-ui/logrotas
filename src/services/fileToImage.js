@@ -12,7 +12,7 @@ function isPdf(file) {
 }
 
 /**
- * Renderiza a primeira página do PDF em JPEG.
+ * Renderiza a primeira página do PDF em JPEG (escala alta p/ OCR Vision).
  * @param {File|Blob} file
  * @returns {Promise<Blob>}
  */
@@ -24,7 +24,8 @@ export async function pdfFirstPageToImageBlob(file) {
   const data = await file.arrayBuffer();
   const pdf = await pdfjs.getDocument({ data }).promise;
   const page = await pdf.getPage(1);
-  const viewport = page.getViewport({ scale: 1.25 });
+  // V372 — 2.0: nitidez próxima a foto; evita OCR fraco → fallback Claude desnecessário
+  const viewport = page.getViewport({ scale: 2.0 });
 
   const canvas = document.createElement("canvas");
   canvas.width = viewport.width;
@@ -39,7 +40,7 @@ export async function pdfFirstPageToImageBlob(file) {
           ? resolve(blob)
           : reject(new Error("Não foi possível converter o PDF em imagem.")),
       "image/jpeg",
-      0.92
+      0.96
     );
   });
 }
