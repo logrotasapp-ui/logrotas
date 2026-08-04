@@ -968,24 +968,23 @@ async function maybeClaudeOcrFallback(rawText, visionEntries, options = {}) {
 }
 
 /**
- * OCR Vision + parse + Claude (opcional) para UMA imagem.
- * @returns {Promise<{ ok: true, texto: string, entries: Array, method: string } | { ok: false, error: string, texto?: string, entries?: [] }>}
+ * Só Vision OCR → texto bruto (sem parse/Claude). Usado por página no PDF multi-página.
+ * @returns {Promise<{ ok: true, texto: string } | { ok: false, error: string, texto?: string }>}
  */
-async function ocrSingleImageToEntries(file, options = {}) {
-  const { signal, isPro = false, onProgress } = options;
+async function ocrSingleImageToText(file, options = {}) {
+  const { signal, onProgress } = options;
 
   if (!API_KEYS.googleVision) {
     return {
       ok: false,
       error:
         "Leitura automática indisponível. Configure VITE_GOOGLE_VISION_API_KEY no arquivo .env.",
-      entries: [],
       texto: "",
     };
   }
 
   if (signal?.aborted) {
-    return { ok: false, error: "Leitura cancelada.", entries: [], texto: "" };
+    return { ok: false, error: "Leitura cancelada.", texto: "" };
   }
 
   try {
@@ -993,7 +992,7 @@ async function ocrSingleImageToEntries(file, options = {}) {
     const imgBase64 = await readFileAsBase64(file);
 
     if (signal?.aborted) {
-      return { ok: false, error: "Leitura cancelada.", entries: [], texto: "" };
+      return { ok: false, error: "Leitura cancelada.", texto: "" };
     }
 
     onProgress?.(40, "Enviando para leitura OCR…");
@@ -1016,53 +1015,69 @@ async function ocrSingleImageToEntries(file, options = {}) {
     });
 
     if (signal?.aborted) {
-      return { ok: false, error: "Leitura cancelada.", entries: [], texto: "" };
+      return { ok: false, error: "Leitura cancelada.", texto: "" };
     }
 
     if (res.networkError) {
       return {
         ok: false,
         error: "Sem conexão. Verifique a internet e tente novamente.",
-        entries: [],
         texto: "",
       };
     }
 
     if (!res.ok) {
-      return { ok: false, error: visionErrorMessage(res), entries: [], texto: "" };
+      return { ok: false, error: visionErrorMessage(res), texto: "" };
     }
 
-    onProgress?.(75, "Interpretando endereços…");
+    onProgress?.(70, "Lendo texto…");
     const texto = extractVisionOcrText(res.data);
-    console.log("[DEBUG PDF] texto bruto da Vision:", texto); // REMOVER APÓS DEBUG
-    const visionEntries = parseDeliveryEntriesFromLabelText(texto);
-    const fallback = await maybeClaudeOcrFallback(texto, visionEntries, {
-      isPro,
-      signal,
-      onProgress,
-    });
-    const entries = fallback.entries;
-    console.log("[DEBUG PDF] entradas finais:", JSON.stringify(entries, null, 2)); // REMOVER APÓS DEBUG
-
-    return {
-      ok: true,
-      texto: texto || "",
-      entries: Array.isArray(entries) ? entries : [],
-      method: fallback.method || "vision",
-    };
+    return { ok: true, texto: texto || "" };
   } catch (err) {
     if (signal?.aborted) {
-      return { ok: false, error: "Leitura cancelada.", entries: [], texto: "" };
+      return { ok: false, error: "Leitura cancelada.", texto: "" };
     }
     return {
       ok: false,
       error:
         err?.message ||
         "Erro ao processar a imagem. Verifique sua conexão e tente novamente.",
-      entries: [],
       texto: "",
     };
   }
+}
+
+/**
+ * OCR Vision + parse + Claude (opcional) para UMA imagem (foto / PDF 1 pág via Vision wrapper).
+ * @returns {Promise<{ ok: true, texto: string, entries: Array, method: string } | { ok: false, error: string, texto?: string, entries?: [] }>}
+ */
+async function ocrSingleImageToEntries(file, options = {}) {
+  const { signal, isPro = false, onProgress } = options;
+
+  const vision = await ocrSingleImageToText(file, { signal, onProgress });
+  if (!vision.ok) {
+    return { ok: false, error: vision.error, entries: [], texto: vision.texto || "" };
+  }
+
+  const texto = vision.texto || "";
+  console.log("[DEBUG PDF] texto bruto da Vision:", texto); // REMOVER APÓS DEBUG
+
+  onProgress?.(75, "Interpretando endereços…");
+  const visionEntries = parseDeliveryEntriesFromLabelText(texto);
+  const fallback = await maybeClaudeOcrFallback(texto, visionEntries, {
+    isPro,
+    signal,
+    onProgress,
+  });
+  const entries = fallback.entries;
+  console.log("[DEBUG PDF] entradas finais:", JSON.stringify(entries, null, 2)); // REMOVER APÓS DEBUG
+
+  return {
+    ok: true,
+    texto,
+    entries: Array.isArray(entries) ? entries : [],
+    method: fallback.method || "vision",
+  };
 }
 
 function finalizeRomaneioEntriesResult(entries, method, textoPreview = "") {
@@ -1139,7 +1154,7 @@ export async function extractRomaneioAddressesFromImageVision(file, options = {}
 
 /**
  * Converte foto/PDF em imagem e extrai endereços via Google Cloud Vision OCR.
- * PDF multi-página: Vision + parse por página; junta ENTRADAS (não texto bruto).
+ * PDF multi-página: Vision por página → concatena TEXTOS → 1 parse + 1 Claude.
  * @param {Blob|File} file
  * @param {{ onProgress?: (pct: number, status: string) => void, signal?: { aborted?: boolean } }} [options]
  */
@@ -1156,7 +1171,7 @@ export async function extractRomaneioAddressesFromImage(file, options = {}) {
 
   onProgress?.(8, "Preparando arquivo…");
 
-  // ── PDF: uma chamada Vision (+ Claude) por página; merge das entries ──
+  // ── PDF: Vision por página; parse + Claude uma vez no texto combinado ──
   if (isPdfFile(file)) {
     let pageBlobs;
     try {
@@ -1185,9 +1200,7 @@ export async function extractRomaneioAddressesFromImage(file, options = {}) {
       };
     }
 
-    const allEntries = [];
-    const methods = new Set();
-    let lastTexto = "";
+    const pageTexts = [];
     let pagesOk = 0;
     let lastError = "";
 
@@ -1197,9 +1210,12 @@ export async function extractRomaneioAddressesFromImage(file, options = {}) {
       }
 
       const pageNum = i + 1;
-      const pctBase = 12 + Math.floor((i / total) * 82);
+      const pctBase = 12 + Math.floor((i / total) * 70);
       const reportPage = (pct, status) => {
-        const mapped = Math.min(95, pctBase + Math.floor((pct / 100) * Math.max(1, Math.floor(82 / total))));
+        const mapped = Math.min(
+          82,
+          pctBase + Math.floor((pct / 100) * Math.max(1, Math.floor(70 / total)))
+        );
         onProgress?.(mapped, status || `Processando página ${pageNum} de ${total}`);
       };
 
@@ -1209,31 +1225,29 @@ export async function extractRomaneioAddressesFromImage(file, options = {}) {
         type: pageBlobs[i].type || "image/jpeg",
       });
 
-      const page = await ocrSingleImageToEntries(pageFile, {
+      const page = await ocrSingleImageToText(pageFile, {
         signal,
-        isPro,
         onProgress: reportPage,
       });
 
       if (!page.ok) {
         lastError = page.error || lastError;
         logOcr(`PDF página ${pageNum}/${total} falhou`, page.error);
+        console.log(`[DEBUG PDF] página ${pageNum} erro:`, page.error); // REMOVER APÓS DEBUG
         continue;
       }
 
       pagesOk += 1;
-      if (page.texto) lastTexto = page.texto;
-      if (page.method) methods.add(page.method);
-      if (Array.isArray(page.entries) && page.entries.length) {
-        allEntries.push(...page.entries);
-      }
+      const textoPagina = String(page.texto || "").trim();
+      console.log(`[DEBUG PDF] texto bruto página ${pageNum}:`, page.texto); // REMOVER APÓS DEBUG
+      if (textoPagina) pageTexts.push(textoPagina);
     }
 
     if (signal?.aborted) {
       return { ok: false, error: "Leitura cancelada.", addresses: [] };
     }
 
-    if (pagesOk === 0) {
+    if (pagesOk === 0 || pageTexts.length === 0) {
       return {
         ok: false,
         error:
@@ -1245,14 +1259,27 @@ export async function extractRomaneioAddressesFromImage(file, options = {}) {
       };
     }
 
-    const method =
-      methods.has("vision+claude") || methods.has("vision+claude-nome")
-        ? [...methods].find((m) => String(m).includes("claude")) || "vision+claude"
-        : "vision";
+    // Fronteira entre páginas: \n\n evita colar última linha com a primeira da próxima
+    const textoCombinado = pageTexts.join("\n\n");
+    console.log("[DEBUG PDF] texto combinado (todas as páginas):", textoCombinado); // REMOVER APÓS DEBUG
+
+    onProgress?.(88, "Interpretando endereços…");
+    const visionEntries = parseDeliveryEntriesFromLabelText(textoCombinado);
+    const fallback = await maybeClaudeOcrFallback(textoCombinado, visionEntries, {
+      isPro,
+      signal,
+      onProgress,
+    });
+    const entries = fallback.entries;
+    console.log("[DEBUG PDF] entradas finais:", JSON.stringify(entries, null, 2)); // REMOVER APÓS DEBUG
 
     onProgress?.(100, "Concluído");
-    const result = finalizeRomaneioEntriesResult(allEntries, method, lastTexto);
-    if (!result.ok && pagesOk > 0 && allEntries.length === 0) {
+    const result = finalizeRomaneioEntriesResult(
+      entries,
+      fallback.method || "vision",
+      textoCombinado
+    );
+    if (!result.ok && pageTexts.length > 0) {
       return {
         ...result,
         error:
@@ -1262,7 +1289,7 @@ export async function extractRomaneioAddressesFromImage(file, options = {}) {
     return result;
   }
 
-  // ── Imagem (foto): caminho único, inalterado na prática ──
+  // ── Imagem (foto): caminho único ──
   let imageFile;
   try {
     const blob = await fileToImageBlob(file);
