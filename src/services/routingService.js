@@ -31,7 +31,7 @@ import {
 
 export { resolvePlaceSuggestion } from "./googlePlacesService.js";
 export { GEOCODE_TOO_GENERIC_MSG, isGeocodeTypesTooGeneric } from "./googleGeocodingService.js";
-import { fileToImageBlob } from "./fileToImage.js";
+import { fileToImageBlob, isPdfFile, pdfAllPagesToImageBlobs } from "./fileToImage.js";
 import {
   parseRomaneioTextToDestinations,
   buildParadasFromAddresses,
@@ -968,39 +968,35 @@ async function maybeClaudeOcrFallback(rawText, visionEntries, options = {}) {
 }
 
 /**
- * Envia imagem do romaneio ao Google Cloud Vision e extrai endereços via OCR.
- * @param {Blob|File} file
- * @param {{ onProgress?: (pct: number, status: string) => void, signal?: { aborted?: boolean } }} [options]
+ * OCR Vision + parse + Claude (opcional) para UMA imagem.
+ * @returns {Promise<{ ok: true, texto: string, entries: Array, method: string } | { ok: false, error: string, texto?: string, entries?: [] }>}
  */
-export async function extractRomaneioAddressesFromImageVision(file, options = {}) {
-  const { onProgress, signal, isPro = false } = options;
-  const report = (pct, status) => {
-    if (!signal?.aborted) onProgress?.(pct, status);
-  };
+async function ocrSingleImageToEntries(file, options = {}) {
+  const { signal, isPro = false, onProgress } = options;
 
   if (!API_KEYS.googleVision) {
     return {
       ok: false,
       error:
         "Leitura automática indisponível. Configure VITE_GOOGLE_VISION_API_KEY no arquivo .env.",
-      addresses: [],
-      method: "vision",
+      entries: [],
+      texto: "",
     };
   }
 
   if (signal?.aborted) {
-    return { ok: false, error: "Leitura cancelada.", addresses: [], method: "vision" };
+    return { ok: false, error: "Leitura cancelada.", entries: [], texto: "" };
   }
 
   try {
-    report(20, "Preparando imagem…");
+    onProgress?.(20, "Preparando imagem…");
     const imgBase64 = await readFileAsBase64(file);
 
     if (signal?.aborted) {
-      return { ok: false, error: "Leitura cancelada.", addresses: [], method: "vision" };
+      return { ok: false, error: "Leitura cancelada.", entries: [], texto: "" };
     }
 
-    report(40, "Enviando para leitura OCR…");
+    onProgress?.(40, "Enviando para leitura OCR…");
     const url = `${API_ENDPOINTS.googleVisionAnnotate}?key=${API_KEYS.googleVision}`;
 
     const res = await fetchJson(url, {
@@ -1020,108 +1016,133 @@ export async function extractRomaneioAddressesFromImageVision(file, options = {}
     });
 
     if (signal?.aborted) {
-      return { ok: false, error: "Leitura cancelada.", addresses: [], method: "vision" };
+      return { ok: false, error: "Leitura cancelada.", entries: [], texto: "" };
     }
 
     if (res.networkError) {
       return {
         ok: false,
         error: "Sem conexão. Verifique a internet e tente novamente.",
-        addresses: [],
-        method: "vision",
+        entries: [],
+        texto: "",
       };
     }
 
     if (!res.ok) {
-      return {
-        ok: false,
-        error: visionErrorMessage(res),
-        addresses: [],
-        method: "vision",
-      };
+      return { ok: false, error: visionErrorMessage(res), entries: [], texto: "" };
     }
 
-    report(75, "Interpretando endereços…");
+    onProgress?.(75, "Interpretando endereços…");
     const texto = extractVisionOcrText(res.data);
     console.log("[DEBUG PDF] texto bruto da Vision:", texto); // REMOVER APÓS DEBUG
     const visionEntries = parseDeliveryEntriesFromLabelText(texto);
     const fallback = await maybeClaudeOcrFallback(texto, visionEntries, {
       isPro,
       signal,
-      onProgress: report,
+      onProgress,
     });
     const entries = fallback.entries;
     console.log("[DEBUG PDF] entradas finais:", JSON.stringify(entries, null, 2)); // REMOVER APÓS DEBUG
-    const ocrMethod = fallback.method;
-    const addresses = entries.map((e) => e.endereco);
-    const paradas = buildParadasFromEntries(entries);
 
-    if (!texto.trim()) {
-      return {
-        ok: false,
-        error:
-          "Nenhum texto encontrado na foto. Tente mais luz, enquadre o romaneio ou use o input manual.",
-        addresses: [],
-        failedCount: 0,
-        method: "vision",
-        rawTextPreview: "",
-      };
-    }
-
-    if (paradas.length === 0) {
-      return {
-        ok: false,
-        error:
-          "Nenhum endereço encontrado na foto. Tente mais luz, enquadre o romaneio ou use o input manual.",
-        addresses: [],
-        failedCount: 0,
-        method: "vision",
-        rawTextPreview: texto.slice(0, 400),
-      };
-    }
-
-    report(100, "Concluído");
     return {
       ok: true,
-      addresses,
-      paradas,
-      failedCount: 0,
-      method: ocrMethod,
+      texto: texto || "",
+      entries: Array.isArray(entries) ? entries : [],
+      method: fallback.method || "vision",
     };
   } catch (err) {
     if (signal?.aborted) {
-      return { ok: false, error: "Leitura cancelada.", addresses: [], method: "vision" };
+      return { ok: false, error: "Leitura cancelada.", entries: [], texto: "" };
     }
     return {
       ok: false,
       error:
         err?.message ||
         "Erro ao processar a imagem. Verifique sua conexão e tente novamente.",
-      addresses: [],
-      method: "vision",
+      entries: [],
+      texto: "",
     };
   }
 }
 
+function finalizeRomaneioEntriesResult(entries, method, textoPreview = "") {
+  const list = Array.isArray(entries) ? entries : [];
+  const addresses = list.map((e) => e.endereco);
+  const paradas = buildParadasFromEntries(list);
+
+  if (paradas.length === 0) {
+    const hasText = String(textoPreview || "").trim().length > 0;
+    return {
+      ok: false,
+      error: hasText
+        ? "Nenhum endereço encontrado na foto. Tente mais luz, enquadre o romaneio ou use o input manual."
+        : "Nenhum texto encontrado na foto. Tente mais luz, enquadre o romaneio ou use o input manual.",
+      addresses: [],
+      failedCount: 0,
+      method: method || "vision",
+      rawTextPreview: String(textoPreview || "").slice(0, 400),
+    };
+  }
+
+  return {
+    ok: true,
+    addresses,
+    paradas,
+    failedCount: 0,
+    method: method || "vision",
+  };
+}
+
 /**
- * Converte foto/PDF em imagem e extrai endereços via Google Cloud Vision OCR.
+ * Envia imagem do romaneio ao Google Cloud Vision e extrai endereços via OCR.
  * @param {Blob|File} file
  * @param {{ onProgress?: (pct: number, status: string) => void, signal?: { aborted?: boolean } }} [options]
  */
-async function resolveRomaneioImageFile(file) {
-  try {
-    const blob = await fileToImageBlob(file);
-    if (blob instanceof File) return blob;
-    const name = (file.name || "romaneio").replace(/\.pdf$/i, ".jpg");
-    return new File([blob], name, { type: blob.type || "image/jpeg" });
-  } catch (err) {
-    throw new Error(
-      err?.message ||
-        "Não foi possível abrir o arquivo. Use foto (JPG/PNG) ou PDF com a 1ª página legível."
-    );
+export async function extractRomaneioAddressesFromImageVision(file, options = {}) {
+  const { onProgress, signal, isPro = false } = options;
+  const report = (pct, status) => {
+    if (!signal?.aborted) onProgress?.(pct, status);
+  };
+
+  const page = await ocrSingleImageToEntries(file, {
+    signal,
+    isPro,
+    onProgress: report,
+  });
+
+  if (!page.ok) {
+    return {
+      ok: false,
+      error: page.error,
+      addresses: [],
+      method: "vision",
+      failedCount: 0,
+      rawTextPreview: page.texto ? String(page.texto).slice(0, 400) : "",
+    };
   }
+
+  if (!String(page.texto || "").trim() && !(page.entries || []).length) {
+    return {
+      ok: false,
+      error:
+        "Nenhum texto encontrado na foto. Tente mais luz, enquadre o romaneio ou use o input manual.",
+      addresses: [],
+      failedCount: 0,
+      method: "vision",
+      rawTextPreview: "",
+    };
+  }
+
+  report(100, "Concluído");
+  return finalizeRomaneioEntriesResult(page.entries, page.method, page.texto);
 }
 
+/**
+ * Converte foto/PDF em imagem e extrai endereços via Google Cloud Vision OCR.
+ * PDF multi-página: Vision + parse por página; junta ENTRADAS (não texto bruto).
+ * @param {Blob|File} file
+ * @param {{ onProgress?: (pct: number, status: string) => void, signal?: { aborted?: boolean } }} [options]
+ */
 export async function extractRomaneioAddressesFromImage(file, options = {}) {
   const { onProgress, signal, isPro = false } = options;
 
@@ -1135,11 +1156,130 @@ export async function extractRomaneioAddressesFromImage(file, options = {}) {
 
   onProgress?.(8, "Preparando arquivo…");
 
+  // ── PDF: uma chamada Vision (+ Claude) por página; merge das entries ──
+  if (isPdfFile(file)) {
+    let pageBlobs;
+    try {
+      onProgress?.(10, "Lendo páginas do PDF…");
+      pageBlobs = await pdfAllPagesToImageBlobs(file);
+    } catch (err) {
+      return {
+        ok: false,
+        error:
+          err?.message ||
+          "Não foi possível abrir o arquivo. Use foto (JPG/PNG) ou PDF com páginas legíveis.",
+        addresses: [],
+      };
+    }
+
+    if (signal?.aborted) {
+      return { ok: false, error: "Leitura cancelada.", addresses: [] };
+    }
+
+    const total = pageBlobs.length;
+    if (total < 1) {
+      return {
+        ok: false,
+        error: "PDF sem páginas legíveis.",
+        addresses: [],
+      };
+    }
+
+    const allEntries = [];
+    const methods = new Set();
+    let lastTexto = "";
+    let pagesOk = 0;
+    let lastError = "";
+
+    for (let i = 0; i < total; i++) {
+      if (signal?.aborted) {
+        return { ok: false, error: "Leitura cancelada.", addresses: [] };
+      }
+
+      const pageNum = i + 1;
+      const pctBase = 12 + Math.floor((i / total) * 82);
+      const reportPage = (pct, status) => {
+        const mapped = Math.min(95, pctBase + Math.floor((pct / 100) * Math.max(1, Math.floor(82 / total))));
+        onProgress?.(mapped, status || `Processando página ${pageNum} de ${total}`);
+      };
+
+      onProgress?.(pctBase, `Processando página ${pageNum} de ${total}`);
+
+      const pageFile = new File([pageBlobs[i]], `romaneio-p${pageNum}.jpg`, {
+        type: pageBlobs[i].type || "image/jpeg",
+      });
+
+      const page = await ocrSingleImageToEntries(pageFile, {
+        signal,
+        isPro,
+        onProgress: reportPage,
+      });
+
+      if (!page.ok) {
+        lastError = page.error || lastError;
+        logOcr(`PDF página ${pageNum}/${total} falhou`, page.error);
+        continue;
+      }
+
+      pagesOk += 1;
+      if (page.texto) lastTexto = page.texto;
+      if (page.method) methods.add(page.method);
+      if (Array.isArray(page.entries) && page.entries.length) {
+        allEntries.push(...page.entries);
+      }
+    }
+
+    if (signal?.aborted) {
+      return { ok: false, error: "Leitura cancelada.", addresses: [] };
+    }
+
+    if (pagesOk === 0) {
+      return {
+        ok: false,
+        error:
+          lastError ||
+          "Nenhum texto encontrado no PDF. Tente mais luz ou use o input manual.",
+        addresses: [],
+        failedCount: total,
+        method: "vision",
+      };
+    }
+
+    const method =
+      methods.has("vision+claude") || methods.has("vision+claude-nome")
+        ? [...methods].find((m) => String(m).includes("claude")) || "vision+claude"
+        : "vision";
+
+    onProgress?.(100, "Concluído");
+    const result = finalizeRomaneioEntriesResult(allEntries, method, lastTexto);
+    if (!result.ok && pagesOk > 0 && allEntries.length === 0) {
+      return {
+        ...result,
+        error:
+          "Nenhum endereço encontrado no PDF. Tente mais luz, enquadre o romaneio ou use o input manual.",
+      };
+    }
+    return result;
+  }
+
+  // ── Imagem (foto): caminho único, inalterado na prática ──
   let imageFile;
   try {
-    imageFile = await resolveRomaneioImageFile(file);
+    const blob = await fileToImageBlob(file);
+    imageFile =
+      blob instanceof File
+        ? blob
+        : new File([blob], file.name || "romaneio.jpg", {
+            type: blob.type || "image/jpeg",
+          });
   } catch (err) {
-    return { ok: false, error: err.message, addresses: [] };
+    return {
+      ok: false,
+      error:
+        err?.message ||
+        "Não foi possível abrir o arquivo. Use foto (JPG/PNG) ou PDF com a 1ª página legível.",
+      addresses: [],
+    };
   }
 
   return extractRomaneioAddressesFromImageVision(imageFile, {

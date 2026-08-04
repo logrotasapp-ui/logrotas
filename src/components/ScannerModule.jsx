@@ -364,7 +364,7 @@ export default function ScannerModule({
               textAlign: "center",
             }}
           >
-            Fotos JPG/PNG ou PDF (1ª página). Requer internet.
+            Fotos JPG/PNG ou PDF (todas as páginas). Requer internet.
           </p>
         </>
       )}
@@ -474,7 +474,7 @@ export default function ScannerModule({
                 {pendingName || "PDF selecionado"}
               </div>
               <div style={{ color: C.muted, fontSize: 12, marginTop: 6 }}>
-                A 1ª página será lida na confirmação
+                Todas as páginas serão lidas na confirmação
               </div>
             </div>
           )}
