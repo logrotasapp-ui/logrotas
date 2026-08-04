@@ -46,7 +46,8 @@ export function buildDeliveryReportText(data) {
     if (pacotes.length > 0) {
       pacotes.forEach((pk, j) => {
         const nome = (pk.nome || "").trim() || `Pacote ${j + 1}`;
-        lines.push(`   • ${nome}: ${pacoteStatusLabel(pk.status)}`);
+        const hora = pk.horario ? ` às ${pk.horario}` : "";
+        lines.push(`   • ${nome}: ${pacoteStatusLabel(pk.status)}${hora}`);
         if (pk.status === "nao_entregue" && pk.motivoNaoEntrega) {
           lines.push(`     Motivo: ${pk.motivoNaoEntrega}`);
         }
@@ -122,7 +123,8 @@ function buildPdfDocument(data, jsPDF) {
       pacotes.forEach((pk, j) => {
         ensureSpace(8);
         const nome = (pk.nome || "").trim() || `Pacote ${j + 1}`;
-        doc.text(`• ${nome}: ${pacoteStatusLabel(pk.status)}`, margin + 2, y);
+        const hora = pk.horario ? ` às ${pk.horario}` : "";
+        doc.text(`• ${nome}: ${pacoteStatusLabel(pk.status)}${hora}`, margin + 2, y);
         y += 5;
         if (pk.status === "nao_entregue" && pk.motivoNaoEntrega) {
           wrapLines(doc, `Motivo: ${pk.motivoNaoEntrega}`, contentWidth - 4).forEach((line) => {

@@ -1437,7 +1437,7 @@ const HistoricoEntregasScreen=({
                           {Array.isArray(p.pacotes)&&p.pacotes.length>0?(
                             p.pacotes.map((pk,j)=>(
                               <div key={pk.id||j} style={{fontSize:12,color:pk.status==="entregue"?"#15803D":"#DC2626",fontWeight:700,marginTop:4}}>
-                                • {(pk.nome||"").trim()||`Pacote ${j+1}`}: {pk.status==="entregue"?"✅ Entregue":`❌ Não entregue${pk.motivoNaoEntrega?` — ${pk.motivoNaoEntrega}`:""}`}
+                                • {(pk.nome||"").trim()||`Pacote ${j+1}`}: {pk.status==="entregue"?"✅ Entregue":`❌ Não entregue`}{pk.horario?` às ${pk.horario}`:""}{pk.status==="nao_entregue"&&pk.motivoNaoEntrega?` — ${pk.motivoNaoEntrega}`:""}
                               </div>
                             ))
                           ):(

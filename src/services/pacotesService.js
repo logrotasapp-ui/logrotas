@@ -16,6 +16,7 @@ export function createPacote(nome = "", numero = "") {
     numero: numero || "",
     status: "pendente",
     motivoNaoEntrega: "",
+    horario: "",
   };
 }
 
@@ -28,6 +29,7 @@ export function normalizePacote(p) {
     status:
       p.status === "entregue" || p.status === "nao_entregue" ? p.status : "pendente",
     motivoNaoEntrega: p.motivoNaoEntrega || "",
+    horario: p.horario || "",
   };
 }
 
@@ -99,6 +101,7 @@ export function migrateParada(parada) {
     nome: "",
     status: pkgStatus,
     motivoNaoEntrega: pkgStatus === "nao_entregue" ? motivo : "",
+    horario: pkgStatus !== "pendente" ? parada.horario || "" : "",
   }));
 
   const { pacotes: _legacyPacotes, ...rest } = parada;
@@ -178,10 +181,12 @@ export function marcarPacoteNaParada(parada, pacoteId, status, motivoNaoEntrega 
   const m = migrateParada(parada);
   const pacotes = m.pacotes.map((pk) => {
     if (pk.id !== pacoteId) return pk;
+    const done = status === "entregue" || status === "nao_entregue";
     return {
       ...pk,
       status,
       motivoNaoEntrega: status === "nao_entregue" ? motivoNaoEntrega || "" : "",
+      horario: done && ts?.horario ? ts.horario : pk.horario || "",
     };
   });
   const next = deriveParadaFromPacotes({ ...m, pacotes });
@@ -213,6 +218,7 @@ export function sanitizePacoteForFirestore(p) {
     numero: p.numero || "",
     status: p.status || "pendente",
     motivoNaoEntrega: p.motivoNaoEntrega || "",
+    horario: p.horario || "",
   };
 }
 
