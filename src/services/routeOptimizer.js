@@ -151,8 +151,8 @@ export function medianCenter(points) {
   };
 }
 
-/** V368 — raio para considerar duas paradas o mesmo ponto (~70 m; geocode urbano varia). */
-const DUPLICATE_RADIUS_KM = 0.07;
+/** V370 — raio só vale com mesma rua E mesmo número (~25 m). */
+const DUPLICATE_RADIUS_KM = 0.025;
 
 /**
  * Normaliza endereço para dedupe: minúsculas, sem acento, sem pontuação, espaços colapsados.
@@ -167,6 +167,32 @@ export function normalizeAddressForDedupe(s) {
     .trim();
 }
 
+/**
+ * Nome da via a partir do endereço já normalizado (antes do 1º número).
+ * Ex.: "rua magarinos torres 180 vila maria..." → "rua magarinos torres"
+ */
+export function extractStreetNameForDedupe(normalized) {
+  const s = String(normalized || "").trim();
+  if (!s) return "";
+  const beforeNumber = s.split(/\s+\d/).shift() || s;
+  return beforeNumber.replace(/\s+/g, " ").trim();
+}
+
+/**
+ * Número do imóvel no endereço normalizado (1º número após o nome da via).
+ * Ex.: "rua curuca 60 vila maria ... 02121 000" → "60"
+ */
+export function extractHouseNumberForDedupe(normalized) {
+  const s = String(normalized || "").trim();
+  if (!s) return "";
+  const m = s.match(/\s+(\d+)\b/);
+  if (!m) return "";
+  const n = m[1];
+  // CEP colado / códigos longos não são número de porta
+  if (n.length >= 7) return "";
+  return n;
+}
+
 function addressesTextMatchForDedupe(a, b) {
   if (!a || !b) return false;
   if (a === b) return true;
@@ -177,33 +203,57 @@ function addressesTextMatchForDedupe(a, b) {
   return false;
 }
 
+function streetNamesMatchForDedupe(streetA, streetB) {
+  if (!streetA || !streetB) return false;
+  if (streetA === streetB) return true;
+  const shorter = streetA.length <= streetB.length ? streetA : streetB;
+  const longer = streetA.length <= streetB.length ? streetB : streetA;
+  // Ex.: "rua curuca" ⊂ "rua curuca de cima" — só com trecho significativo
+  if (shorter.length >= 8 && longer.includes(shorter)) return true;
+  return false;
+}
+
+/** Mesmo número, ou ambos sem número (ex.: km de rodovia). */
+function houseNumbersAllowProximityMerge(numA, numB) {
+  if (!numA && !numB) return true;
+  if (numA && numB && numA === numB) return true;
+  return false;
+}
+
 /**
- * V232/V368 — Detector de duplicados: texto normalizado (acentos/pontuação) ou coords ~70 m.
+ * V232/V370 — Duplicado: texto completo igual/contido, OU (mesma rua + mesmo nº + coords ~25 m).
+ * Números diferentes NUNCA mesclam por proximidade (só por texto idêntico/contido).
  * @param {Array<{ endereco?: string, coords?: number[] }>} paradas
  * @param {{ endereco?: string, coords?: number[] }} nova
  * @returns {number} índice da parada duplicada, ou -1
  */
 export function findDuplicateStopIndex(paradas, nova) {
   const novaEnd = normalizeAddressForDedupe(nova?.endereco);
+  const novaStreet = extractStreetNameForDedupe(novaEnd);
+  const novaNum = extractHouseNumberForDedupe(novaEnd);
   const novaCoords =
     Array.isArray(nova?.coords) && nova.coords.length >= 2 ? nova.coords : null;
 
   for (let i = 0; i < (paradas || []).length; i++) {
     const p = paradas[i];
     const pEnd = normalizeAddressForDedupe(p?.endereco);
+    const pStreet = extractStreetNameForDedupe(pEnd);
+    const pNum = extractHouseNumberForDedupe(pEnd);
     const textMatch = addressesTextMatchForDedupe(novaEnd, pEnd);
+    if (textMatch) return i;
+
+    const streetMatch = streetNamesMatchForDedupe(novaStreet, pStreet);
+    if (!streetMatch) continue;
+    if (!houseNumbersAllowProximityMerge(novaNum, pNum)) continue;
+
     const c = Array.isArray(p?.coords) && p.coords.length >= 2 ? p.coords : null;
-    let withinRadius = false;
     if (novaCoords && c) {
       const d = haversine(
         { lat: c[1], lng: c[0] },
         { lat: novaCoords[1], lng: novaCoords[0] }
       );
-      withinRadius = d < DUPLICATE_RADIUS_KM;
+      if (d < DUPLICATE_RADIUS_KM) return i;
     }
-
-    // Texto igual/contido, ou proximidade geográfica, ou ambos (mesmo local)
-    if (textMatch || withinRadius) return i;
   }
   return -1;
 }

@@ -829,7 +829,7 @@ function extractVisionOcrText(data) {
  * V260 — fallback Pro: Claude Haiku interpreta texto OCR bruto do Vision.
  * @param {string} rawText
  * @param {{ signal?: { aborted?: boolean } }} [options]
- * @returns {Promise<Array<{ nome: string, endereco: string }>|null>}
+ * @returns {Promise<Array<{ nome: string, endereco: string, complemento?: string }>|null>}
  */
 async function extractDeliveryEntriesViaClaude(rawText, options = {}) {
   const { signal } = options;
@@ -838,12 +838,13 @@ async function extractDeliveryEntriesViaClaude(rawText, options = {}) {
   if (signal?.aborted) return null;
 
   const prompt = `Você recebe texto OCR bruto de etiquetas de entrega brasileiras.
-Extraia cada etiqueta/destinatário como um objeto JSON com exatamente as chaves "nome" e "endereco".
+Extraia cada etiqueta/destinatário como um objeto JSON com exatamente as chaves "nome", "endereco" e "complemento".
 - "nome": nome do destinatário (string vazia se não houver)
-- "endereco": endereço completo de entrega (rua, número, bairro, cidade, estado, CEP quando possível)
-Ignore códigos de rastreio, remetente, peso, dimensões e outros dados que não sejam destinatário/endereço.
+- "endereco": endereço de entrega SEM complemento de unidade (rua, número, bairro, cidade, estado, CEP quando possível)
+- "complemento": apto, bloco, casa, fundos, sala etc. quando aparecer na etiqueta (ex.: "Apto 22", "Bloco B"); string vazia se não houver
+Ignore códigos de rastreio, remetente, peso, dimensões e outros dados que não sejam destinatário/endereço/complemento.
 Responda APENAS com um array JSON válido, sem markdown, sem texto extra, sem comentários.
-Exemplo: [{"nome":"João Silva","endereco":"Rua das Flores, 120, Centro, São Paulo - SP, 01310-100"}]
+Exemplo: [{"nome":"João Silva","endereco":"Rua das Flores, 120, Centro, São Paulo - SP, 01310-100","complemento":"Apto 22"}]
 
 Texto OCR:
 ${String(rawText).trim()}`;

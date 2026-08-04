@@ -110,6 +110,7 @@ import {
   migrateParada,
   migrateParadas,
   pacoteDisplayName,
+  pacoteLabelComComplemento,
   resumoPacotesLabel,
   pacotesNumerosLabel,
   pacotesDestinatariosLabel,
@@ -180,7 +181,7 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="v368";
+const APP_VERSION="v370";
 const SUPORTE_EMAIL="suporte@logrotas.com.br";
 const PEDAGIO_AVISO_RESULTADO="Pedágio estimado pelo Google. Pode haver variação — confirme o valor da praça.";
 const PAGE_SWIPE_ORDER=["dashboard","financeiro","despesas","comparador","manutencao","documentos","perfil"];
@@ -1272,7 +1273,7 @@ function PacotesParadaRows({parada,paradaId,onEntregue,onNaoEntregue,compact=fal
           borderRadius:9,
         }}>
           <div style={{color:C.text,fontWeight:700,fontSize:compact?12:13,marginBottom:pk.status==="pendente"?6:4}}>
-            📦 {pacoteDisplayName(pk,i)}
+            📦 {pacoteLabelComComplemento(pk,i)}
           </div>
           {pk.status==="entregue"&&<div style={{color:C.green,fontSize:11,fontWeight:700}}>✅ Entregue</div>}
           {pk.status==="nao_entregue"&&(
@@ -1449,7 +1450,7 @@ const HistoricoEntregasScreen=({
                           {Array.isArray(p.pacotes)&&p.pacotes.length>0?(
                             p.pacotes.map((pk,j)=>(
                               <div key={pk.id||j} style={{fontSize:12,color:pk.status==="entregue"?"#15803D":"#DC2626",fontWeight:700,marginTop:4}}>
-                                • {(pk.nome||"").trim()||`Pacote ${j+1}`}: {pk.status==="entregue"?"✅ Entregue":`❌ Não entregue`}{pk.horario?` às ${pk.horario}`:""}{pk.status==="nao_entregue"&&pk.motivoNaoEntrega?` — ${pk.motivoNaoEntrega}`:""}
+                                • {(pk.nome||"").trim()||`Pacote ${j+1}`}{(pk.complemento||"").trim()?` (${String(pk.complemento).trim()})`:""}: {pk.status==="entregue"?"✅ Entregue":`❌ Não entregue`}{pk.horario?` às ${pk.horario}`:""}{pk.status==="nao_entregue"&&pk.motivoNaoEntrega?` — ${pk.motivoNaoEntrega}`:""}
                               </div>
                             ))
                           ):(
@@ -1513,15 +1514,21 @@ function maxNumeroPacoteSeq(lista){
 const EnderecoPacotesForm=({
   endereco,setEndereco,
   destinatario,setDestinatario,
+  complemento,setComplemento,
   pacoteNum,setPacoteNum,
   extrasNomes,setExtrasNomes,
+  extrasComplementos,setExtrasComplementos,
   extrasNums,setExtrasNums,
   onSubmit,submitLabel="Adicionar",submitting=false,disabled=false,
   addressPlaceholder="Ex.: Rua das Flores, 100 - Centro",onErro,
 })=>{
   const inputStyle={flex:1,minWidth:0,background:C.subtle,border:`1.5px solid ${C.border}`,borderRadius:10,color:C.text,padding:"10px 12px",fontSize:14,outline:"none",boxSizing:"border-box"};
   const numStyle={...inputStyle,flex:"none",width:96,flexShrink:0};
-  const addExtra=()=>{setExtrasNomes(arr=>[...arr,""]);setExtrasNums(arr=>[...arr,""]);};
+  const addExtra=()=>{
+    setExtrasNomes(arr=>[...arr,""]);
+    setExtrasComplementos(arr=>[...arr,""]);
+    setExtrasNums(arr=>[...arr,""]);
+  };
   return(
     <div style={{display:"flex",flexDirection:"column",gap:8}}>
       <div onKeyDown={e=>{if(e.key==="Enter"&&!submitting&&!disabled)onSubmit();}}>
@@ -1537,11 +1544,13 @@ const EnderecoPacotesForm=({
       </div>
       <div style={{display:"flex",gap:8}}>
         <input type="text" value={destinatario} onChange={e=>setDestinatario(e.target.value)} placeholder="Nome do destinatário (opcional)" autoComplete="off" disabled={disabled||submitting} style={inputStyle}/>
+        <input type="text" value={complemento} onChange={e=>setComplemento(e.target.value)} placeholder="Complemento (apto, bloco, casa)" autoComplete="off" disabled={disabled||submitting} style={inputStyle}/>
         <input type="text" value={pacoteNum} onChange={e=>setPacoteNum(e.target.value)} placeholder="Nº pacote" autoComplete="off" inputMode="numeric" disabled={disabled||submitting} style={numStyle}/>
       </div>
       {extrasNomes.map((nome,idx)=>(
         <div key={idx} style={{display:"flex",gap:8}}>
           <input type="text" value={nome} onChange={e=>setExtrasNomes(arr=>arr.map((v,i)=>i===idx?e.target.value:v))} placeholder={`Destinatário — pacote ${idx+2} (opcional)`} autoComplete="off" disabled={disabled||submitting} style={inputStyle}/>
+          <input type="text" value={extrasComplementos[idx]||""} onChange={e=>setExtrasComplementos(arr=>{const next=[...arr];next[idx]=e.target.value;return next;})} placeholder="Complemento (apto, bloco, casa)" autoComplete="off" disabled={disabled||submitting} style={inputStyle}/>
           <input type="text" value={extrasNums[idx]||""} onChange={e=>setExtrasNums(arr=>{const next=[...arr];next[idx]=e.target.value;return next;})} placeholder="Nº pacote" autoComplete="off" inputMode="numeric" disabled={disabled||submitting} style={numStyle}/>
         </div>
       ))}
@@ -1596,8 +1605,10 @@ const OtimizarEntregasModal=({onClose,perfil,plan,uid,resumeNavigation=false,onN
   const[paradaPendenteInsert,setParadaPendenteInsert]=useState(null);
   const[novoEnderecoNav,setNovoEnderecoNav]=useState("");
   const[novoDestinatarioNav,setNovoDestinatarioNav]=useState("");
+  const[novoComplementoNav,setNovoComplementoNav]=useState("");
   const[novoPacoteNumNav,setNovoPacoteNumNav]=useState("");
   const[pacotesExtrasNomesNav,setPacotesExtrasNomesNav]=useState([]);
+  const[pacotesExtrasComplementosNav,setPacotesExtrasComplementosNav]=useState([]);
   const[pacotesExtrasNumsNav,setPacotesExtrasNumsNav]=useState([]);
   const[erroNavAdd,setErroNavAdd]=useState("");
   const[adicionandoNav,setAdicionandoNav]=useState(false);
@@ -1617,8 +1628,10 @@ const OtimizarEntregasModal=({onClose,perfil,plan,uid,resumeNavigation=false,onN
   const[gerandoPdf,setGerandoPdf]=useState(false);
   const[showHistoricoEntregas,setShowHistoricoEntregas]=useState(false);
   const[novoDestinatario,setNovoDestinatario]=useState("");
+  const[novoComplemento,setNovoComplemento]=useState("");
   const[novoPacoteNum,setNovoPacoteNum]=useState("");
   const[pacotesExtrasNomes,setPacotesExtrasNomes]=useState([]);
+  const[pacotesExtrasComplementos,setPacotesExtrasComplementos]=useState([]);
   const[pacotesExtrasNums,setPacotesExtrasNums]=useState([]);
   const[showOrdemCarga,setShowOrdemCarga]=useState(false);
   const[listaExpandidaIds,setListaExpandidaIds]=useState(()=>new Set());
@@ -2125,8 +2138,9 @@ const OtimizarEntregasModal=({onClose,perfil,plan,uid,resumeNavigation=false,onN
       });
       if(!out.ok){setErroNavAdd(out.error);return;}
       const nomes=[novoDestinatarioNav,...pacotesExtrasNomesNav];
+      const complementos=[novoComplementoNav,...pacotesExtrasComplementosNav];
       const numeros=[novoPacoteNumNav,...pacotesExtrasNumsNav];
-      const nova=criarParadaNova({id:Date.now(),endereco:out.endereco,coords:out.coords,nomes,numeros});
+      const nova=criarParadaNova({id:Date.now(),endereco:out.endereco,coords:out.coords,nomes,numeros,complementos});
       resetNavAddForm();
       // V233 — duplicado de parada PENDENTE: oferece adicionar pacote em vez de criar parada
       const dupIdx=findDuplicateStopIndex(paradas,nova);
@@ -2149,8 +2163,10 @@ const OtimizarEntregasModal=({onClose,perfil,plan,uid,resumeNavigation=false,onN
     if(!item)return;
     const alvo=paradas[item.idx];
     if(!alvo)return;
-    const nome=migrateParada(item.parada).pacotes?.[0]?.nome||"";
-    const atualizado=adicionarPacoteNaParada(alvo,nome);
+    const pk0=migrateParada(item.parada).pacotes?.[0];
+    const nome=pk0?.nome||"";
+    const complemento=pk0?.complemento||"";
+    const atualizado=adicionarPacoteNaParada(alvo,nome,"",complemento);
     const total=migrateParada(atualizado).pacotes.length;
     logPacotes("importar duplicado",{idx:item.idx,nome,total});
     setParadas(p=>p.map((x,i)=>i===item.idx?atualizado:x));
@@ -2208,18 +2224,20 @@ const OtimizarEntregasModal=({onClose,perfil,plan,uid,resumeNavigation=false,onN
       const enderecosAgrupados=new Set();
       for(const g of validos){
         const mig=migrateParada(g);
-        const nome=mig.pacotes?.[0]?.nome||"";
+        const pk0=mig.pacotes?.[0];
+        const nome=pk0?.nome||"";
+        const complemento=pk0?.complemento||"";
         const idxExist=findDuplicateStopIndex(paradas,g);
         if(idxExist>=0){
           const lista=addsExistentes.get(idxExist)||[];
-          lista.push(nome);
+          lista.push({nome,complemento});
           addsExistentes.set(idxExist,lista);
           enderecosAgrupados.add(paradas[idxExist].endereco);
           continue;
         }
         const idxNovo=findDuplicateStopIndex(unicos,g);
         if(idxNovo>=0){
-          unicos[idxNovo]=adicionarPacoteNaParada(unicos[idxNovo],nome);
+          unicos[idxNovo]=adicionarPacoteNaParada(unicos[idxNovo],nome,"",complemento);
           enderecosAgrupados.add(unicos[idxNovo].endereco);
           continue;
         }
@@ -2229,7 +2247,11 @@ const OtimizarEntregasModal=({onClose,perfil,plan,uid,resumeNavigation=false,onN
         let atualizadas=migrateParadas(p).map((x,i)=>{
           if(!addsExistentes.has(i))return x;
           let par=x;
-          for(const nome of addsExistentes.get(i))par=adicionarPacoteNaParada(par,nome);
+          for(const add of addsExistentes.get(i)){
+            const nome=typeof add==="string"?add:add?.nome||"";
+            const complemento=typeof add==="string"?"":add?.complemento||"";
+            par=adicionarPacoteNaParada(par,nome,"",complemento);
+          }
           return par;
         });
         return[...atualizadas,...unicos];
@@ -2278,28 +2300,33 @@ const OtimizarEntregasModal=({onClose,perfil,plan,uid,resumeNavigation=false,onN
         return;
       }
       const nomes=[novoDestinatario,...pacotesExtrasNomes];
+      const complementos=[novoComplemento,...pacotesExtrasComplementos];
       const numeros=[novoPacoteNum,...pacotesExtrasNums];
-      const nova=criarParadaNova({id:Date.now(),endereco:out.endereco,coords:out.coords,nomes,numeros});
+      const nova=criarParadaNova({id:Date.now(),endereco:out.endereco,coords:out.coords,nomes,numeros,complementos});
       const dupIdx=findDuplicateStopIndex(paradas,nova);
       if(dupIdx>=0){
         let par=paradas[dupIdx];
-        nomes.forEach((nome,i)=>{par=adicionarPacoteNaParada(par,nome,numeros[i]||"");});
+        nomes.forEach((nome,i)=>{par=adicionarPacoteNaParada(par,nome,numeros[i]||"",complementos[i]||"");});
         const total=migrateParada(par).pacotes.length;
         logPacotes("manual duplicado",{idx:dupIdx,total});
         setParadas(p=>p.map((x,i)=>i===dupIdx?par:x));
         setAvisoAgrupado(`📦 ${total} pacotes agrupados em ${paradas[dupIdx].endereco}`);
         setNovoEndereco("");
         setNovoDestinatario("");
+        setNovoComplemento("");
         setNovoPacoteNum("");
         setPacotesExtrasNomes([]);
+        setPacotesExtrasComplementos([]);
         setPacotesExtrasNums([]);
         return;
       }
       setParadas(p=>[...p,nova]);
       setNovoEndereco("");
       setNovoDestinatario("");
+      setNovoComplemento("");
       setNovoPacoteNum("");
       setPacotesExtrasNomes([]);
+      setPacotesExtrasComplementos([]);
       setPacotesExtrasNums([]);
       setResultado(null);
       setAposConclusao(false);
@@ -2328,8 +2355,10 @@ const OtimizarEntregasModal=({onClose,perfil,plan,uid,resumeNavigation=false,onN
   const resetNavAddForm=()=>{
     setNovoEnderecoNav("");
     setNovoDestinatarioNav("");
+    setNovoComplementoNav("");
     setNovoPacoteNumNav("");
     setPacotesExtrasNomesNav([]);
+    setPacotesExtrasComplementosNav([]);
     setPacotesExtrasNumsNav([]);
     setErroNavAdd("");
   };
@@ -2497,8 +2526,10 @@ const OtimizarEntregasModal=({onClose,perfil,plan,uid,resumeNavigation=false,onN
         <EnderecoPacotesForm
           endereco={novoEndereco} setEndereco={setNovoEndereco}
           destinatario={novoDestinatario} setDestinatario={setNovoDestinatario}
+          complemento={novoComplemento} setComplemento={setNovoComplemento}
           pacoteNum={novoPacoteNum} setPacoteNum={setNovoPacoteNum}
           extrasNomes={pacotesExtrasNomes} setExtrasNomes={setPacotesExtrasNomes}
+          extrasComplementos={pacotesExtrasComplementos} setExtrasComplementos={setPacotesExtrasComplementos}
           extrasNums={pacotesExtrasNums} setExtrasNums={setPacotesExtrasNums}
           onSubmit={adicionarManual}
           submitLabel="Adicionar"
@@ -3051,7 +3082,7 @@ const OtimizarEntregasModal=({onClose,perfil,plan,uid,resumeNavigation=false,onN
                     <div style={{marginTop:8}} onClick={e=>e.stopPropagation()}>
                       {(migrateParada(p).pacotes||[]).map((pk,j)=>(
                         <div key={pk.id} style={{fontSize:11,color:C.text2,marginBottom:4}}>
-                          📦 {pacoteDisplayName(pk,j)} — {pk.status==="entregue"?"✅ Entregue":pk.status==="nao_entregue"?`❌ ${pk.motivoNaoEntrega||"Não entregue"}`:"Pendente"}
+                          📦 {pacoteLabelComComplemento(pk,j)} — {pk.status==="entregue"?"✅ Entregue":pk.status==="nao_entregue"?`❌ ${pk.motivoNaoEntrega||"Não entregue"}`:"Pendente"}
                         </div>
                       ))}
                     </div>
@@ -3209,8 +3240,10 @@ const OtimizarEntregasModal=({onClose,perfil,plan,uid,resumeNavigation=false,onN
               <EnderecoPacotesForm
                 endereco={novoEnderecoNav} setEndereco={setNovoEnderecoNav}
                 destinatario={novoDestinatarioNav} setDestinatario={setNovoDestinatarioNav}
+                complemento={novoComplementoNav} setComplemento={setNovoComplementoNav}
                 pacoteNum={novoPacoteNumNav} setPacoteNum={setNovoPacoteNumNav}
                 extrasNomes={pacotesExtrasNomesNav} setExtrasNomes={setPacotesExtrasNomesNav}
+                extrasComplementos={pacotesExtrasComplementosNav} setExtrasComplementos={setPacotesExtrasComplementosNav}
                 extrasNums={pacotesExtrasNumsNav} setExtrasNums={setPacotesExtrasNumsNav}
                 onSubmit={handleNavManualAdd}
                 submitLabel="Adicionar manual"

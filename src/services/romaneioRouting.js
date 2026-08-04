@@ -41,7 +41,7 @@ export function buildParadasFromAddresses(addresses, idBase = Date.now()) {
   );
 }
 
-/** V256 — paradas com pacote inicial (nome opcional do destinatário). */
+/** V256 — paradas com pacote inicial (nome/complemento opcionais do destinatário). */
 export function buildParadasFromEntries(entries, idBase = Date.now()) {
   const list = Array.isArray(entries) ? entries : [];
   const out = [];
@@ -51,11 +51,12 @@ export function buildParadasFromEntries(entries, idBase = Date.now()) {
       typeof entry === "string" ? cleanAddressLine(entry) : cleanAddressLine(entry?.endereco || "");
     if (!endereco || endereco.length < 10) continue;
     const nome = typeof entry === "string" ? "" : entry?.nome || "";
+    const complemento = typeof entry === "string" ? "" : entry?.complemento || "";
     out.push(
       deriveParadaFromPacotes({
         id: idBase + i,
         endereco,
-        pacotes: [createPacote(nome)],
+        pacotes: [createPacote(nome, "", complemento)],
       })
     );
   }

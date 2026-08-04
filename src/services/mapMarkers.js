@@ -198,6 +198,8 @@ export function buildPacotesPopupHtml(parada, paradaNum, { expandId, actionPrefi
   const rows = (m.pacotes || [])
     .map((pk, i) => {
       const nome = (pk.nome || "").trim() || `Pacote ${i + 1}`;
+      const comp = (pk.complemento || "").trim();
+      const label = comp ? `${nome} (${comp})` : nome;
       let statusHtml = "";
       if (pk.status === "entregue") {
         statusHtml = `<span style="color:#16A34A;font-weight:700;font-size:11px">✅ Entregue</span>`;
@@ -210,7 +212,7 @@ export function buildPacotesPopupHtml(parada, paradaNum, { expandId, actionPrefi
         </div>`;
       }
       return `<div style="padding:8px 0;border-bottom:1px solid #E2E8F0">
-        <div style="font-weight:700;font-size:12px;color:#334155">${nome}</div>
+        <div style="font-weight:700;font-size:12px;color:#334155">${label}</div>
         ${statusHtml}
       </div>`;
     })

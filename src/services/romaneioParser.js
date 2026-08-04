@@ -242,6 +242,52 @@ export function parseDeliveryAddressesFromLabelText(rawText) {
 const DEST_NOME_LINE =
   /^(?:destinat[aá]rio|para|nome(?:\s+do\s+destinat[aá]rio)?|cliente|at[eé]ncia)\s*[:\-–]\s*(.+)$/i;
 
+/** Palavras-chave de complemento (apto/bloco/casa/etc.) + identificador. */
+const COMPLEMENTO_TOKEN =
+  /\b((?:apto|apartamento|ap\.?|bloco|bl\.?|casa|fundos|sala|conj(?:unto)?\.?|andar)\s*[:.\-]?\s*[A-Za-z0-9][A-Za-z0-9\-\/]*)/i;
+
+const COMPLEMENTO_ONLY_LINE =
+  /^(?:apto|apartamento|ap\.?|bloco|bl\.?|casa|fundos|sala|conj(?:unto)?\.?|andar)\s*[:.\-]?\s*[A-Za-z0-9][A-Za-z0-9\-\/]*$/i;
+
+function formatComplementoCaptured(raw) {
+  let s = cleanAddressLine(raw || "").replace(/\s+/g, " ").trim();
+  if (!s) return "";
+  s = s
+    .replace(/^(ap\.?|apto|apartamento)\b/i, "Apto")
+    .replace(/^(bl\.?|bloco)\b/i, "Bloco")
+    .replace(/^casa\b/i, "Casa")
+    .replace(/^fundos\b/i, "Fundos")
+    .replace(/^sala\b/i, "Sala")
+    .replace(/^(conj\.?|conjunto)\b/i, "Conj.")
+    .replace(/^andar\b/i, "Andar");
+  return s;
+}
+
+/**
+ * Extrai complemento (apto/bloco/…) do texto e remove do endereço.
+ * @param {string} text
+ * @returns {{ complemento: string, text: string }}
+ */
+export function peelComplementoFromText(text) {
+  let s = String(text || "").trim();
+  if (!s) return { complemento: "", text: "" };
+  const m = s.match(COMPLEMENTO_TOKEN);
+  if (!m) return { complemento: "", text: s };
+  const complemento = formatComplementoCaptured(m[1]);
+  s = s
+    .replace(m[0], " ")
+    .replace(/\s*,\s*,+/g, ",")
+    .replace(/\s{2,}/g, " ")
+    .replace(/\s*,\s*$/g, "")
+    .replace(/^\s*,\s*/g, "")
+    .trim();
+  return { complemento, text: s };
+}
+
+function isComplementoOnlyLine(line) {
+  return COMPLEMENTO_ONLY_LINE.test(String(line || "").trim());
+}
+
 function extractNomeFromLine(line) {
   const m = line.match(DEST_NOME_LINE);
   if (m) {
@@ -252,10 +298,10 @@ function extractNomeFromLine(line) {
 }
 
 /**
- * V256/V368 — extrai pares { nome, endereco } do OCR (cada etiqueta/linha = 1 pacote).
+ * V256/V370 — extrai { nome, endereco, complemento } do OCR (cada etiqueta = 1 pacote).
  * Prioridade de nome: rótulo explícito → Title/ALL CAPS → linha vizinha ao endereço.
  * @param {string} rawText
- * @returns {Array<{ nome: string, endereco: string }>}
+ * @returns {Array<{ nome: string, endereco: string, complemento: string }>}
  */
 export function parseDeliveryEntriesFromLabelText(rawText) {
   if (!rawText || !String(rawText).trim()) return [];
@@ -267,6 +313,7 @@ export function parseDeliveryEntriesFromLabelText(rawText) {
 
   const entries = [];
   let pendingNome = "";
+  let pendingComplemento = "";
   let buffer = "";
 
   const peekNeighborNome = (idx) => {
@@ -283,8 +330,15 @@ export function parseDeliveryEntriesFromLabelText(rawText) {
     if (addrs.length) {
       let nome = pendingNome || "";
       if (!nome && atLineIdx >= 0) nome = peekNeighborNome(atLineIdx);
-      entries.push({ nome: nome || "", endereco: addrs[0] });
+      const peeled = peelComplementoFromText(addrs[0]);
+      const complemento = pendingComplemento || peeled.complemento || "";
+      entries.push({
+        nome: nome || "",
+        endereco: peeled.text || addrs[0],
+        complemento,
+      });
       pendingNome = "";
+      pendingComplemento = "";
     }
     buffer = "";
   };
@@ -294,9 +348,15 @@ export function parseDeliveryEntriesFromLabelText(rawText) {
     if (TRACKING_CODE.test(line)) {
       flushAddress(i);
       pendingNome = "";
+      pendingComplemento = "";
       continue;
     }
     if (SKIP_LINE.test(line)) continue;
+
+    if (isComplementoOnlyLine(line)) {
+      if (!pendingComplemento) pendingComplemento = formatComplementoCaptured(line);
+      continue;
+    }
 
     const nomeLabel = extractNomeFromLine(line);
     if (nomeLabel) {
@@ -318,9 +378,15 @@ export function parseDeliveryEntriesFromLabelText(rawText) {
 
     if (!looksLikeAddress(line)) {
       if (buffer && line.length > 2 && line.length < 80 && !SKIP_LINE.test(line)) {
-        // Linha após endereço: se parece nome, guarda como destinatário (não junta no endereço)
         if (!pendingNome && looksLikeNameCandidateNearAddress(line)) {
           pendingNome = line;
+          continue;
+        }
+        const peeledLine = peelComplementoFromText(line);
+        if (peeledLine.complemento && !pendingComplemento) {
+          pendingComplemento = peeledLine.complemento;
+          if (!peeledLine.text) continue;
+          buffer = joinAddressFragment(buffer, cleanAddressLine(peeledLine.text));
           continue;
         }
         buffer = joinAddressFragment(buffer, cleanAddressLine(line));
@@ -330,8 +396,11 @@ export function parseDeliveryEntriesFromLabelText(rawText) {
 
     if (startsNewAddress(line)) {
       flushAddress(i);
-      buffer = line;
-      // Linha imediatamente anterior ao endereço = candidato a nome (sem rótulo)
+      const peeledStart = peelComplementoFromText(line);
+      if (peeledStart.complemento && !pendingComplemento) {
+        pendingComplemento = peeledStart.complemento;
+      }
+      buffer = peeledStart.text || line;
       if (!pendingNome) {
         const prev = i > 0 ? lines[i - 1] : "";
         if (looksLikeNameCandidateNearAddress(prev)) pendingNome = prev;
@@ -350,7 +419,10 @@ export function parseDeliveryEntriesFromLabelText(rawText) {
 
   if (entries.length === 0) {
     const addresses = parseDeliveryAddressesFromLabelText(rawText);
-    return addresses.map((endereco) => ({ nome: "", endereco }));
+    return addresses.map((endereco) => {
+      const peeled = peelComplementoFromText(endereco);
+      return { nome: "", endereco: peeled.text || endereco, complemento: peeled.complemento };
+    });
   }
 
   return entries.slice(0, 50);
@@ -431,7 +503,7 @@ export function assessVisionOcrConfidence(rawText, entries) {
   return { low, score, reasons: [...new Set(reasons)] };
 }
 
-/** V260 — interpreta resposta JSON do Claude Haiku ({ nome, endereco }[]). */
+/** V260/V370 — interpreta resposta JSON do Claude ({ nome, endereco, complemento }[]). */
 export function parseClaudeDeliveryEntriesResponse(responseText) {
   if (!responseText) return [];
 
@@ -456,11 +528,20 @@ export function parseClaudeDeliveryEntriesResponse(responseText) {
   const entries = [];
   for (const item of parsed) {
     if (!item || typeof item !== "object") continue;
-    const endereco = cleanAddressLine(item.endereco || "");
+    let endereco = cleanAddressLine(item.endereco || "");
     if (!endereco || endereco.length < 10 || !looksLikeAddress(endereco)) continue;
     let nome = cleanAddressLine(item.nome || "").replace(/\d{5,}/g, "").trim();
     if (nome && looksLikeAddress(nome)) nome = "";
-    entries.push({ nome: nome || "", endereco });
+    let complemento = formatComplementoCaptured(item.complemento || "");
+    if (!complemento) {
+      const peeled = peelComplementoFromText(endereco);
+      complemento = peeled.complemento;
+      endereco = peeled.text || endereco;
+    } else {
+      const peeled = peelComplementoFromText(endereco);
+      endereco = peeled.text || endereco;
+    }
+    entries.push({ nome: nome || "", endereco, complemento: complemento || "" });
   }
 
   return entries.slice(0, 50);

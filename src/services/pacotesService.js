@@ -9,11 +9,12 @@ export function newPacoteId() {
   return `pkg_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
 }
 
-export function createPacote(nome = "", numero = "") {
+export function createPacote(nome = "", numero = "", complemento = "") {
   return {
     id: newPacoteId(),
     nome: nome || "",
     numero: numero || "",
+    complemento: complemento || "",
     status: "pendente",
     motivoNaoEntrega: "",
     horario: "",
@@ -26,6 +27,7 @@ export function normalizePacote(p) {
     id: p.id || newPacoteId(),
     nome: p.nome || "",
     numero: p.numero || "",
+    complemento: p.complemento || "",
     status:
       p.status === "entregue" || p.status === "nao_entregue" ? p.status : "pendente",
     motivoNaoEntrega: p.motivoNaoEntrega || "",
@@ -124,6 +126,13 @@ export function pacoteDisplayName(pacote, index) {
   return nome || `Pacote ${index + 1}`;
 }
 
+/** Nome + complemento opcional — ex.: "Maria (Apto 22)" ou "Pacote 1 (Bloco B)". */
+export function pacoteLabelComComplemento(pacote, index) {
+  const base = pacoteDisplayName(pacote, index);
+  const comp = (pacote?.complemento || "").trim();
+  return comp ? `${base} (${comp})` : base;
+}
+
 export function countPacotes(parada) {
   return migrateParada(parada).pacotes?.length || 1;
 }
@@ -150,18 +159,21 @@ export function pacotesNumerosLabel(parada) {
   return nums.length === 1 ? `Pacote ${nums[0]}` : `Pacotes ${nums.join(", ")}`;
 }
 
-/** Nomes de destinatários preenchidos (únicos, na ordem dos pacotes). */
+/** Destinatários (+ complemento) preenchidos — ex.: "Maria (Apto 22), João". */
 export function pacotesDestinatariosLabel(parada) {
   const list = migrateParada(parada).pacotes || [];
   const seen = new Set();
-  const nomes = [];
+  const labels = [];
   for (const pk of list) {
     const nome = (pk.nome || "").trim();
-    if (!nome || seen.has(nome)) continue;
-    seen.add(nome);
-    nomes.push(nome);
+    const comp = (pk.complemento || "").trim();
+    if (!nome && !comp) continue;
+    const label = nome && comp ? `${nome} (${comp})` : nome || comp;
+    if (seen.has(label)) continue;
+    seen.add(label);
+    labels.push(label);
   }
-  return nomes.join(", ");
+  return labels.join(", ");
 }
 
 export function resumoPacotesLabel(parada) {
@@ -176,15 +188,24 @@ export function resumoPacotesLabel(parada) {
   return `${r.total} pacotes${parts.length ? ` • ${parts.join(", ")}` : ""}`;
 }
 
-export function adicionarPacoteNaParada(parada, nome = "", numero = "") {
+export function adicionarPacoteNaParada(parada, nome = "", numero = "", complemento = "") {
   const m = migrateParada(parada);
-  const pacotes = [...m.pacotes, createPacote(nome, numero)];
+  const pacotes = [...m.pacotes, createPacote(nome, numero, complemento)];
   return deriveParadaFromPacotes({ ...m, pacotes, status: "pendente" });
 }
 
-export function criarParadaNova({ id, endereco, coords, nomes = [""], numeros = [] }) {
+export function criarParadaNova({
+  id,
+  endereco,
+  coords,
+  nomes = [""],
+  numeros = [],
+  complementos = [],
+}) {
   const listaNomes = nomes.length ? nomes : [""];
-  const pacotes = listaNomes.map((nome, i) => createPacote(nome || "", numeros[i] || ""));
+  const pacotes = listaNomes.map((nome, i) =>
+    createPacote(nome || "", numeros[i] || "", complementos[i] || "")
+  );
   return deriveParadaFromPacotes({
     id: id || Date.now(),
     endereco,
@@ -232,6 +253,7 @@ export function sanitizePacoteForFirestore(p) {
     id: p.id || newPacoteId(),
     nome: p.nome || "",
     numero: p.numero || "",
+    complemento: p.complemento || "",
     status: p.status || "pendente",
     motivoNaoEntrega: p.motivoNaoEntrega || "",
     horario: p.horario || "",

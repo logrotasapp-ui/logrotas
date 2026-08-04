@@ -47,8 +47,10 @@ export function buildDeliveryReportText(data) {
     if (pacotes.length > 0) {
       pacotes.forEach((pk, j) => {
         const nome = (pk.nome || "").trim() || `Pacote ${j + 1}`;
+        const comp = (pk.complemento || "").trim();
+        const label = comp ? `${nome} (${comp})` : nome;
         const hora = pk.horario ? ` às ${pk.horario}` : "";
-        lines.push(`   • ${nome}: ${pacoteStatusLabel(pk.status)}${hora}`);
+        lines.push(`   • ${label}: ${pacoteStatusLabel(pk.status)}${hora}`);
         if (pk.status === "nao_entregue" && pk.motivoNaoEntrega) {
           lines.push(`     Motivo: ${pk.motivoNaoEntrega}`);
         }
@@ -130,8 +132,10 @@ function buildPdfDocument(data, jsPDF) {
       pacotes.forEach((pk, j) => {
         ensureSpace(8);
         const nome = (pk.nome || "").trim() || `Pacote ${j + 1}`;
+        const comp = (pk.complemento || "").trim();
+        const label = comp ? `${nome} (${comp})` : nome;
         const hora = pk.horario ? ` às ${pk.horario}` : "";
-        doc.text(`• ${nome}: ${pacoteStatusLabel(pk.status)}${hora}`, margin + 2, y);
+        doc.text(`• ${label}: ${pacoteStatusLabel(pk.status)}${hora}`, margin + 2, y);
         y += 5;
         if (pk.status === "nao_entregue" && pk.motivoNaoEntrega) {
           wrapLines(doc, `Motivo: ${pk.motivoNaoEntrega}`, contentWidth - 4).forEach((line) => {
