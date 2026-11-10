@@ -30,14 +30,17 @@ export const HISTORY_COLLECTIONS = {
  * - fretes/despesas/manutencao/financeiro/jornadas: createdAt (Timestamp)
  *   (negócio: date/data em DD/MM/YYYY — incompatível com where Date)
  * - documentos: expiry (vencimento string DD/MM/YYYY)
+ * Janela de 400 dias sem limite em fretes/jornadas/despesas/manutencao para
+ * cobrir o Financeiro (gráfico de até 12 meses) e o Histórico; a busca por
+ * período real (campo dateISO) fica para uma etapa futura.
  */
 const HISTORY_QUERY_SPECS = {
-  fretes: { field: "createdAt", days: 90, order: "desc", lim: 100 },
-  despesas: { field: "createdAt", days: 90, order: "desc", lim: 100 },
-  manutencao: { field: "createdAt", days: 180, order: "desc", lim: 50 },
+  fretes: { field: "createdAt", days: 400, order: "desc", lim: null },
+  despesas: { field: "createdAt", days: 400, order: "desc", lim: null },
+  manutencao: { field: "createdAt", days: 400, order: "desc", lim: null },
   documentos: { field: "expiry", days: null, order: "asc", lim: 50 },
   financeiro: { field: "createdAt", days: 90, order: "desc", lim: 100 },
-  jornadas: { field: "createdAt", days: 90, order: "desc", lim: 100 },
+  jornadas: { field: "createdAt", days: 400, order: "desc", lim: null },
 };
 
 function colRef(uid, name) {
@@ -55,7 +58,7 @@ function buildHistoryQuery(uid, name) {
     parts.push(where(spec.field, ">=", daysAgoThreshold(spec.days)));
   }
   parts.push(orderBy(spec.field, spec.order));
-  parts.push(limit(spec.lim));
+  if (spec.lim) parts.push(limit(spec.lim));
   return query(...parts);
 }
 
