@@ -100,6 +100,7 @@ import {
   shareDeliveryReportEmail,
   sharePdfFileViaSystem,
 } from "./src/services/deliveryReportPdf.js";
+import { saveFinanceiroPdf } from "./src/services/financeiroPdf.js";
 import {
   readNavigationSession,
   writeNavigationSession,
@@ -181,7 +182,7 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="v378";
+const APP_VERSION="v379";
 const SUPORTE_EMAIL="suporte@logrotas.com.br";
 const PEDAGIO_AVISO_RESULTADO="Pedágio estimado pelo Google. Pode haver variação — confirme o valor da praça.";
 const PAGE_SWIPE_ORDER=["dashboard","financeiro","despesas","comparador","manutencao","documentos","perfil"];
@@ -6835,6 +6836,7 @@ const Financeiro=({historicoFretes,manutencoes,despesas=[],jornadas=[],uid,metaM
   const[draftMeta,setDraftMeta]=useState(()=>formatMoedaParaCampo(metaMes));
   const[salvandoMeta,setSalvandoMeta]=useState(false);
   const[showCustoDet,setShowCustoDet]=useState(false);
+  const[gerandoPdf,setGerandoPdf]=useState(false);
 
   const prevMes=()=>{if(mesSel===0){setMesSel(11);setAnoSel(a=>a-1);}else setMesSel(m=>m-1);};
   const nextMes=()=>{if(mesSel===11){setMesSel(0);setAnoSel(a=>a+1);}else setMesSel(m=>m+1);};
@@ -6918,6 +6920,32 @@ const Financeiro=({historicoFretes,manutencoes,despesas=[],jornadas=[],uid,metaM
     return{combustivel,pedagio,arla,desgaste,semDetalhamento};
   })();
   const pctCusto=v=>totalCusto>0?` (${Math.round((v/totalCusto)*100)}%)`:"";
+
+  // V379 — PDF do mês selecionado (usa os mesmos números da tela)
+  const qtdLancamentosMes=fretesMes.length+jornadasMes.length;
+  const exportarPdfMes=async()=>{
+    if(gerandoPdf||qtdLancamentosMes===0)return;
+    setGerandoPdf(true);
+    try{
+      const chave=(d,h)=>{const p=String(d||"").split("/");return `${p[2]||""}${p[1]||""}${p[0]||""}${h||""}`;};
+      const lancamentos=[
+        ...fretesMes.map(f=>({data:f.date,hora:f.hora||"",servico:"Frete",km:Number(f.distance)||0,valor:Number(f.freteSugerido)||0,custo:Number(f.custoTotal)||0,lucro:f.lucro!=null?Number(f.lucro)||0:roundMoney((Number(f.freteSugerido)||0)-(Number(f.custoTotal)||0))})),
+        ...jornadasMes.map(j=>({data:j.date,hora:j.hora||"",servico:(j.servico||"Jornada").trim()||"Jornada",km:Number(j.km)||0,valor:Number(j.valorRecebido)||0,custo:Number(j.custoTotal)||0,lucro:j.lucro!=null?Number(j.lucro)||0:roundMoney((Number(j.valorRecebido)||0)-(Number(j.custoTotal)||0))})),
+      ].sort((a,b)=>chave(a.data,a.hora).localeCompare(chave(b.data,b.hora)));
+      await saveFinanceiroPdf({
+        mesLabel:MESES_PT[mesSel],ano:anoSel,mesNum:mesSel+1,
+        resumo:{receita:totalReceita,custo:totalCusto,manutencoes:totalMaint,despesas:totalDesp,saldo:saldoLiquido,km:totalKm,receitaKm,margemPct},
+        custos:custoDet,
+        ganhos:ganhosPorFonte.map(g=>({servico:g.servico,qtd:g.qtd,km:g.km,receita:g.receita,custo:g.custo,liquido:g.liquido})),
+        lancamentos,
+      });
+    }catch(err){
+      console.error("[V379] erro ao gerar PDF",err);
+      alert("Não foi possível gerar o PDF. Tente novamente.");
+    }finally{
+      setGerandoPdf(false);
+    }
+  };
 
   const pctMeta=metaMes>0?Math.min((totalReceita/metaMes)*100,100):0;
   const faltaMeta=metaMes>0?Math.max(metaMes-totalReceita,0):0;
@@ -7106,6 +7134,12 @@ const Financeiro=({historicoFretes,manutencoes,despesas=[],jornadas=[],uid,metaM
           Próximo <ChevronRightIcon size={13}/>
         </button>
       </div>
+
+      {/* V379 — exportar PDF do mês selecionado */}
+      <button type="button" onClick={exportarPdfMes} disabled={gerandoPdf||qtdLancamentosMes===0}
+        style={{width:"100%",padding:"11px",background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,cursor:gerandoPdf||qtdLancamentosMes===0?"not-allowed":"pointer",color:qtdLancamentosMes===0?C.muted:C.navy,fontWeight:700,fontSize:13,fontFamily:"'Sora',sans-serif",display:"flex",alignItems:"center",justifyContent:"center",gap:8,opacity:qtdLancamentosMes===0?0.6:1}}>
+        📄 {gerandoPdf?"Gerando PDF…":qtdLancamentosMes===0?"Sem lançamentos neste mês":`Exportar PDF de ${MESES_PT[mesSel]}`}
+      </button>
 
       {/* META DO MÊS — progresso no mês selecionado no navegador */}
       <div style={{background:`linear-gradient(135deg,${C.navy},${C.navyMid})`,borderRadius:18,padding:"22px 24px",boxShadow:`0 6px 24px ${C.navy}44`}}>
