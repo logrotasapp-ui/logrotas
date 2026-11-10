@@ -181,7 +181,7 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="v377";
+const APP_VERSION="v378";
 const SUPORTE_EMAIL="suporte@logrotas.com.br";
 const PEDAGIO_AVISO_RESULTADO="Pedágio estimado pelo Google. Pode haver variação — confirme o valor da praça.";
 const PAGE_SWIPE_ORDER=["dashboard","financeiro","despesas","comparador","manutencao","documentos","perfil"];
@@ -429,17 +429,20 @@ const CardHeader=({title,action})=>(
     {action}
   </div>
 );
-const Metric=({label,value,sub,trend,icon:Icon,color,bg})=>{
+const Metric=({label,value,sub,trend,icon:Icon,color,bg,onClick})=>{
   const valStr=String(value||"");
   const valSize=valStr.length>14?16:valStr.length>11?18:21;
+  // V378 — onClick opcional: sem ele, o card fica idêntico ao anterior
+  const clickProps=onClick?{onClick,role:"button",tabIndex:0,onKeyDown:e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();onClick();}}}:{};
   return(
-  <div style={{background:bg||C.navyLight,border:`1px solid ${color}22`,borderRadius:14,padding:"16px 18px",minWidth:0}}>
+  <div {...clickProps} style={{background:bg||C.navyLight,border:`1px solid ${color}22`,borderRadius:14,padding:"16px 18px",minWidth:0,...(onClick?{cursor:"pointer"}:{})}}>
     <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:8}}>
       <div style={{background:color+"22",borderRadius:8,padding:5}}><Icon size={14} color={color}/></div>
       <span style={{color:C.text2,fontSize:11,fontWeight:700,letterSpacing:0.5,textTransform:"uppercase"}}>{label}</span>
     </div>
     <div style={{color:C.text,fontSize:valSize,fontWeight:900,fontFamily:"'Sora',sans-serif",lineHeight:1,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{value}</div>
     {sub&&<div style={{color:trend==="up"?C.green:trend==="down"?C.red:C.muted,fontSize:12,marginTop:5}}>{sub}</div>}
+    {onClick&&<div style={{color:C.muted,fontSize:11,marginTop:8}}>Ver detalhes →</div>}
   </div>
 );};
 const PrimaryBtn=({children,onClick,variant="orange",disabled,small,style:s={}})=>{
@@ -6831,6 +6834,7 @@ const Financeiro=({historicoFretes,manutencoes,despesas=[],jornadas=[],uid,metaM
   const[editandoMeta,setEditandoMeta]=useState(false);
   const[draftMeta,setDraftMeta]=useState(()=>formatMoedaParaCampo(metaMes));
   const[salvandoMeta,setSalvandoMeta]=useState(false);
+  const[showCustoDet,setShowCustoDet]=useState(false);
 
   const prevMes=()=>{if(mesSel===0){setMesSel(11);setAnoSel(a=>a-1);}else setMesSel(m=>m-1);};
   const nextMes=()=>{if(mesSel===11){setMesSel(0);setAnoSel(a=>a+1);}else setMesSel(m=>m+1);};
@@ -6892,6 +6896,28 @@ const Financeiro=({historicoFretes,manutencoes,despesas=[],jornadas=[],uid,metaM
   const receitaKm=totalKm>0?roundMoney(totalReceita/totalKm):0;
   const lucroKm=totalKm>0?roundMoney(saldoLiquido/totalKm):0;
   const margemPct=totalReceita>0?roundMoney((saldoLiquido/totalReceita)*100):null;
+
+  // V378 — detalhamento do "Custo das viagens" por tipo (mesmos arrays do totalCusto; não altera cálculos)
+  const custoDet=(()=>{
+    const n=v=>Number(v)||0;
+    let combustivel=0,pedagio=0,arla=0,desgaste=0;
+    fretesMes.forEach(f=>{
+      combustivel+=n(f.energyCost??f.custoComb??f.combustivelCost);
+      pedagio+=n(f.tollCost??f.pedagio??f.pedagioTotal);
+      arla+=n(f.arlaCost);
+      desgaste+=n(f.custoVeiculo);
+    });
+    jornadasMes.forEach(j=>{
+      combustivel+=n(j.combustivelCalculado);
+      pedagio+=n(j.pedagioOutros);
+      desgaste+=n(j.custoVeiculo);
+    });
+    combustivel=roundMoney(combustivel);pedagio=roundMoney(pedagio);arla=roundMoney(arla);desgaste=roundMoney(desgaste);
+    const semDetalhamento=roundMoney(totalCusto-(combustivel+pedagio+arla+desgaste));
+    if(semDetalhamento<=-0.01&&import.meta.env.DEV)console.warn("[V378] parcelas de custo maiores que totalCusto",{semDetalhamento});
+    return{combustivel,pedagio,arla,desgaste,semDetalhamento};
+  })();
+  const pctCusto=v=>totalCusto>0?` (${Math.round((v/totalCusto)*100)}%)`:"";
 
   const pctMeta=metaMes>0?Math.min((totalReceita/metaMes)*100,100):0;
   const faltaMeta=metaMes>0?Math.max(metaMes-totalReceita,0):0;
@@ -7154,7 +7180,7 @@ const Financeiro=({historicoFretes,manutencoes,despesas=[],jornadas=[],uid,metaM
           {/* Cards principais */}
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:11}}>
             <Metric label="Receita bruta" value={formatMoeda(totalReceita)} sub={`${fretesMes.length} ${fretesMes.length===1?"viagem":"viagens"}${jornadasMes.length>0?` + ${jornadasMes.length} jornada${jornadasMes.length===1?"":"s"}`:""}`} trend="up" icon={TrendingUpIcon} color={C.green} bg={C.greenLight}/>
-            <Metric label="Custo das viagens" value={formatMoeda(totalCusto)} sub="combustível + pedágio + ARLA" trend="down" icon={TrendingDownIcon} color={C.red} bg={C.redLight}/>
+            <Metric label="Custo das viagens" value={formatMoeda(totalCusto)} sub={`combustível + pedágio + desgaste${custoDet.arla>0?" + ARLA":""}`} trend="down" icon={TrendingDownIcon} color={C.red} bg={C.redLight} onClick={()=>setShowCustoDet(true)}/>
           </div>
 
           {totalMaint>0&&(
@@ -7225,6 +7251,38 @@ const Financeiro=({historicoFretes,manutencoes,despesas=[],jornadas=[],uid,metaM
       )}
 
       {graficoLucroCard}
+
+      {showCustoDet&&(
+        <ModalWrap>
+          <ModalHeader title={`Custos das viagens — ${MESES_PT[mesSel]} ${anoSel}`} sub={`${formatKm(totalKm)} km no mês`} icon={TrendingDownIcon} iconColor={C.red} onClose={()=>setShowCustoDet(false)}/>
+          <div>
+            <FreteDetRow label="⛽ Combustível" value={`${freteMoeda(custoDet.combustivel)}${pctCusto(custoDet.combustivel)}`}/>
+            <FreteDetRow label="🅿️ Pedágio / outros" value={`${freteMoeda(custoDet.pedagio)}${pctCusto(custoDet.pedagio)}`}/>
+            {custoDet.arla>0&&<FreteDetRow label="ARLA 32" value={`${freteMoeda(custoDet.arla)}${pctCusto(custoDet.arla)}`}/>}
+            <div style={{...FRETE_DET_ROW,flexDirection:"column",alignItems:"stretch",gap:3}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10}}>
+                <span style={FRETE_DET_L}>🚗 Desgaste do veículo</span>
+                <span style={FRETE_DET_V}>{`${freteMoeda(custoDet.desgaste)}${pctCusto(custoDet.desgaste)}`}</span>
+              </div>
+              <div style={{color:C.muted,fontSize:12,lineHeight:1.4}}>
+                Reserva para IPVA, seguro, pneus, óleo e revisão{totalKm>0?` · média ${freteMoedaKm(roundMoney(custoDet.desgaste/totalKm))} no mês`:""}
+              </div>
+            </div>
+            {custoDet.semDetalhamento>=0.01&&(
+              <div style={{...FRETE_DET_ROW,flexDirection:"column",alignItems:"stretch",gap:3}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10}}>
+                  <span style={FRETE_DET_L}>Sem detalhamento</span>
+                  <span style={FRETE_DET_V}>{`${freteMoeda(custoDet.semDetalhamento)}${pctCusto(custoDet.semDetalhamento)}`}</span>
+                </div>
+                <div style={{color:C.muted,fontSize:12,lineHeight:1.4}}>Lançamentos antigos registrados só com o valor total</div>
+              </div>
+            )}
+            <FreteDetRow label="Custo total" value={freteMoeda(totalCusto)} valueStyle={{color:C.red,fontWeight:"bold"}} rowStyle={FRETE_DET_HIGHLIGHT({background:C.redLight,marginTop:4})}/>
+            {totalKm>0&&<FreteDetRow label="Custo por km" value={freteMoedaKm(roundMoney(totalCusto/totalKm))} valueStyle={{color:C.red}} rowStyle={FRETE_DET_HIGHLIGHT({background:C.redLight,marginTop:8})}/>}
+          </div>
+          <PrimaryBtn onClick={()=>setShowCustoDet(false)} style={{width:"100%",marginTop:16}}>Fechar</PrimaryBtn>
+        </ModalWrap>
+      )}
     </div>
   );
 };
