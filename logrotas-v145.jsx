@@ -182,7 +182,7 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="v379";
+const APP_VERSION="v380";
 const SUPORTE_EMAIL="suporte@logrotas.com.br";
 const PEDAGIO_AVISO_RESULTADO="Pedágio estimado pelo Google. Pode haver variação — confirme o valor da praça.";
 const PAGE_SWIPE_ORDER=["dashboard","financeiro","despesas","comparador","manutencao","documentos","perfil"];
@@ -4404,11 +4404,24 @@ const RouteCalcModal=({onClose,vehicles,valorKmPadrao,adicionalPadrao,onSalvarHi
 
 // ── FECHAMENTO DO DIA (v291) ──────────────────────────────────────────────────
 const SERVICOS_BASE=["Uber","99","iFood"];
-const FechamentoDia=({uid,perfil,setPerfil,vehicles=[],onSalvar,onClose})=>{
+// V380 — último serviço usado no "Fechar meu dia" (por aparelho)
+const ULTIMO_SERVICO_KEY="logrotas_ultimo_servico";
+const lerUltimoServico=()=>{try{return localStorage.getItem(ULTIMO_SERVICO_KEY)||"";}catch{return "";}};
+const gravarUltimoServico=(nome)=>{try{localStorage.setItem(ULTIMO_SERVICO_KEY,nome);}catch{/* storage indisponível */}};
+
+const FechamentoDia=({uid,perfil,setPerfil,vehicles=[],jornadas=[],onSalvar,onClose})=>{
   const servicosCustom=Array.isArray(perfil?.servicosFechamento)?perfil.servicosFechamento:[];
   const servicos=[...SERVICOS_BASE,...servicosCustom.filter(s=>!SERVICOS_BASE.includes(s))];
 
-  const[servico,setServico]=useState(servicos[0]||"Uber");
+  // V380 — abre no último serviço usado (se ainda existir na lista)
+  const[servico,setServico]=useState(()=>{
+    const ultimo=lerUltimoServico();
+    const achado=ultimo&&servicos.find(s=>s.toLowerCase()===ultimo.toLowerCase());
+    return achado||servicos[0]||"Uber";
+  });
+  // V380 — data do lançamento (padrão: hoje); horário continua automático
+  const[dataLanc,setDataLanc]=useState(()=>formatNowBR().data);
+  const[avisoDuplicado,setAvisoDuplicado]=useState(false);
   const[showAddServ,setShowAddServ]=useState(false);
   const[novoServ,setNovoServ]=useState("");
   const[km,setKm]=useState("");
@@ -4457,15 +4470,27 @@ const FechamentoDia=({uid,perfil,setPerfil,vehicles=[],onSalvar,onClose})=>{
 
   const isServicoCustom=(nome)=>servicosCustom.some(s=>s.toLowerCase()===nome.toLowerCase());
 
-  const salvar=async()=>{
+  // V380 — já existe lançamento igual (mesma data, serviço, km e valor)?
+  const existeDuplicado=()=>(jornadas||[]).some(j=>{
+    const d=j?.data||j?.date;
+    return d===dataLanc
+      &&String(j?.servico||"").trim().toLowerCase()===servico.trim().toLowerCase()
+      &&roundMoney(Number(j?.km)||0)===roundMoney(kmNum)
+      &&roundMoney(Number(j?.valorRecebido)||0)===roundMoney(valorNum);
+  });
+
+  const salvar=async(confirmouDuplicado=false)=>{
     setErro("");
+    if(!dataLanc){setErro("Informe a data.");return;}
     if(kmNum<=0){setErro("Informe o km rodado hoje.");return;}
     if(valorNum<=0){setErro("Informe o valor recebido.");return;}
+    if(!confirmouDuplicado&&existeDuplicado()){setAvisoDuplicado(true);return;}
+    setAvisoDuplicado(false);
     setSalvando(true);
     try{
       const agora=formatNowBR();
       const dados={
-        data:agora.data,
+        data:dataLanc,
         hora:agora.horario,
         servico,
         km:kmNum,
@@ -4478,6 +4503,7 @@ const FechamentoDia=({uid,perfil,setPerfil,vehicles=[],onSalvar,onClose})=>{
         observacoes:observacoes.trim(),
       };
       await onSalvar?.(dados);
+      gravarUltimoServico(servico);
       setVeredito(dados);
     }catch{
       setErro("Não foi possível salvar. Tente novamente.");
@@ -4527,10 +4553,17 @@ const FechamentoDia=({uid,perfil,setPerfil,vehicles=[],onSalvar,onClose})=>{
     <ModalWrap maxW={460}>
       <ModalHeader title="🌙 Fechar meu dia" sub="Registre a jornada e veja seu lucro real" icon={DollarSignIcon} iconColor={C.navy} onClose={onClose}/>
       <ModalFormLayout footer={
-        <PrimaryBtn onClick={salvar} variant="navy" disabled={salvando} style={{width:"100%"}}>
+        <PrimaryBtn onClick={()=>salvar(false)} variant="navy" disabled={salvando} style={{width:"100%"}}>
           {salvando?"Salvando…":"Fechar o dia →"}
         </PrimaryBtn>
       }>
+        {avisoDuplicado&&(
+          <ConfirmDialog
+            message={`Já existe um lançamento igual em ${dataLanc} (${servico}, mesmo km e valor). Salvar mesmo assim?`}
+            confirmLabel="Salvar mesmo assim"
+            onConfirm={()=>salvar(true)}
+            onCancel={()=>setAvisoDuplicado(false)}/>
+        )}
         <div style={{display:"flex",flexDirection:"column",gap:14}}>
           {erro&&<div style={{background:"#FFF5F5",border:"1.5px solid #FCA5A5",borderRadius:10,padding:"10px 13px",color:"#DC2626",fontSize:13,fontWeight:600}}>⚠️ {erro}</div>}
 
@@ -4571,6 +4604,7 @@ const FechamentoDia=({uid,perfil,setPerfil,vehicles=[],onSalvar,onClose})=>{
           </div>
 
           <div style={{color:C.muted,fontSize:12,fontWeight:700,letterSpacing:0.4,textTransform:"uppercase"}}>O que você fez hoje</div>
+          <DatePicker label="📅 Data" value={dataLanc} onChange={setDataLanc}/>
           <Field label="🚗 Km rodado hoje" value={km} onChange={setKm} suffix="km" calc/>
           <Field label="💰 Valor recebido" value={valor} onChange={setValor} prefix="R$" calc/>
           <Field label="⛽ Combustível abastecido (valor total)" value={combustivelInput} onChange={setCombustivelInput} prefix="R$" calc/>
@@ -8621,7 +8655,7 @@ export default function App(){
       {showCalc&&calcMode==="viagem"&&<TripCalcModal onClose={()=>handleCalcModalClose()} onConcluido={handleCalcConcluida} vehicles={vehicles}/>}
       {showCalc&&calcMode==="frete"&&<RouteCalcModal onClose={()=>handleCalcModalClose()} onConcluido={handleCalcConcluida} vehicles={vehicles} valorKmPadrao={valorKm} adicionalPadrao={adicionalFixo} onSalvarHistorico={handleAddFrete} perfil={perfil} uid={firebaseUser?.uid}/>}
       {showCalc&&calcMode==="otimizar"&&<OtimizarEntregasModal uid={firebaseUser?.uid} resumeNavigation={resumeNav} onNavigationResumed={()=>setResumeNav(false)} onClose={()=>handleCalcModalClose(()=>setResumeNav(false))} onConcluido={handleCalcConcluida} perfil={perfil} plan={plan}/>}
-      {showFechamento&&<FechamentoDia uid={firebaseUser?.uid} perfil={perfil} setPerfil={setPerfil} vehicles={vehicles} onSalvar={handleSaveJornada} onClose={()=>setShowFechamento(false)}/>}
+      {showFechamento&&<FechamentoDia uid={firebaseUser?.uid} perfil={perfil} setPerfil={setPerfil} vehicles={vehicles} jornadas={jornadas} onSalvar={handleSaveJornada} onClose={()=>setShowFechamento(false)}/>}
       <AvaliacaoAppModal
         open={!!showAvaliacaoModal}
         origem={showAvaliacaoModal?.origem}
