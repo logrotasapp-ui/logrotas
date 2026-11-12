@@ -1,4 +1,4 @@
-﻿import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from "react";
+﻿import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo, lazy, Suspense } from "react";
 import { useSwipeable } from "react-swipeable";
 import { createPortal, flushSync } from "react-dom";
 import {
@@ -65,7 +65,8 @@ import ScannerModule from "./src/components/ScannerModule.js";
 import DeliveryMap from "./src/components/DeliveryMap.js";
 import NavigationMap from "./src/components/NavigationMap.jsx";
 import ProgressOverlay from "./src/components/ProgressOverlay.jsx";
-import ChecklistVeiculo from "./src/components/ChecklistVeiculo.jsx";
+// V381 — checklist carregado só quando aberto (sai do arquivo principal)
+const ChecklistVeiculo=lazy(()=>import("./src/components/ChecklistVeiculo.jsx"));
 import { listarChecklistsAvulsosRecentes, resumoChecklistAvulso, buscarChecklistPorFrete } from "./src/services/checklistService.js";
 import {
   createChecklist,
@@ -89,10 +90,8 @@ import {
 } from "./src/services/avaliacaoService.js";
 import { incrementUsageCounter, touchUltimoAcesso, USAGE_COUNTERS } from "./src/services/usageStatsService.js";
 import { logChecklist } from "./src/services/checklistLogSanitizer.js";
-import {
-  generateChecklistCompletoPdf,
-  shareChecklistCompletoWhatsApp,
-} from "./src/services/checklistColetaPdf.js";
+// V381 — PDF do checklist carregado sob demanda
+const loadChecklistPdf=()=>import("./src/services/checklistColetaPdf.js");
 import { loadDeliveryRoutes, saveDeliveryRoute, deleteDeliveryRoute } from "./src/services/deliveryRouteService.js";
 import {
   saveDeliveryReportPdf,
@@ -101,6 +100,7 @@ import {
   sharePdfFileViaSystem,
 } from "./src/services/deliveryReportPdf.js";
 import { saveFinanceiroPdf } from "./src/services/financeiroPdf.js";
+import { clearFirestoreLocalCache } from "./src/firebase.js";
 import {
   readNavigationSession,
   writeNavigationSession,
@@ -182,7 +182,7 @@ import {
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
 // BASE_URL: troque por seu domínio real ao publicar no Vercel
 const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="v380";
+const APP_VERSION="v381";
 const SUPORTE_EMAIL="suporte@logrotas.com.br";
 const PEDAGIO_AVISO_RESULTADO="Pedágio estimado pelo Google. Pode haver variação — confirme o valor da praça.";
 const PAGE_SWIPE_ORDER=["dashboard","financeiro","despesas","comparador","manutencao","documentos","perfil"];
@@ -190,6 +190,11 @@ const PAGE_SWIPE_MIN_PX=30;
 const PAGE_SWIPE_DELTA=28;
 const PAGE_SWIPE_H_MIN_RATIO=0.8;
 const MIN_SPLASH_MS=400;
+// V381 — conta cujo perfil está salvo neste celular (abre sem esperar a internet)
+const BOOT_UID_KEY="logrotas_boot_uid";
+const lerBootUid=()=>{try{return localStorage.getItem(BOOT_UID_KEY)||"";}catch{return "";}};
+const gravarBootUid=(uid)=>{try{localStorage.setItem(BOOT_UID_KEY,uid);}catch{/* ignore */}};
+const limparBootUid=()=>{try{localStorage.removeItem(BOOT_UID_KEY);}catch{/* ignore */}};
 
 const OfflineRestoredBanner=({show})=>show?(
   <div style={{background:"#F0F9FF",border:"1px solid #BAE6FD",borderRadius:8,padding:"6px 12px",marginBottom:10,fontSize:11,color:"#0369A1",fontWeight:600,textAlign:"center"}}>
@@ -7745,11 +7750,19 @@ export default function App(){
       perfilPlanoFirestoreRef.current=false;
       return;
     }
-    setProfileGateOk(false);
+    // V381 — se este celular já tem o perfil desta conta, abre na hora e atualiza em segundo plano
+    const temCacheDaConta=lerBootUid()===firebaseUser.uid;
+    if(temCacheDaConta){
+      const local=readPerfilLocalFallback();
+      setPerfil({...local,nome:local.nome||firebaseUser.displayName||"",email:local.email||firebaseUser.email||""});
+      setProfileGateOk(true);
+    }else{
+      setProfileGateOk(false);
+    }
     let cancelled=false;
     (async()=>{
       try{
-        const profile=await loadUserProfileWithTimeout(firebaseUser.uid);
+        const profile=temCacheDaConta?await loadUserProfile(firebaseUser.uid):await loadUserProfileWithTimeout(firebaseUser.uid);
         const isGoogle=firebaseUser.providerData?.some(p=>p.providerId==="google.com");
         if(isGoogle&&!profile){
           if(!cancelled){
@@ -7766,6 +7779,7 @@ export default function App(){
           const p=firestoreToPerfil(profile);
           setPerfil(p);
           writePerfilLocalCache(p);
+          gravarBootUid(firebaseUser.uid);
           // Veículos: Firestore → localStorage → defaults (+ migração 1x se necessário)
           const fsVeh=extractVehiclesFromProfile(profile);
           const localVehRaw=readOfflineCache(OFFLINE_KEYS.vehicles);
@@ -8132,7 +8146,7 @@ export default function App(){
         const loaded=await loadChecklist(uid,checklistSalvo.id);
         if(loaded)doc=loaded;
       }
-      const {blob,filename}=await generateChecklistCompletoPdf({checklist:doc,frete:null,perfil});
+      const {blob,filename}=await (await loadChecklistPdf()).generateChecklistCompletoPdf({checklist:doc,frete:null,perfil});
       setAvulsoPdfShare({blob,filename,checklist:doc});
     }catch(err){
       logChecklist("error","[Checklist] Falha ao gerar PDF do avulso salvo:",err);
@@ -8272,7 +8286,7 @@ export default function App(){
     }
     if(!next)return;
     setLoadingExiting(true);
-    const t=setTimeout(()=>setScreen(next),320);
+    const t=setTimeout(()=>setScreen(next),150);
     return()=>clearTimeout(t);
   },[splashDone,authReady,firebaseUser,profileGateOk]);
 
@@ -8366,6 +8380,7 @@ export default function App(){
     try{
       await signOutUser();
     }catch{/* ignore */}
+    limparBootUid();
     clearVehiclesLocalCache();
     setVehicles(DEFAULT_VEHICLES);
     setPerfil({nome:"",empresa:"",empresaLogoUrl:"",email:"",telefone:"",documento:"",tipo:"Motorista Autônomo",veiculo:""});
@@ -8377,6 +8392,9 @@ export default function App(){
     setShowFechamento(false);
     setPage("dashboard");
     setScreen("login");
+    // V381 — apaga a cópia local do Firestore desta conta e recarrega limpo
+    await clearFirestoreLocalCache();
+    window.location.reload();
   };
 
   const limparTudo=()=>{setConfirmLimpar(true);};
@@ -8462,7 +8480,7 @@ export default function App(){
   });
 
   if(screen==="loading"){return(
-    <div style={{position:"fixed",inset:0,width:"100%",height:"100%",maxHeight:"100dvh",overflow:"hidden",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"flex-end",paddingBottom:"calc(env(safe-area-inset-bottom, 0px) + 80px)",boxSizing:"border-box",opacity:loadingExiting?0:1,transition:"opacity 0.32s ease",background:C.bg}}>
+    <div style={{position:"fixed",inset:0,width:"100%",height:"100%",maxHeight:"100dvh",overflow:"hidden",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"flex-end",paddingBottom:"calc(env(safe-area-inset-bottom, 0px) + 80px)",boxSizing:"border-box",opacity:loadingExiting?0:1,transition:"opacity 0.15s ease",background:"#1E3A8A"}}>
       <link href="https://fonts.googleapis.com/css2?family=Sora:wght@700;800;900&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet"/>
       {/* Imagem de fundo cobrindo tela inteira */}
       <img src="/splash.webp" alt="LogRotas" style={{position:"absolute",inset:0,width:"100%",height:"100%",objectFit:"cover",objectPosition:"center"}}/>
@@ -8491,7 +8509,7 @@ export default function App(){
   );}
 
   return(
-    <div style={{minHeight:"100vh",display:"flex",flexDirection:"column",background:C.bg,fontFamily:"'DM Sans',sans-serif",color:C.text,opacity:appVisible?1:0,transition:"opacity 0.35s ease"}}>
+    <div style={{minHeight:"100vh",display:"flex",flexDirection:"column",background:C.bg,fontFamily:"'DM Sans',sans-serif",color:C.text,opacity:appVisible?1:0,transition:"opacity 0.2s ease"}}>
       <link href="https://fonts.googleapis.com/css2?family=Sora:wght@700;800;900&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet"/>
       <div style={{position:"sticky",top:0,zIndex:100,background:C.surface+"F8",backdropFilter:"blur(12px)",borderBottom:`1px solid ${C.border}`,padding:"0 18px",height:54,display:"flex",alignItems:"center",justifyContent:"space-between",boxShadow:"0 1px 8px #1E3A8A08"}}>
         <div style={{display:"flex",alignItems:"center",gap:8}}>
@@ -8530,6 +8548,7 @@ export default function App(){
       </div>
       {page!=="dashboard"&&(<button onClick={()=>{setCalcMode(null);setShowCalc(true);}} style={{position:"fixed",bottom:22,right:18,width:52,height:52,borderRadius:"50%",background:C.orange,border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",boxShadow:`0 4px 20px ${C.orange}55`,zIndex:90}}><RouteIcon size={22} color="#fff"/></button>)}
       {checklistScreen?.checklist?.id&&(
+        <Suspense fallback={<div style={{position:"fixed",inset:0,zIndex:400,background:"#1E3A8A33",display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:700}}>Carregando…</div>}>
         <ChecklistVeiculo
           key={checklistScreen.checklist.id}
           checklist={checklistScreen.checklist}
@@ -8542,6 +8561,7 @@ export default function App(){
           onSaved={handleChecklistSaved}
           onEtapaChange={handleChecklistEtapaChange}
         />
+        </Suspense>
       )}
       {gerandoAvulsoPdf&&(
         <div style={{position:"fixed",inset:0,zIndex:970,background:"#1E3A8A44",display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
@@ -8593,7 +8613,7 @@ export default function App(){
                     try{
                       await sharePdfFileViaSystem(avulsoPdfShare.blob,avulsoPdfShare.filename||"checklist-completo.pdf");
                     }catch{
-                      shareChecklistCompletoWhatsApp({checklist:avulsoPdfShare.checklist,frete:null,perfil});
+                      (await loadChecklistPdf()).shareChecklistCompletoWhatsApp({checklist:avulsoPdfShare.checklist,frete:null,perfil});
                     }
                   }}
                   style={{width:"100%",padding:13,background:C.navy,border:"none",borderRadius:12,cursor:"pointer",color:"#fff",fontWeight:700,fontSize:14}}

@@ -1,6 +1,12 @@
 import { initializeApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
-import { getFirestore } from "firebase/firestore";
+import {
+  initializeFirestore,
+  persistentLocalCache,
+  persistentMultipleTabManager,
+  terminate,
+  clearIndexedDbPersistence,
+} from "firebase/firestore";
 import { getStorage } from "firebase/storage";
 
 const {
@@ -24,5 +30,19 @@ const app = initializeApp({
 });
 
 export const auth = getAuth(app);
-export const db = getFirestore(app);
+// V381 — cópia local dos dados no celular: telas abrem na hora e só o que mudou é baixado.
+// Sem IndexedDB (modo privado etc.), o SDK cai sozinho para cache em memória.
+export const db = initializeFirestore(app, {
+  localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
+});
+
+/** V381 — apaga a cópia local (usado ao sair da conta). Depois disso, recarregar a página. */
+export async function clearFirestoreLocalCache() {
+  try {
+    await terminate(db);
+    await clearIndexedDbPersistence(db);
+  } catch {
+    /* outra aba aberta ou IndexedDB indisponível: ignora */
+  }
+}
 export const storage = getStorage(app);
