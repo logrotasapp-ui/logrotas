@@ -8,6 +8,7 @@ import {
   clearIndexedDbPersistence,
 } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
+import { getFunctions } from "firebase/functions";
 
 const {
   VITE_FIREBASE_API_KEY: apiKey,
@@ -46,3 +47,5 @@ export async function clearFirestoreLocalCache() {
   }
 }
 export const storage = getStorage(app);
+// V383 — Cloud Functions (mesma região das functions do projeto)
+export const functions = getFunctions(app, "southamerica-east1");

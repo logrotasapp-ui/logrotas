@@ -16,6 +16,7 @@ const {
   payWithCard,
 } = require("./asaas");
 const { deleteUserCompleteData } = require("./userCleanup");
+const { interpretarEtiquetasOcr } = require("./ocrClaude");
 
 admin.initializeApp();
 
@@ -643,4 +644,5 @@ exports.cancelAsaasSubscription = cancelAsaasSubscription;
 exports.getFatura = getFatura;
 exports.getFaturaPendente = getFaturaPendente;
 exports.getPixQrCode = getPixQrCode;
+exports.interpretarEtiquetasOcr = interpretarEtiquetasOcr;
 exports.payWithCard = payWithCard;
