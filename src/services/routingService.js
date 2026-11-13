@@ -58,6 +58,7 @@ export { VISION_ADDRESS_EXTRACTION_INSTRUCTION } from "./romaneioParser.js";
 
 import { devLog } from "../utils/devLog.js";
 
+const CLAUDE_OCR_MODEL = "claude-haiku-4-5";
 
 function logOcr(msg, data) {
   if (typeof console !== "undefined") {
@@ -849,17 +850,42 @@ async function extractDeliveryEntriesViaClaude(rawText, options = {}) {
   if (!String(rawText || "").trim()) return null;
   if (signal?.aborted) return null;
 
+  const prompt = `Você recebe texto OCR bruto de etiquetas de entrega brasileiras.
+Extraia cada etiqueta/destinatário como um objeto JSON com exatamente as chaves "nome", "endereco" e "complemento".
+- "nome": nome do destinatário (string vazia se não houver)
+- "endereco": endereço de entrega SEM complemento de unidade (rua, número, bairro, cidade, estado, CEP quando possível)
+- "complemento": apto, bloco, casa, fundos, sala etc. quando aparecer na etiqueta (ex.: "Apto 22", "Bloco B"); string vazia se não houver
+Extraia TODAS as entradas presentes no texto, sem omitir nenhuma, mesmo que a lista seja longa. Mantenha a correspondência exata entre cada nome e seu endereço conforme aparecem no texto original. Nunca invente, reordene ou pule entradas.
+Ignore códigos de rastreio, remetente, peso, dimensões e outros dados que não sejam destinatário/endereço/complemento.
+Responda APENAS com um array JSON válido, sem markdown, sem texto extra, sem comentários.
+Exemplo: [{"nome":"João Silva","endereco":"Rua das Flores, 120, Centro, São Paulo - SP, 01310-100","complemento":"Apto 22"}]
+
+Texto OCR:
+${String(rawText).trim()}`;
+
   try {
-    // V383 — a chamada ao Claude agora roda no servidor (Cloud Function); a chave não fica mais no app
-    const [{ httpsCallable }, { functions }] = await Promise.all([
-      import("firebase/functions"),
-      import("../firebase.js"),
-    ]);
-    const interpretar = httpsCallable(functions, "interpretarEtiquetasOcr", { timeout: 60000 });
-    const { data } = await interpretar({ rawText: String(rawText).trim() });
+    const res = await fetch("/.netlify/functions/claude", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: CLAUDE_OCR_MODEL,
+        max_tokens: 4096,
+        messages: [{ role: "user", content: prompt }],
+      }),
+    });
+
     if (signal?.aborted) return null;
 
-    const responseText = data?.text || "";
+    if (!res.ok) {
+      const errBody = await res.text().catch(() => "");
+      throw new Error(`Claude HTTP ${res.status}${errBody ? `: ${errBody.slice(0, 120)}` : ""}`);
+    }
+
+    const data = await res.json();
+    const textBlock = (data.content || []).find((c) => c.type === "text");
+    const responseText = textBlock?.text || "";
     const entries = parseClaudeDeliveryEntriesResponse(responseText);
     if (!entries.length) return null;
 

@@ -2,6 +2,9 @@
   command = "npm run build"
   publish = "dist"
 
+[functions]
+  directory = "netlify/functions"
+
 # V382 — cabeçalhos de segurança (mesma base do site) + permissões do navegador
 [[headers]]
   for = "/*"

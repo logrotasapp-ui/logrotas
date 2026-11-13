@@ -180,7 +180,7 @@ import {
 
 // ── OPENROUTESERVICE — autocomplete e distância real ─────────────────────────
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
-const APP_VERSION="v383";
+const APP_VERSION="v384";
 const SUPORTE_EMAIL="suporte@logrotas.com.br";
 const PEDAGIO_AVISO_RESULTADO="Pedágio estimado pelo Google. Pode haver variação — confirme o valor da praça.";
 const PAGE_SWIPE_ORDER=["dashboard","financeiro","despesas","comparador","manutencao","documentos","perfil"];
