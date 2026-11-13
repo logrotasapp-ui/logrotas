@@ -180,9 +180,7 @@ import {
 
 // ── OPENROUTESERVICE — autocomplete e distância real ─────────────────────────
 // ── SISTEMA DE INDICAÇÃO ─────────────────────────────────────────────────────
-// BASE_URL: troque por seu domínio real ao publicar no Vercel
-const BASE_URL="https://logrotas.vercel.app";
-const APP_VERSION="v381";
+const APP_VERSION="v382";
 const SUPORTE_EMAIL="suporte@logrotas.com.br";
 const PEDAGIO_AVISO_RESULTADO="Pedágio estimado pelo Google. Pode haver variação — confirme o valor da praça.";
 const PAGE_SWIPE_ORDER=["dashboard","financeiro","despesas","comparador","manutencao","documentos","perfil"];
@@ -201,13 +199,6 @@ const OfflineRestoredBanner=({show})=>show?(
     📶 Dados restaurados
   </div>
 ):null;
-
-// Monta o link de indicação do usuário
-// Ex: https://logrotas.vercel.app?ref=11987354715
-const montarLinkIndicacao=(whatsappOuId)=>{
-  const id=String(whatsappOuId).replace(/\D/g,"")||"usuario";
-  return `${BASE_URL}?ref=${id}`;
-};
 
 // true → abre WhatsApp com convite; false → aviso "Em breve" (legado beta)
 const REFERRAL_ENABLED=true;
@@ -7307,7 +7298,6 @@ const Financeiro=({historicoFretes,manutencoes,despesas=[],jornadas=[],uid,metaM
 
           {/* Viagens do mês — resumo (fretes + jornadas) */}
           {(fretesMes.length>0||jornadasMes.length>0)&&(()=>{
-            const totalViagens=fretesMes.length+jornadasMes.length;
             return(
             <Card>
               <CardHeader title={`Viagens — ${MESES_PT[mesSel]}`}/>
@@ -7315,7 +7305,7 @@ const Financeiro=({historicoFretes,manutencoes,despesas=[],jornadas=[],uid,metaM
                 <div style={{color:C.green,fontWeight:900,fontSize:22,fontFamily:"'Sora',sans-serif",lineHeight:1,whiteSpace:"nowrap"}}>
                   {formatMoeda(totalReceita)}
                 </div>
-                <div style={{color:C.muted,fontSize:13,marginTop:6}}>{totalViagens} {totalViagens===1?"viagem":"viagens"}</div>
+                <div style={{color:C.muted,fontSize:13,marginTop:6}}>{/* V382 — viagens (fretes) e jornadas separadas, como no card de receita */}{[fretesMes.length>0&&`${fretesMes.length} ${fretesMes.length===1?"viagem":"viagens"}`,jornadasMes.length>0&&`${jornadasMes.length} ${jornadasMes.length===1?"jornada":"jornadas"}`].filter(Boolean).join(" + ")||"Nenhum lançamento"}</div>
               </div>
             </Card>
             );

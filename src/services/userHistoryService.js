@@ -84,37 +84,6 @@ function sortByDateDesc(items) {
   });
 }
 
-export async function loadUserHistory(uid) {
-  const out = {
-    fretes: [],
-    despesas: [],
-    manutencao: [],
-    documentos: [],
-    financeiro: [],
-    jornadas: [],
-  };
-  if (!uid) return out;
-
-  // Leitura resiliente: uma coleção que falhar (ex.: regra ainda não deployada)
-  // NÃO pode derrubar as demais. Cada coleção é lida isoladamente.
-  await Promise.allSettled(
-    Object.values(HISTORY_COLLECTIONS).map(async (name) => {
-      try {
-        const snap = await getDocs(buildHistoryQuery(uid, name));
-        out[name] =
-          name === HISTORY_COLLECTIONS.documentos
-            ? mapHistoryDocs(snap)
-            : sortByDateDesc(mapHistoryDocs(snap));
-      } catch (err) {
-        console.warn(`[LogRotas] Falha ao ler coleção "${name}":`, err?.code || err);
-        out[name] = [];
-      }
-    })
-  );
-
-  return out;
-}
-
 /** Coleções que alimentam a Home (estado App). */
 const HOME_HISTORY_COLLECTIONS = [
   HISTORY_COLLECTIONS.fretes,
